@@ -16,12 +16,44 @@
 
 #include <cstring>
 #include <exception>
+#include <stdexcept>
 #include <soplex.h>
 
 using namespace soplex;
 
 extern "C" int lean_soplex_version(void) {
   return SOPLEX_VERSION;
+}
+
+/*
+ * Cross-stdlib ABI smoke check. The Windows link uses
+ * `-Wl,--allow-multiple-definition` to bridge a libstdc++ / libc++
+ * conflict (see lakefile.lean). The hack is only safe if libstdc++
+ * definitions actually win at link time so the C++ runtime, exception
+ * typeinfo, and vtable layouts match what the bridge / SoPlex objects
+ * were compiled against. This entry point throws a `std::runtime_error`,
+ * catches it via the `std::exception` base, and verifies the message
+ * survived `.what()`. If libc++ ever wins, the catch will either miss,
+ * crash, or return a corrupted message — turning the silent ABI risk
+ * into a CI failure.
+ *
+ * Returns:
+ *   0  expected message recovered
+ *   1  caught but `what()` returned the wrong message
+ *   2  caught only via the `...` fallback (RTTI mismatch)
+ *   3  no exception escaped the `throw` (unreachable in a working build)
+ */
+extern "C" int lean_soplex_exception_check(void) {
+  static const char *msg = "lean-soplex exception throw/catch test";
+  try {
+    throw std::runtime_error(msg);
+  } catch (const std::exception &e) {
+    if (std::strcmp(e.what(), msg) == 0) return 0;
+    return 1;
+  } catch (...) {
+    return 2;
+  }
+  return 3;
 }
 
 extern "C" int lean_soplex_smoke_solve(

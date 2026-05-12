@@ -36,6 +36,9 @@ build`:
 ```bash
 git clone --recurse-submodules https://github.com/kim-em/lean-soplex
 cd lean-soplex
+# Windows MSYS2 MINGW64 only: stage mingw runtime archives once.
+# Skip on Linux / macOS.
+[ "$OSTYPE" = "msys" ] && ./scripts/stage-mingw-libs.sh
 ./scripts/build-soplex.sh    # compiles SoPlex via its bundled CMake
 lake build soplex-smoke      # builds the Lean binding + smoke test
 ./.lake/build/bin/soplex-smoke

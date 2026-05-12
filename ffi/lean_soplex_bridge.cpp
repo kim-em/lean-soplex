@@ -59,6 +59,10 @@ extern "C" LEAN_EXPORT uint32_t lean_soplex_version_ffi(void) {
   return static_cast<uint32_t>(lean_soplex_version());
 }
 
+extern "C" LEAN_EXPORT uint32_t lean_soplex_exception_check_ffi(void) {
+  return static_cast<uint32_t>(lean_soplex_exception_check());
+}
+
 /*
  * Smoke solve. Inputs:
  *   c          : FloatArray of length numVars

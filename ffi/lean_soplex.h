@@ -17,6 +17,15 @@ extern "C" {
 int lean_soplex_version(void);
 
 /*
+ * Cross-stdlib ABI smoke check. Throws `std::runtime_error`, catches it
+ * via the `std::exception` base, validates `what()`. Returns 0 on
+ * success. See implementation in `lean_soplex.cpp` for full
+ * documentation; exists primarily to validate the Windows
+ * `--allow-multiple-definition` link workaround.
+ */
+int lean_soplex_exception_check(void);
+
+/*
  * Smoke-test solve.
  *
  * Builds the LP

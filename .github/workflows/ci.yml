@@ -164,18 +164,7 @@ jobs:
       - name: Stage mingw runtime libraries
         run: |
           set -e
-          # Stage the MSYS2 runtime libraries into a project-local path
-          # so the lakefile's `-L vendor/mingw-libs` works regardless of
-          # where setup-msys2 unpacks.
-          mkdir -p vendor/mingw-libs
-          # Stage the static archives the lakefile references by
-          # relative path (libstdc++.a, libgmpxx.a, libgmp.a) plus the
-          # import libs / wrappers needed by `-lgcc_s` / `-lmingwex` /
-          # `-lmsvcrt` (mingwex provides `_vsnprintf` etc.).
-          for pat in 'libgmpxx*' 'libgmp*' 'libgcc*' 'libwinpthread*' \
-                     'libstdc++*' 'libmsvcrt*' 'libmingwex*' 'libmingw32*'; do
-            cp "$MINGW_PREFIX/lib"/$pat vendor/mingw-libs/ 2>/dev/null || true
-          done
+          ./scripts/stage-mingw-libs.sh
           ls -la vendor/mingw-libs/
 
       - name: Build SoPlex

@@ -24,6 +24,17 @@ open LeanSoplex
 def main : IO UInt32 := do
   IO.println s!"SoPlex version: {LeanSoplex.version}"
 
+  -- Validate the C++ exception ABI is functional before doing anything
+  -- that might rely on SoPlex's internal exception handling. On Windows
+  -- the link uses `-Wl,--allow-multiple-definition` to bridge a
+  -- libstdc++ / libc++ duplicate; this catches the case where libc++
+  -- silently wins and breaks `std::exception` throw/catch.
+  let exnRc := LeanSoplex.exceptionCheck
+  IO.println s!"exception check = {exnRc}"
+  if exnRc ≠ 0 then
+    IO.eprintln s!"std::exception throw/catch broken (rc={exnRc}); likely C++ ABI mismatch in the linked DLL"
+    return 3
+
   let result := smokeSolve
     (c    := #[1.0, 1.0])
     (b    := #[1.0])
