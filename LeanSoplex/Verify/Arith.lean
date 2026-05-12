@@ -16,6 +16,7 @@
 -/
 
 import LeanSoplex.Verify.Bool
+import LeanSoplex.Verify.Prop
 
 namespace LeanSoplex.Verify
 
@@ -114,5 +115,79 @@ theorem problemShapeOk_imp
   have := hAll k hk
   rw [Bool.and_eq_true] at this
   exact ⟨of_decide_eq_true this.1, of_decide_eq_true this.2⟩
+
+/-! ## Bridges for the new refactored Bool checks.
+
+  Each lemma is a single-direction `Bool = true → Prop fact`. The
+  Prop targets live in `LeanSoplex.Verify.Prop`. The bilinear
+  identity and `weak_duality` proof live in the next PR (PR-C);
+  what we set up here is just the Bool→Prop extraction layer. -/
+
+theorem boundCombinationPos_imp {p : Problem} {d : DualBundle}
+    (h : boundCombinationPos p d = true) :
+    0 < dualBoundCombination p d := by
+  unfold boundCombinationPos at h
+  exact of_decide_eq_true h
+
+/-- `(!o.isNone || decide P) = true ↔ (o = none → P)`. The Bool
+    pattern used in `dualNonnegAndZeroWhereAbsent` for the
+    zero-where-absent clauses. -/
+private theorem or_not_isNone_decide_eq_true {α} {o : Option α} {P : Prop}
+    [Decidable P] (h : (!o.isNone || decide P) = true) :
+    o = none → P := by
+  intro hNone
+  rw [Bool.or_eq_true] at h
+  rcases h with hSome | hP
+  · simp [hNone] at hSome
+  · exact of_decide_eq_true hP
+
+theorem dualNonnegAndZeroWhereAbsent_imp
+    {p : Problem} {d : DualBundle}
+    (h : dualNonnegAndZeroWhereAbsent p d = true) :
+    DualNonnegZeroWhereAbsent p d := by
+  unfold dualNonnegAndZeroWhereAbsent at h
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true,
+      Bool.and_eq_true, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨_, hRL⟩, hRU⟩, hCL⟩, hCU⟩, hRow⟩, hCol⟩ := h
+  rw [Array.all_eq_true] at hRow hCol
+  refine
+    { rowLower_size := of_decide_eq_true hRL
+      rowUpper_size := of_decide_eq_true hRU
+      colLower_size := of_decide_eq_true hCL
+      colUpper_size := of_decide_eq_true hCU
+      row_nonneg := ?_
+      col_nonneg := ?_
+      row_zero_absent := ?_
+      col_zero_absent := ?_ }
+  · intro i hi
+    have hRange : i < (Array.range p.numConstraints).size := by
+      simpa [Array.size_range] using hi
+    have hi' := hRow i hRange
+    rw [Array.getElem_range] at hi'
+    simp only [Bool.and_eq_true] at hi'
+    exact ⟨of_decide_eq_true hi'.1.1.1, of_decide_eq_true hi'.1.1.2⟩
+  · intro j hj
+    have hRange : j < (Array.range p.numVars).size := by
+      simpa [Array.size_range] using hj
+    have hj' := hCol j hRange
+    rw [Array.getElem_range] at hj'
+    simp only [Bool.and_eq_true] at hj'
+    exact ⟨of_decide_eq_true hj'.1.1.1, of_decide_eq_true hj'.1.1.2⟩
+  · intro i hi
+    have hRange : i < (Array.range p.numConstraints).size := by
+      simpa [Array.size_range] using hi
+    have hi' := hRow i hRange
+    rw [Array.getElem_range] at hi'
+    simp only [Bool.and_eq_true] at hi'
+    exact ⟨or_not_isNone_decide_eq_true hi'.1.2,
+           or_not_isNone_decide_eq_true hi'.2⟩
+  · intro j hj
+    have hRange : j < (Array.range p.numVars).size := by
+      simpa [Array.size_range] using hj
+    have hj' := hCol j hRange
+    rw [Array.getElem_range] at hj'
+    simp only [Bool.and_eq_true] at hj'
+    exact ⟨or_not_isNone_decide_eq_true hj'.1.2,
+           or_not_isNone_decide_eq_true hj'.2⟩
 
 end LeanSoplex.Verify
