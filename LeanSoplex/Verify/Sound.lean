@@ -14,12 +14,41 @@
   outstanding from `PLAN.md`; see issue tracker.
 -/
 
-import LeanSoplex.Verify.Bool
-import LeanSoplex.Verify.Prop
+import LeanSoplex.Verify.Arith
 
 namespace LeanSoplex.Verify
 
 open LeanSoplex
+
+private theorem problemShapeOk_of_prop {p : Problem}
+    (h : ProblemShapeOk p) : problemShapeOk p = true := by
+  unfold problemShapeOk
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true]
+  refine ⟨⟨⟨?_, ?_⟩, ?_⟩, ?_⟩
+  · exact decide_eq_true h.c_size
+  · exact decide_eq_true h.colBounds_size
+  · exact decide_eq_true h.rowBounds_size
+  · rw [Array.all_eq_true]
+    intro k hk
+    have hrange := h.sparse_in_range k hk
+    rw [Bool.and_eq_true]
+    exact ⟨decide_eq_true hrange.1, decide_eq_true hrange.2⟩
+
+private theorem dualShapeOk
+    {p : Problem} {d : DualBundle}
+    (hShape : ProblemShapeOk p)
+    (hDual : DualNonnegZeroWhereAbsent p d) :
+    problemShapeOk p
+     && decide (d.rowLower.size = p.numConstraints)
+     && decide (d.rowUpper.size = p.numConstraints)
+     && decide (d.colLower.size = p.numVars)
+     && decide (d.colUpper.size = p.numVars) = true := by
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true]
+  exact ⟨⟨⟨⟨problemShapeOk_of_prop hShape,
+    by simp [hDual.rowLower_size]⟩,
+    by simp [hDual.rowUpper_size]⟩,
+    by simp [hDual.colLower_size]⟩,
+    by simp [hDual.colUpper_size]⟩
 
 /-- Weak duality on `Rat`: any primal-feasible `x` and any dual-feasible
     `d` satisfy `dualObj d ≤ primalObj x`.

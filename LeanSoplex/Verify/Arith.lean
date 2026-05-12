@@ -456,6 +456,40 @@ private theorem dot_replicate_left_zero (x : Array Rat) (n : Nat)
   rw [dot_comm (Array.replicate n (0 : Rat)) x (by simp [h])]
   exact dot_replicate_right_zero x n h
 
+private theorem dotPrefix_eq_range_fold
+    (a b : Array Rat) :
+    ∀ n, n ≤ a.size → n ≤ b.size →
+      dotPrefix a b n =
+        (Array.range n).foldl (fun acc i => acc + a[i]! * b[i]!) 0
+  | 0, _, _ => rfl
+  | n + 1, hna, hnb => by
+      have hna' : n ≤ a.size := by omega
+      have hnb' : n ≤ b.size := by omega
+      have hia : n < a.size := by omega
+      have hib : n < b.size := by omega
+      rw [dotPrefix, dotPrefix_eq_range_fold a b n hna' hnb']
+      have hRange :
+          Array.range (n + 1) = (Array.range n).push n := by
+        exact Array.range_succ
+      rw [hRange, Array.foldl_push]
+
+theorem dot_eq_range_fold
+    (a b : Array Rat) (h : a.size = b.size) :
+    dot a b =
+      (Array.range a.size).foldl (fun acc i => acc + a[i]! * b[i]!) 0 := by
+  rw [dot_eq_dotPrefix a b h]
+  exact dotPrefix_eq_range_fold a b a.size (Nat.le_refl _) (by rw [h]; exact Nat.le_refl _)
+
+theorem dot_replicate_left_zero'
+    (x : Array Rat) (n : Nat) (h : x.size = n) :
+    dot (Array.replicate n 0) x = 0 :=
+  dot_replicate_left_zero x n h
+
+theorem dot_replicate_right_zero'
+    (y : Array Rat) (n : Nat) (h : y.size = n) :
+    dot y (Array.replicate n 0) = 0 :=
+  dot_replicate_right_zero y n h
+
 private theorem sparseBilinear_eq_sparsePrefix
     (p : Problem) (y x : Array Rat) :
     sparseBilinear p y x = sparsePrefix p.a y x p.a.size := by
