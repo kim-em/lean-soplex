@@ -18,6 +18,27 @@ namespace LeanSoplex.Verify
 
 open LeanSoplex
 
+/-! ## Problem shape sanity check.
+
+  Every public `is*` / `check*` function below calls `problemShapeOk`
+  first. Without this guard, a malformed `Problem` (e.g. wrong
+  `rowBounds` length, out-of-range sparse entries) would reach `[i]!`
+  accesses that panic. PLAN.md §"Totality" mandates that the checker
+  return `false` on any structural mismatch rather than panic, so
+  callers that bypass `validate` get a benign rejection. -/
+
+/-- Structural well-formedness for a `Problem`: declared array lengths
+    match `numVars` / `numConstraints`, and every sparse entry's
+    `(row, col)` is in range. -/
+def problemShapeOk (p : Problem) : Bool := Id.run do
+  if p.c.size ≠ p.numVars then return false
+  if p.colBounds.size ≠ p.numVars then return false
+  if p.rowBounds.size ≠ p.numConstraints then return false
+  for k in [0:p.a.size] do
+    let (r, c, _) := p.a[k]!
+    if r ≥ p.numConstraints || c ≥ p.numVars then return false
+  return true
+
 /-! ## Sparse matrix arithmetic. -/
 
 /-- Compute `Ax` as an `Array Rat` of length `p.numConstraints`. -/
@@ -61,6 +82,7 @@ def dot (a b : Array Rat) : Rat := Id.run do
 
 /-- Decide whether `x` is primal-feasible for the (normalised) `p`. -/
 def isPrimalFeasible (p : Problem) (x : Array Rat) : Bool := Id.run do
+  if !problemShapeOk p then return false
   if x.size ≠ p.numVars then return false
   -- Column bounds.
   for j in [0:p.numVars] do
@@ -79,6 +101,7 @@ def isPrimalFeasible (p : Problem) (x : Array Rat) : Bool := Id.run do
     must be nonnegative, and any coordinate matching an absent bound
     must be zero. -/
 def dualNonnegAndZeroWhereAbsent (p : Problem) (d : DualBundle) : Bool := Id.run do
+  if !problemShapeOk p then return false
   if d.rowLower.size ≠ p.numConstraints then return false
   if d.rowUpper.size ≠ p.numConstraints then return false
   if d.colLower.size ≠ p.numVars        then return false
@@ -155,8 +178,17 @@ def primalObj (p : Problem) (x : Array Rat) : Rat :=
     + objOffset
 
     A coordinate contributes zero whenever the matching bound is `none`
-    (regardless of the multiplier — see `dualNonnegAndZeroWhereAbsent`). -/
+    (regardless of the multiplier — see `dualNonnegAndZeroWhereAbsent`).
+
+    Returns `0` on any structural mismatch (problem-shape or dual-bundle
+    size) so the function is total; `checkOptimal` always gates on
+    `isDualFeasible` before consulting this value. -/
 def dualObj (p : Problem) (d : DualBundle) : Rat := Id.run do
+  if !problemShapeOk p then return 0
+  if d.rowLower.size ≠ p.numConstraints then return 0
+  if d.rowUpper.size ≠ p.numConstraints then return 0
+  if d.colLower.size ≠ p.numVars then return 0
+  if d.colUpper.size ≠ p.numVars then return 0
   let mut acc : Rat := 0
   -- Rows.
   for i in [0:p.numConstraints] do
@@ -180,8 +212,15 @@ def dualObj (p : Problem) (d : DualBundle) : Rat := Id.run do
 
 /-- The Farkas strict-positivity step: the bound combination must be
     strictly positive (with the same convention as `dualObj`, but
-    without the `objOffset`). -/
+    without the `objOffset`). Returns `false` on any structural
+    mismatch. -/
 def boundCombinationPos (p : Problem) (d : DualBundle) : Bool :=
+  if !problemShapeOk p then false
+  else if d.rowLower.size ≠ p.numConstraints then false
+  else if d.rowUpper.size ≠ p.numConstraints then false
+  else if d.colLower.size ≠ p.numVars then false
+  else if d.colUpper.size ≠ p.numVars then false
+  else
   (Id.run do
     let mut acc : Rat := 0
     for i in [0:p.numConstraints] do
@@ -222,6 +261,7 @@ def checkInfeasible (p : Problem) (d : DualBundle) : Bool :=
     constraint on the corresponding `(Ar)ᵢ` / `rⱼ`. Equality rows /
     boxed columns collapse to `= 0`. -/
 def isRecessionRay (p : Problem) (r : Array Rat) : Bool := Id.run do
+  if !problemShapeOk p then return false
   if r.size ≠ p.numVars then return false
   for j in [0:p.numVars] do
     let (lo, hi) := p.colBounds[j]!
