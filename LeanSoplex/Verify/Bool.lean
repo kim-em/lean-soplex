@@ -99,54 +99,48 @@ def dot (a b : Array Rat) : Rat :=
 /-! ## Primal feasibility. -/
 
 /-- Decide whether `x` is primal-feasible for the (normalised) `p`. -/
-def isPrimalFeasible (p : Problem) (x : Array Rat) : Bool := Id.run do
-  if !problemShapeOk p then return false
-  if x.size ≠ p.numVars then return false
-  -- Column bounds.
-  for j in [0:p.numVars] do
-    let (lo, hi) := p.colBounds[j]!
-    unless geLB x[j]! lo && leUB x[j]! hi do return false
-  -- Row bounds.
-  let ax := evalAx p x
-  for i in [0:p.numConstraints] do
-    let (lo, hi) := p.rowBounds[i]!
-    unless geLB ax[i]! lo && leUB ax[i]! hi do return false
-  return true
+def isPrimalFeasible (p : Problem) (x : Array Rat) : Bool :=
+  problemShapeOk p
+  && decide (x.size = p.numVars)
+  && (Array.range p.numVars).all (fun j =>
+       let (lo, hi) := p.colBounds[j]!
+       geLB x[j]! lo && leUB x[j]! hi)
+  && let ax := evalAx p x
+     (Array.range p.numConstraints).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]!
+       geLB ax[i]! lo && leUB ax[i]! hi)
 
 /-! ## Dual feasibility. -/
 
 /-- Each `DualBundle` array must have the right length, every entry
     must be nonnegative, and any coordinate matching an absent bound
     must be zero. -/
-def dualNonnegAndZeroWhereAbsent (p : Problem) (d : DualBundle) : Bool := Id.run do
-  if !problemShapeOk p then return false
-  if d.rowLower.size ≠ p.numConstraints then return false
-  if d.rowUpper.size ≠ p.numConstraints then return false
-  if d.colLower.size ≠ p.numVars        then return false
-  if d.colUpper.size ≠ p.numVars        then return false
-  for i in [0:p.numConstraints] do
-    let (lo, hi) := p.rowBounds[i]!
-    if d.rowLower[i]! < 0 then return false
-    if d.rowUpper[i]! < 0 then return false
-    if lo.isNone && d.rowLower[i]! ≠ 0 then return false
-    if hi.isNone && d.rowUpper[i]! ≠ 0 then return false
-  for j in [0:p.numVars] do
-    let (lo, hi) := p.colBounds[j]!
-    if d.colLower[j]! < 0 then return false
-    if d.colUpper[j]! < 0 then return false
-    if lo.isNone && d.colLower[j]! ≠ 0 then return false
-    if hi.isNone && d.colUpper[j]! ≠ 0 then return false
-  return true
+def dualNonnegAndZeroWhereAbsent (p : Problem) (d : DualBundle) : Bool :=
+  problemShapeOk p
+  && decide (d.rowLower.size = p.numConstraints)
+  && decide (d.rowUpper.size = p.numConstraints)
+  && decide (d.colLower.size = p.numVars)
+  && decide (d.colUpper.size = p.numVars)
+  && (Array.range p.numConstraints).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]!
+       decide (0 ≤ d.rowLower[i]!)
+       && decide (0 ≤ d.rowUpper[i]!)
+       && (!lo.isNone || decide (d.rowLower[i]! = 0))
+       && (!hi.isNone || decide (d.rowUpper[i]! = 0)))
+  && (Array.range p.numVars).all (fun j =>
+       let (lo, hi) := p.colBounds[j]!
+       decide (0 ≤ d.colLower[j]!)
+       && decide (0 ≤ d.colUpper[j]!)
+       && (!lo.isNone || decide (d.colLower[j]! = 0))
+       && (!hi.isNone || decide (d.colUpper[j]! = 0)))
 
 /-- Componentwise subtraction of two same-length `Array Rat`. Returns
     `#[]` on length mismatch — that disagrees with `c` in size, which
-    causes the equality check in `isDualFeasible` to fail benignly. -/
-def arraySub (a b : Array Rat) : Array Rat := Id.run do
-  if a.size ≠ b.size then return #[]
-  let mut out : Array Rat := Array.mkEmpty a.size
-  for i in [0:a.size] do
-    out := out.push (a[i]! - b[i]!)
-  return out
+    causes the equality check in `isDualFeasible` to fail benignly.
+    Implemented via `Array.zipWith` so the soundness layer can use
+    `getElem_zipWith` directly. -/
+def arraySub (a b : Array Rat) : Array Rat :=
+  if a.size = b.size then Array.zipWith (· - ·) a b else #[]
 
 /-- Equality of two `Array Rat`s. Implemented as a size precheck plus
     a pairwise comparison over `Array.zip` so the soundness layer can
@@ -158,13 +152,7 @@ def arrayEq (a b : Array Rat) : Bool :=
 def isStationary (p : Problem) (d : DualBundle) : Bool :=
   let aty := evalATy p (arraySub d.rowLower d.rowUpper)
   let zdiff := arraySub d.colLower d.colUpper
-  if aty.size ≠ zdiff.size then false
-  else
-    arrayEq (Id.run do
-      let mut out : Array Rat := Array.mkEmpty aty.size
-      for i in [0:aty.size] do
-        out := out.push (aty[i]! + zdiff[i]!)
-      return out) p.c
+  arrayEq (Array.zipWith (· + ·) aty zdiff) p.c
 
 /-- Dual feasibility for the optimality certificate. -/
 def isDualFeasible (p : Problem) (d : DualBundle) : Bool :=
@@ -172,14 +160,11 @@ def isDualFeasible (p : Problem) (d : DualBundle) : Bool :=
 
 /-- Farkas (homogeneous) dual feasibility: same shape, but with
     stationarity `Aᵀ(yL − yU) + (zL − zU) = 0` instead of `= c`. -/
-def isFarkasFeasible (p : Problem) (d : DualBundle) : Bool := Id.run do
-  if !dualNonnegAndZeroWhereAbsent p d then return false
+def isFarkasFeasible (p : Problem) (d : DualBundle) : Bool :=
   let aty := evalATy p (arraySub d.rowLower d.rowUpper)
   let zdiff := arraySub d.colLower d.colUpper
-  if aty.size ≠ zdiff.size then return false
-  for i in [0:aty.size] do
-    if aty[i]! + zdiff[i]! ≠ 0 then return false
-  return true
+  dualNonnegAndZeroWhereAbsent p d
+  && (Array.zipWith (· + ·) aty zdiff).all (· == 0)
 
 /-! ## Objective values. -/
 
@@ -187,6 +172,34 @@ def isFarkasFeasible (p : Problem) (d : DualBundle) : Bool := Id.run do
     length mismatch. -/
 def primalObj (p : Problem) (x : Array Rat) : Rat :=
   dot p.c x + p.objOffset
+
+/-- Contribution of a single optional lower bound: `mult * lo` or `0`. -/
+@[inline] private def loContrib (lo : Option Rat) (mult : Rat) : Rat :=
+  lo.elim 0 (mult * ·)
+
+/-- Contribution of a single optional upper bound: `mult * hi` or `0`. -/
+@[inline] private def hiContrib (hi : Option Rat) (mult : Rat) : Rat :=
+  hi.elim 0 (mult * ·)
+
+/-- The bound combination underlying `dualObj` and `boundCombinationPos`:
+    `Σᵢ (yLᵢ · rₗᵢ − yUᵢ · rᵤᵢ) + Σⱼ (zLⱼ · cₗⱼ − zUⱼ · cᵤⱼ)`. Returns
+    `0` on any structural mismatch. The `+ objOffset` for `dualObj`
+    and the strict-positive check for `boundCombinationPos` are
+    layered on top. -/
+def dualBoundCombination (p : Problem) (d : DualBundle) : Rat :=
+  if problemShapeOk p
+     && decide (d.rowLower.size = p.numConstraints)
+     && decide (d.rowUpper.size = p.numConstraints)
+     && decide (d.colLower.size = p.numVars)
+     && decide (d.colUpper.size = p.numVars) then
+    let rowPart := (Array.range p.numConstraints).foldl (fun (acc : Rat) i =>
+      let (lo, hi) := p.rowBounds[i]!
+      acc + loContrib lo d.rowLower[i]! - hiContrib hi d.rowUpper[i]!) 0
+    let colPart := (Array.range p.numVars).foldl (fun (acc : Rat) j =>
+      let (lo, hi) := p.colBounds[j]!
+      acc + loContrib lo d.colLower[j]! - hiContrib hi d.colUpper[j]!) 0
+    rowPart + colPart
+  else 0
 
 /-- Dual objective in the canonical lower/upper split form:
 
@@ -200,63 +213,16 @@ def primalObj (p : Problem) (x : Array Rat) : Rat :=
     Returns `0` on any structural mismatch (problem-shape or dual-bundle
     size) so the function is total; `checkOptimal` always gates on
     `isDualFeasible` before consulting this value. -/
-def dualObj (p : Problem) (d : DualBundle) : Rat := Id.run do
-  if !problemShapeOk p then return 0
-  if d.rowLower.size ≠ p.numConstraints then return 0
-  if d.rowUpper.size ≠ p.numConstraints then return 0
-  if d.colLower.size ≠ p.numVars then return 0
-  if d.colUpper.size ≠ p.numVars then return 0
-  let mut acc : Rat := 0
-  -- Rows.
-  for i in [0:p.numConstraints] do
-    let (lo, hi) := p.rowBounds[i]!
-    match lo with
-    | some l => acc := acc + d.rowLower[i]! * l
-    | none   => pure ()
-    match hi with
-    | some h => acc := acc - d.rowUpper[i]! * h
-    | none   => pure ()
-  -- Columns.
-  for j in [0:p.numVars] do
-    let (lo, hi) := p.colBounds[j]!
-    match lo with
-    | some l => acc := acc + d.colLower[j]! * l
-    | none   => pure ()
-    match hi with
-    | some h => acc := acc - d.colUpper[j]! * h
-    | none   => pure ()
-  acc + p.objOffset
+def dualObj (p : Problem) (d : DualBundle) : Rat :=
+  dualBoundCombination p d + p.objOffset
 
 /-- The Farkas strict-positivity step: the bound combination must be
     strictly positive (with the same convention as `dualObj`, but
     without the `objOffset`). Returns `false` on any structural
-    mismatch. -/
+    mismatch (in which case `dualBoundCombination` returns `0`, which
+    is not strictly positive). -/
 def boundCombinationPos (p : Problem) (d : DualBundle) : Bool :=
-  if !problemShapeOk p then false
-  else if d.rowLower.size ≠ p.numConstraints then false
-  else if d.rowUpper.size ≠ p.numConstraints then false
-  else if d.colLower.size ≠ p.numVars then false
-  else if d.colUpper.size ≠ p.numVars then false
-  else
-  (Id.run do
-    let mut acc : Rat := 0
-    for i in [0:p.numConstraints] do
-      let (lo, hi) := p.rowBounds[i]!
-      match lo with
-      | some l => acc := acc + d.rowLower[i]! * l
-      | none   => pure ()
-      match hi with
-      | some h => acc := acc - d.rowUpper[i]! * h
-      | none   => pure ()
-    for j in [0:p.numVars] do
-      let (lo, hi) := p.colBounds[j]!
-      match lo with
-      | some l => acc := acc + d.colLower[j]! * l
-      | none   => pure ()
-      match hi with
-      | some h => acc := acc - d.colUpper[j]! * h
-      | none   => pure ()
-    return acc) > 0
+  decide (0 < dualBoundCombination p d)
 
 /-! ## Top-level checks for each certificate kind. -/
 
@@ -277,19 +243,18 @@ def checkInfeasible (p : Problem) (d : DualBundle) : Bool :=
     a finite bound on a given side produces the corresponding sign
     constraint on the corresponding `(Ar)ᵢ` / `rⱼ`. Equality rows /
     boxed columns collapse to `= 0`. -/
-def isRecessionRay (p : Problem) (r : Array Rat) : Bool := Id.run do
-  if !problemShapeOk p then return false
-  if r.size ≠ p.numVars then return false
-  for j in [0:p.numVars] do
-    let (lo, hi) := p.colBounds[j]!
-    if lo.isSome && r[j]! < 0 then return false
-    if hi.isSome && r[j]! > 0 then return false
-  let ar := evalAx p r
-  for i in [0:p.numConstraints] do
-    let (lo, hi) := p.rowBounds[i]!
-    if lo.isSome && ar[i]! < 0 then return false
-    if hi.isSome && ar[i]! > 0 then return false
-  return true
+def isRecessionRay (p : Problem) (r : Array Rat) : Bool :=
+  problemShapeOk p
+  && decide (r.size = p.numVars)
+  && (Array.range p.numVars).all (fun j =>
+       let (lo, hi) := p.colBounds[j]!
+       (!lo.isSome || decide (0 ≤ r[j]!))
+       && (!hi.isSome || decide (r[j]! ≤ 0)))
+  && let ar := evalAx p r
+     (Array.range p.numConstraints).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]!
+       (!lo.isSome || decide (0 ≤ ar[i]!))
+       && (!hi.isSome || decide (ar[i]! ≤ 0)))
 
 /-- Unbounded certificate: a feasible base point and an improving
     recession ray. -/

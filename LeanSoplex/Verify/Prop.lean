@@ -67,6 +67,53 @@ def IsUnboundedMin (p : Problem) : Prop :=
   (∃ x, IsFeasible p x) ∧
     ∀ M : Rat, ∃ y, IsFeasible p y ∧ primalObj p y < M
 
+/-! ## Prop-level dual feasibility.
+
+  Mirrors the Bool checks in `LeanSoplex.Verify.Bool` but at the Prop
+  level so the soundness proofs can talk about them without
+  unfolding `Array.all`/`arrayEq`. Bridges Bool↔Prop live in
+  `LeanSoplex.Verify.Arith`. -/
+
+/-- Componentwise nonnegativity plus zero-where-the-matching-bound-is-
+    absent. Pulled out so both `IsDualFeasible` and `IsFarkasDualFeasible`
+    can reuse it. -/
+structure DualNonnegZeroWhereAbsent (p : Problem) (d : DualBundle) : Prop where
+  rowLower_size : d.rowLower.size = p.numConstraints
+  rowUpper_size : d.rowUpper.size = p.numConstraints
+  colLower_size : d.colLower.size = p.numVars
+  colUpper_size : d.colUpper.size = p.numVars
+  row_nonneg : ∀ i, i < p.numConstraints →
+    0 ≤ d.rowLower[i]! ∧ 0 ≤ d.rowUpper[i]!
+  col_nonneg : ∀ j, j < p.numVars →
+    0 ≤ d.colLower[j]! ∧ 0 ≤ d.colUpper[j]!
+  row_zero_absent : ∀ i, i < p.numConstraints →
+    ((p.rowBounds[i]!).1 = none → d.rowLower[i]! = 0) ∧
+    ((p.rowBounds[i]!).2 = none → d.rowUpper[i]! = 0)
+  col_zero_absent : ∀ j, j < p.numVars →
+    ((p.colBounds[j]!).1 = none → d.colLower[j]! = 0) ∧
+    ((p.colBounds[j]!).2 = none → d.colUpper[j]! = 0)
+
+/-- Stationarity against an arbitrary `q : Array Rat`:
+    `Aᵀ(yL − yU) + (zL − zU) = q` componentwise. -/
+def StationarityAgainst (p : Problem) (d : DualBundle) (q : Array Rat) : Prop :=
+  ∀ j, j < p.numVars →
+    (evalATy p (arraySub d.rowLower d.rowUpper))[j]! +
+      (d.colLower[j]! - d.colUpper[j]!) = q[j]!
+
+/-- Full dual feasibility for the optimality certificate: nonnegativity,
+    zero-where-absent, and stationarity against the objective `c`. -/
+structure IsDualFeasible (p : Problem) (d : DualBundle) : Prop where
+  nonneg_zero_absent : DualNonnegZeroWhereAbsent p d
+  stationarity : StationarityAgainst p d p.c
+
+/-- Farkas (homogeneous) dual feasibility: nonnegativity, zero-where-absent,
+    and stationarity against `0`. -/
+structure IsFarkasDualFeasible (p : Problem) (d : DualBundle) : Prop where
+  nonneg_zero_absent : DualNonnegZeroWhereAbsent p d
+  stationarity_zero : ∀ j, j < p.numVars →
+    (evalATy p (arraySub d.rowLower d.rowUpper))[j]! +
+      (d.colLower[j]! - d.colUpper[j]!) = 0
+
 /-! ## Sense-aware wrappers. -/
 
 /-- Optimality wrt the user's original sense. -/
