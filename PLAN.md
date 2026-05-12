@@ -648,7 +648,8 @@ non-verifying certificates. Required artifacts:
   pinning. Bump on a planned schedule, not opportunistically — each
   bump may shift accessor sign conventions and require golden-test
   updates. Capture the exact tag in this doc the moment the
-  submodule lands.
+  submodule lands. **Currently pinned: `v8.0.2`** (April 2026,
+  `SOPLEX_VERSION = 802`, internal version 9.0.0).
 - **GMP linkage.** Dynamic, system-provided. Static SoPlex into the
   Lean shared library, but GMP stays a runtime dependency. Cleanest
   LGPL story and matches the `lean-csdp` precedent.

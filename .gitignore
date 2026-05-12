@@ -1,0 +1,7 @@
+/.lake
+/.claude
+/build
+/build-soplex
+/vendor/mingw-libs
+*.swp
+.DS_Store
