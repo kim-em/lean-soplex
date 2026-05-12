@@ -25,29 +25,6 @@ if [ ! -f "$SRC_DIR/CMakeLists.txt" ]; then
   exit 1
 fi
 
-# Use Lean's bundled clang for SoPlex compilation when available. The
-# bridge `.cpp` files end up linked by Lean's clang into the package's
-# shared library, so SoPlex's objects need to share a C++ ABI / stdlib
-# with the rest of the build. On Linux that means libc++ (Lean's clang
-# default); on Windows it means avoiding the mingw-g++ vs Lean-clang
-# runtime split. Falls back to the system compiler if `lean` is not on
-# PATH (e.g. dev loops where the user wants to use g++ directly).
-if command -v lean >/dev/null 2>&1; then
-  LEAN_BIN="$(dirname "$(command -v lean)")"
-  if [ -x "$LEAN_BIN/clang.exe" ]; then
-    CLANG="$LEAN_BIN/clang.exe"
-  elif [ -x "$LEAN_BIN/clang" ]; then
-    CLANG="$LEAN_BIN/clang"
-  else
-    CLANG=""
-  fi
-  if [ -n "$CLANG" ]; then
-    export CC="$CLANG"
-    export CXX="$CLANG"
-    echo "Using Lean's bundled clang: $CLANG"
-  fi
-fi
-
 # CMake configure. Exact-mode flags are pinned here. PAPILO (a separate
 # presolver dependency) and MPFR are disabled for the v0 bring-up; ZLIB
 # is disabled because nothing in our FFI surface reads compressed files.
