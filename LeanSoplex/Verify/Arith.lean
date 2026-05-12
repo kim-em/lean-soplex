@@ -656,14 +656,14 @@ theorem isPrimalFeasible_imp
     refine ⟨hxSize', ?_⟩
     intro j
     have hRange : j.val < (Array.range p.numVars).size := by
-      simpa [Array.size_range] using j.isLt
+      simp [Array.size_range, j.isLt]
     have hj' := hCol j.val hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hj'
     exact ⟨geLB_imp hj'.1, leUB_imp hj'.2⟩
   · -- RowBoundsSatisfied
     intro i
     have hRange : i.val < (Array.range p.numConstraints).size := by
-      simpa [Array.size_range] using i.isLt
+      simp [Array.size_range, i.isLt]
     have hi' := hRow i.val hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hi'
     exact ⟨geLB_imp hi'.1, leUB_imp hi'.2⟩
