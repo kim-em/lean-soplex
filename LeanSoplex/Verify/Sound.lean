@@ -9,9 +9,8 @@
   `weak_duality` plus the certificate-specific equalities / strict
   inequalities.
 
-  All theorems are currently stated with their proofs deferred via
-  `sorry`. They are the main pure-Lean work item that remains
-  outstanding from `PLAN.md`; see issue tracker.
+  These proofs are the Prop-level soundness layer for accepted
+  certificates.
 -/
 
 import LeanSoplex.Verify.Arith
@@ -174,7 +173,6 @@ private theorem bound_term_le
 
 private theorem dot_of_stationarity
     {p : Problem} {d : DualBundle} {x q : Array Rat}
-    (hShape : ProblemShapeOk p)
     (hXSize : x.size = p.numVars)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (hStat : StationarityAgainst p d q)
@@ -301,7 +299,7 @@ private theorem bound_combination_le_dot_q
         dot (evalATy p (arraySub d.rowLower d.rowUpper)) x :=
     dot_y_evalAx_eq_dot_evalATy_x p (arraySub d.rowLower d.rowUpper) x
       hShape hRowSub hXSize
-  have hDot := dot_of_stationarity hShape hXSize hDual hStat hQ
+  have hDot := dot_of_stationarity hXSize hDual hStat hQ
   rw [hBilin] at hBoundLe
   rw [hDot]
   exact hBoundLe
@@ -382,10 +380,133 @@ theorem checkInfeasible_sound {p : Problem} {d : DualBundle}
   have : False := by grind
   exact this.elim
 
+private theorem feasible_addSmul_of_recession
+    {p : Problem} {x ray : Array Rat} {lam : Rat}
+    (hShape : ProblemShapeOk p)
+    (hFeas : IsFeasible p x)
+    (hRay : IsRecessionRay p ray)
+    (hLam : 0 ≤ lam) :
+    IsFeasible p (Array.addSmul x lam ray) := by
+  constructor
+  · constructor
+    · have hSize := Array.addSmul_size_of_eq x ray lam (by rw [hFeas.1.1, hRay.size])
+      rw [hFeas.1.1] at hSize
+      exact hSize
+    · intro j
+      have hjx : j.val < x.size := by rw [hFeas.1.1]; exact j.isLt
+      have hjr : j.val < ray.size := by rw [hRay.size]; exact j.isLt
+      have hjy : j.val < (Array.addSmul x lam ray).size := by
+        rw [Array.addSmul_size_of_eq x ray lam (by rw [hFeas.1.1, hRay.size])]
+        exact hjx
+      have hy :
+          (Array.addSmul x lam ray)[j.val]! =
+            x[j.val]! + lam * ray[j.val]! :=
+        Array.addSmul_get!_of_eq x ray lam (by rw [hFeas.1.1, hRay.size]) j.val hjx
+      have hxBounds := hFeas.1.2 j
+      cases hBoundsEq : p.colBounds[j.val]! with
+      | mk lo hi =>
+      simp [hBoundsEq] at hxBounds
+      constructor
+      · intro l hLo
+        have hrNonneg : 0 ≤ ray[j.val]! := by
+          exact hRay.col_lo_nonneg j.val j.isLt (by simp [hBoundsEq, hLo])
+        have hStep : 0 ≤ lam * ray[j.val]! := Rat.mul_nonneg hLam hrNonneg
+        rw [hy]
+        have hxLo := hxBounds.1 l hLo
+        grind
+      · intro u hHi
+        have hrNonpos : ray[j.val]! ≤ 0 := by
+          exact hRay.col_hi_nonpos j.val j.isLt (by simp [hBoundsEq, hHi])
+        have hStep : lam * ray[j.val]! ≤ 0 := by
+          have := Rat.mul_le_mul_of_nonneg_left hrNonpos hLam
+          simpa using this
+        rw [hy]
+        have hxHi := hxBounds.2 u hHi
+        grind
+  · intro i
+    have hAx :
+        (evalAx p (Array.addSmul x lam ray))[i.val]! =
+          (evalAx p x)[i.val]! + lam * (evalAx p ray)[i.val]! :=
+      evalAx_addSmul_get! p x ray lam hShape hFeas.1.1 hRay.size i.val i.isLt
+    have hxBounds := hFeas.2 i
+    cases hBoundsEq : p.rowBounds[i.val]! with
+    | mk lo hi =>
+    simp [hBoundsEq] at hxBounds
+    constructor
+    · intro l hLo
+      have hrNonneg : 0 ≤ (evalAx p ray)[i.val]! := by
+        exact hRay.row_lo_nonneg i.val i.isLt (by simp [hBoundsEq, hLo])
+      have hStep : 0 ≤ lam * (evalAx p ray)[i.val]! := Rat.mul_nonneg hLam hrNonneg
+      rw [hAx]
+      have hxLo := hxBounds.1 l hLo
+      grind
+    · intro u hHi
+      have hrNonpos : (evalAx p ray)[i.val]! ≤ 0 := by
+        exact hRay.row_hi_nonpos i.val i.isLt (by simp [hBoundsEq, hHi])
+      have hStep : lam * (evalAx p ray)[i.val]! ≤ 0 := by
+        have := Rat.mul_le_mul_of_nonneg_left hrNonpos hLam
+        simpa using this
+      rw [hAx]
+      have hxHi := hxBounds.2 u hHi
+      grind
+
 /-- Unbounded certificate is sound. -/
 theorem checkUnbounded_sound {p : Problem} {x ray : Array Rat}
-    (_h : checkUnbounded p x ray = true) :
+    (h : checkUnbounded p x ray = true) :
     IsUnboundedMin p := by
-  sorry
+  unfold checkUnbounded at h
+  rw [Bool.and_eq_true, Bool.and_eq_true] at h
+  obtain ⟨⟨hPrimal, hRayBool⟩, hNegBool⟩ := h
+  obtain ⟨hShape, hFeasX⟩ := isPrimalFeasible_imp hPrimal
+  have hRay := isRecessionRay_imp hRayBool
+  have hNeg : dot p.c ray < 0 := by
+    simpa using hNegBool
+  refine ⟨⟨x, hFeasX⟩, ?_⟩
+  intro M
+  by_cases hAlready : primalObj p x < M
+  · exact ⟨x, hFeasX, hAlready⟩
+  · let denom := -dot p.c ray
+    let lam := (primalObj p x - M) / denom + 1
+    have hDenomPos : 0 < denom := by
+      unfold denom
+      grind
+    have hBaseGe : M ≤ primalObj p x := by
+      grind
+    have hDiffNonneg : 0 ≤ primalObj p x - M := by
+      exact RatAux.sub_nonneg.mpr hBaseGe
+    have hFracNonneg : 0 ≤ (primalObj p x - M) / denom := by
+      have hInv : 0 ≤ denom⁻¹ := Rat.le_of_lt (Rat.inv_pos.mpr hDenomPos)
+      simpa [Rat.div] using Rat.mul_nonneg hDiffNonneg hInv
+    have hLamNonneg : 0 ≤ lam := by
+      unfold lam
+      grind
+    have hLamPos : 0 < lam := by
+      unfold lam
+      grind
+    refine ⟨Array.addSmul x lam ray,
+      feasible_addSmul_of_recession hShape hFeasX hRay hLamNonneg, ?_⟩
+    have hObj :
+        primalObj p (Array.addSmul x lam ray) =
+          primalObj p x + lam * dot p.c ray := by
+      exact primalObj_addSmul p x ray lam (by rw [hShape.c_size, hFeasX.1.1])
+        (by rw [hFeasX.1.1, hRay.size])
+    rw [hObj]
+    unfold lam denom
+    have hDrop :
+        primalObj p x +
+            (((primalObj p x - M) / (-dot p.c ray) + 1) * dot p.c ray) =
+          M + dot p.c ray := by
+      have hDenomNe : -dot p.c ray ≠ 0 := by grind
+      have hcancel :
+          (primalObj p x - M) / (-dot p.c ray) * (-dot p.c ray) =
+            primalObj p x - M := Rat.div_mul_cancel hDenomNe
+      have hpart :
+          (primalObj p x - M) / (-dot p.c ray) * dot p.c ray =
+            -(primalObj p x - M) := by
+        grind [Rat.mul_neg, Rat.neg_neg]
+      grind [Rat.mul_add, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm,
+        Rat.sub_eq_add_neg]
+    rw [hDrop]
+    grind
 
 end LeanSoplex.Verify

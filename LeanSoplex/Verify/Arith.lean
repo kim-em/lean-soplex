@@ -480,6 +480,208 @@ theorem dot_eq_range_fold
   rw [dot_eq_dotPrefix a b h]
   exact dotPrefix_eq_range_fold a b a.size (Nat.le_refl _) (by rw [h]; exact Nat.le_refl _)
 
+/-! ## Pointwise affine rays.
+
+  These helpers support the unboundedness proof: `addSmul x λ r` is
+  the executable point `x + λ • r`, with linearity facts for dot
+  products, objectives, and `evalAx`. -/
+
+def Array.addSmul (x : Array Rat) (lam : Rat) (r : Array Rat) : Array Rat :=
+  if x.size = r.size then Array.zipWith (fun xj rj => xj + lam * rj) x r else #[]
+
+theorem Array.addSmul_size_of_eq
+    (x r : Array Rat) (lam : Rat) (h : x.size = r.size) :
+    (Array.addSmul x lam r).size = x.size := by
+  unfold Array.addSmul
+  rw [if_pos h, Array.size_zipWith, h, Nat.min_self]
+
+theorem Array.addSmul_get!_of_eq
+    (x r : Array Rat) (lam : Rat) (h : x.size = r.size)
+    (i : Nat) (hi : i < x.size) :
+    (Array.addSmul x lam r)[i]! = x[i]! + lam * r[i]! := by
+  have hir : i < r.size := h ▸ hi
+  have hZip : i < (Array.zipWith (fun xj rj => xj + lam * rj) x r).size := by
+    rw [Array.size_zipWith]
+    exact Nat.lt_min.mpr ⟨hi, hir⟩
+  unfold Array.addSmul
+  rw [if_pos h]
+  rw [getElem!_pos (Array.zipWith (fun xj rj => xj + lam * rj) x r) i hZip]
+  rw [Array.getElem_zipWith]
+  rw [← getElem!_pos x i hi, ← getElem!_pos r i hir]
+
+private theorem range_fold_congr
+    (n : Nat) (f g : Nat → Rat)
+    (h : ∀ i, i < n → f i = g i) :
+    (Array.range n).foldl (fun acc i => acc + f i) 0 =
+      (Array.range n).foldl (fun acc i => acc + g i) 0 := by
+  apply Rat.le_antisymm
+  · induction n with
+    | zero =>
+        simp [Array.range]
+    | succ n ih =>
+        simp [Array.range_succ]
+        exact RatAux.add_le_add
+          (by simpa using ih (by intro i hi; exact h i (by omega)))
+          (by rw [h n (by omega)]; exact Rat.le_refl)
+  · induction n with
+    | zero =>
+        simp [Array.range]
+    | succ n ih =>
+        simp [Array.range_succ]
+        exact RatAux.add_le_add
+          (by simpa using ih (by intro i hi; rw [h i (by omega)]))
+          (by rw [h n (by omega)]; exact Rat.le_refl)
+
+private theorem range_fold_add
+    (n : Nat) (f g : Nat → Rat) :
+    (Array.range n).foldl (fun acc i => acc + (f i + g i)) 0 =
+      (Array.range n).foldl (fun acc i => acc + f i) 0 +
+        (Array.range n).foldl (fun acc i => acc + g i) 0 := by
+  induction n with
+  | zero =>
+      simp [Array.range, Rat.zero_add]
+  | succ n ih =>
+      simp [Array.range_succ]
+      have ih' :
+          Array.foldl (fun acc i => acc + (f i + g i)) 0 (Array.range n) 0 n =
+            Array.foldl (fun acc i => acc + f i) 0 (Array.range n) 0 n +
+              Array.foldl (fun acc i => acc + g i) 0 (Array.range n) 0 n := by
+        simpa using ih
+      rw [ih']
+      grind [Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]
+
+private theorem range_fold_smul
+    (n : Nat) (lam : Rat) (f : Nat → Rat) :
+    (Array.range n).foldl (fun acc i => acc + lam * f i) 0 =
+      lam * (Array.range n).foldl (fun acc i => acc + f i) 0 := by
+  induction n with
+  | zero =>
+      simp [Array.range]
+  | succ n ih =>
+      simp [Array.range_succ]
+      have ih' :
+          Array.foldl (fun acc i => acc + lam * f i) 0 (Array.range n) 0 n =
+            lam * Array.foldl (fun acc i => acc + f i) 0 (Array.range n) 0 n := by
+        simpa using ih
+      rw [ih']
+      grind [Rat.mul_add, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]
+
+theorem dot_addSmul_right
+    (c x r : Array Rat) (lam : Rat)
+    (hcx : c.size = x.size) (hxr : x.size = r.size) :
+    dot c (Array.addSmul x lam r) = dot c x + lam * dot c r := by
+  have hySize : (Array.addSmul x lam r).size = x.size :=
+    Array.addSmul_size_of_eq x r lam hxr
+  rw [dot_eq_range_fold c (Array.addSmul x lam r) (by rw [hySize]; exact hcx)]
+  rw [dot_eq_range_fold c x hcx]
+  rw [dot_eq_range_fold c r (by rw [← hxr]; exact hcx)]
+  rw [hcx]
+  calc
+    (Array.range x.size).foldl
+        (fun acc i => acc + c[i]! * (Array.addSmul x lam r)[i]!) 0
+        =
+      (Array.range x.size).foldl
+        (fun acc i => acc + (c[i]! * x[i]! + c[i]! * (lam * r[i]!))) 0 := by
+          apply range_fold_congr
+          intro i hi
+          rw [Array.addSmul_get!_of_eq x r lam hxr i hi]
+          grind [Rat.mul_add, Rat.mul_assoc, Rat.mul_comm]
+    _ =
+      (Array.range x.size).foldl (fun acc i => acc + c[i]! * x[i]!) 0 +
+        (Array.range x.size).foldl (fun acc i => acc + c[i]! * (lam * r[i]!)) 0 := by
+          exact range_fold_add x.size
+            (fun i => c[i]! * x[i]!)
+            (fun i => c[i]! * (lam * r[i]!))
+    _ =
+      (Array.range x.size).foldl (fun acc i => acc + c[i]! * x[i]!) 0 +
+        lam * (Array.range x.size).foldl (fun acc i => acc + c[i]! * r[i]!) 0 := by
+          have hScale :
+              (Array.range x.size).foldl
+                  (fun acc i => acc + c[i]! * (lam * r[i]!)) 0 =
+                (Array.range x.size).foldl
+                  (fun acc i => acc + lam * (c[i]! * r[i]!)) 0 := by
+            apply range_fold_congr
+            intro i hi
+            grind [Rat.mul_assoc, Rat.mul_comm]
+          rw [hScale]
+          rw [range_fold_smul x.size lam (fun i => c[i]! * r[i]!)]
+
+private def unitVector (n i : Nat) : Array Rat :=
+  Array.ofFn (fun j : Fin n => if j.val = i then 1 else 0)
+
+private theorem unitVector_size (n i : Nat) :
+    (unitVector n i).size = n := by
+  unfold unitVector
+  simp
+
+private theorem unitVector_get! (n i j : Nat) (hj : j < n) :
+    (unitVector n i)[j]! = if j = i then 1 else 0 := by
+  unfold unitVector
+  rw [getElem!_pos _ j (by simpa using hj)]
+  rw [Array.getElem_ofFn]
+
+private theorem range_fold_unit_zero_before
+    (n i : Nat) (a : Array Rat) (hn : n ≤ i) :
+    (Array.range n).foldl
+      (fun acc j => acc + (if j = i then (1 : Rat) else 0) * a[j]!) 0 = 0 := by
+  induction n with
+  | zero =>
+      simp [Array.range]
+  | succ n ih =>
+      simp [Array.range_succ]
+      have hni : n ≠ i := by omega
+      have ih' :
+          Array.foldl (fun acc j => acc + (if j = i then (1 : Rat) else 0) * a[j]!)
+            0 (Array.range n) 0 n = 0 := by
+        simpa using ih (by omega)
+      rw [ih']
+      simp [hni, Rat.zero_add]
+
+private theorem range_fold_unit_get
+    (n i : Nat) (a : Array Rat) (hi : i < n) :
+    (Array.range n).foldl
+      (fun acc j => acc + (if j = i then (1 : Rat) else 0) * a[j]!) 0 = a[i]! := by
+  induction n with
+  | zero =>
+      omega
+  | succ n ih =>
+      simp [Array.range_succ]
+      by_cases hin : i = n
+      · subst i
+        have hzero :
+            Array.foldl (fun acc j => acc + (if j = n then (1 : Rat) else 0) * a[j]!)
+              0 (Array.range n) 0 n = 0 := by
+          simpa using range_fold_unit_zero_before n n a (Nat.le_refl _)
+        rw [hzero]
+        simp [Rat.zero_add]
+      · have hiPrev : i < n := by omega
+        have ih' :
+            Array.foldl (fun acc j => acc + (if j = i then (1 : Rat) else 0) * a[j]!)
+              0 (Array.range n) 0 n = a[i]! := by
+          simpa using ih hiPrev
+        rw [ih']
+        have hni : n ≠ i := by omega
+        simp [hni, Rat.add_zero]
+
+private theorem dot_unitVector_left
+    (a : Array Rat) (n i : Nat) (ha : a.size = n) (hi : i < n) :
+    dot (unitVector n i) a = a[i]! := by
+  rw [dot_eq_range_fold (unitVector n i) a (by rw [unitVector_size, ha])]
+  rw [unitVector_size]
+  apply Eq.trans ?_ (range_fold_unit_get n i a hi)
+  apply range_fold_congr
+  intro j hj
+  rw [unitVector_get! n i j hj]
+
+theorem primalObj_addSmul
+    (p : Problem) (x r : Array Rat) (lam : Rat)
+    (hcx : p.c.size = x.size) (hxr : x.size = r.size) :
+    primalObj p (Array.addSmul x lam r) =
+      primalObj p x + lam * dot p.c r := by
+  unfold primalObj
+  rw [dot_addSmul_right p.c x r lam hcx hxr]
+  grind [Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]
+
 theorem dot_replicate_left_zero'
     (x : Array Rat) (n : Nat) (h : x.size = n) :
     dot (Array.replicate n 0) x = 0 :=
@@ -599,6 +801,37 @@ theorem dot_y_evalAx_eq_dot_evalATy_x
     dot y (evalAx p x) = dot (evalATy p y) x := by
   rw [dot_evalAx_eq_sparseBilinear p y x hShape hY hX,
       dot_evalATy_eq_sparseBilinear p y x hShape hY hX]
+
+theorem evalAx_addSmul_get!
+    (p : Problem) (x r : Array Rat) (lam : Rat)
+    (hShape : ProblemShapeOk p)
+    (hx : x.size = p.numVars) (hr : r.size = p.numVars)
+    (i : Nat) (hi : i < p.numConstraints) :
+    (evalAx p (Array.addSmul x lam r))[i]! =
+      (evalAx p x)[i]! + lam * (evalAx p r)[i]! := by
+  let e := unitVector p.numConstraints i
+  have heSize : e.size = p.numConstraints := unitVector_size p.numConstraints i
+  have hySize : (Array.addSmul x lam r).size = p.numVars := by
+    have h := Array.addSmul_size_of_eq x r lam (by rw [hx, hr])
+    rw [hx] at h
+    exact h
+  have hLeft :
+      dot e (evalAx p (Array.addSmul x lam r)) =
+        (evalAx p (Array.addSmul x lam r))[i]! := by
+    exact dot_unitVector_left (evalAx p (Array.addSmul x lam r))
+      p.numConstraints i (evalAx_size ..) hi
+  have hX :
+      dot e (evalAx p x) = (evalAx p x)[i]! := by
+    exact dot_unitVector_left (evalAx p x) p.numConstraints i (evalAx_size ..) hi
+  have hR :
+      dot e (evalAx p r) = (evalAx p r)[i]! := by
+    exact dot_unitVector_left (evalAx p r) p.numConstraints i (evalAx_size ..) hi
+  rw [← hLeft, dot_y_evalAx_eq_dot_evalATy_x p e (Array.addSmul x lam r)
+        hShape heSize hySize]
+  rw [dot_addSmul_right (evalATy p e) x r lam (by rw [evalATy_size, hx]) (by rw [hx, hr])]
+  rw [← dot_y_evalAx_eq_dot_evalATy_x p e x hShape heSize hx]
+  rw [← dot_y_evalAx_eq_dot_evalATy_x p e r hShape heSize hr]
+  rw [hX, hR]
 
 /-! ## `isStationary` bridge.
 

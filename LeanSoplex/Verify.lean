@@ -15,8 +15,8 @@
                                     bridge lemmas used by the soundness
                                     layer.
   * `LeanSoplex.Verify.Prop`      — mathematical `IsFeasible` etc.
-  * `LeanSoplex.Verify.Sound`     — soundness theorems (currently
-                                    `sorry`-stubbed; see PLAN.md).
+  * `LeanSoplex.Verify.Sound`     — soundness theorems for accepted
+                                    certificates.
 
   See `PLAN.md` §"Verification layer" for the design.
 -/
