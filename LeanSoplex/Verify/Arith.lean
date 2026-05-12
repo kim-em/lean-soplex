@@ -306,6 +306,100 @@ theorem isStationary_imp
     at hEqj
   exact hEqj
 
+/-- `(!o.isSome || decide P) = true ↔ (o = some _ → P)`. The Bool
+    pattern used in `isRecessionRay` for the per-bound sign clauses. -/
+private theorem or_not_isSome_decide_eq_true {α} {o : Option α} {P : Prop}
+    [Decidable P] (h : (!o.isSome || decide P) = true) :
+    o.isSome = true → P := by
+  intro hSome
+  rw [Bool.or_eq_true] at h
+  rcases h with hNotSome | hP
+  · simp [hSome] at hNotSome
+  · exact of_decide_eq_true hP
+
+/-- The `geLB` Bool check unpacked as a Prop: if `geLB x lo = true`
+    then `lo = some l → l ≤ x`. -/
+private theorem geLB_imp {x : Rat} {lo : Option Rat} (h : geLB x lo = true) :
+    ∀ l, lo = some l → l ≤ x := by
+  intro l hSome
+  unfold geLB at h
+  rw [hSome] at h
+  exact of_decide_eq_true h
+
+/-- The `leUB` Bool check unpacked as a Prop. -/
+private theorem leUB_imp {x : Rat} {hi : Option Rat} (h : leUB x hi = true) :
+    ∀ h', hi = some h' → x ≤ h' := by
+  intro h' hSome
+  unfold leUB at h
+  rw [hSome] at h
+  exact of_decide_eq_true h
+
+theorem isPrimalFeasible_imp
+    {p : Problem} {x : Array Rat}
+    (h : isPrimalFeasible p x = true) :
+    ProblemShapeOk p ∧ IsFeasible p x := by
+  unfold isPrimalFeasible at h
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨hShape, hxSize⟩, hCol⟩, hRow⟩ := h
+  have hShape' := problemShapeOk_imp hShape
+  have hxSize' : x.size = p.numVars := of_decide_eq_true hxSize
+  rw [Array.all_eq_true] at hCol hRow
+  refine ⟨hShape', ?_, ?_⟩
+  · -- ColBoundsSatisfied
+    refine ⟨hxSize', ?_⟩
+    intro j
+    have hRange : j.val < (Array.range p.numVars).size := by
+      simpa [Array.size_range] using j.isLt
+    have hj' := hCol j.val hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+    exact ⟨geLB_imp hj'.1, leUB_imp hj'.2⟩
+  · -- RowBoundsSatisfied
+    intro i
+    have hRange : i.val < (Array.range p.numConstraints).size := by
+      simpa [Array.size_range] using i.isLt
+    have hi' := hRow i.val hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+    exact ⟨geLB_imp hi'.1, leUB_imp hi'.2⟩
+
+theorem isRecessionRay_imp
+    {p : Problem} {r : Array Rat}
+    (h : isRecessionRay p r = true) :
+    IsRecessionRay p r := by
+  unfold isRecessionRay at h
+  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨_, hSize⟩, hCol⟩, hRow⟩ := h
+  rw [Array.all_eq_true] at hCol hRow
+  refine
+    { size := of_decide_eq_true hSize
+      col_lo_nonneg := ?_
+      col_hi_nonpos := ?_
+      row_lo_nonneg := ?_
+      row_hi_nonpos := ?_ }
+  · intro j hj hLo
+    have hRange : j < (Array.range p.numVars).size := by
+      simpa [Array.size_range] using hj
+    have hj' := hCol j hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+    exact or_not_isSome_decide_eq_true hj'.1 hLo
+  · intro j hj hHi
+    have hRange : j < (Array.range p.numVars).size := by
+      simpa [Array.size_range] using hj
+    have hj' := hCol j hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+    exact or_not_isSome_decide_eq_true hj'.2 hHi
+  · intro i hi hLo
+    have hRange : i < (Array.range p.numConstraints).size := by
+      simpa [Array.size_range] using hi
+    have hi' := hRow i hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+    exact or_not_isSome_decide_eq_true hi'.1 hLo
+  · intro i hi hHi
+    have hRange : i < (Array.range p.numConstraints).size := by
+      simpa [Array.size_range] using hi
+    have hi' := hRow i hRange
+    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+    exact or_not_isSome_decide_eq_true hi'.2 hHi
+
 /-- `isFarkasFeasible p d = true` implies the homogeneous componentwise
     stationarity `Aᵀ(yL − yU) + (zL − zU) = 0` plus the
     `DualNonnegZeroWhereAbsent` structure. Combined here so the

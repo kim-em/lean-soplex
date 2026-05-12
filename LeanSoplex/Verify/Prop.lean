@@ -114,6 +114,19 @@ structure IsFarkasDualFeasible (p : Problem) (d : DualBundle) : Prop where
     (evalATy p (arraySub d.rowLower d.rowUpper))[j]! +
       (d.colLower[j]! - d.colUpper[j]!) = 0
 
+/-- Prop form of `isRecessionRay`. Each row/column with a finite bound
+    on a given side constrains the ray's sign on the matching `r[j]!`
+    or `(evalAx p r)[i]!`. Equality rows / boxed columns collapse to
+    `= 0` by antisymmetry. -/
+structure IsRecessionRay (p : Problem) (r : Array Rat) : Prop where
+  size : r.size = p.numVars
+  col_lo_nonneg : ∀ j, j < p.numVars → (p.colBounds[j]!).1.isSome = true → 0 ≤ r[j]!
+  col_hi_nonpos : ∀ j, j < p.numVars → (p.colBounds[j]!).2.isSome = true → r[j]! ≤ 0
+  row_lo_nonneg : ∀ i, i < p.numConstraints →
+    (p.rowBounds[i]!).1.isSome = true → 0 ≤ (evalAx p r)[i]!
+  row_hi_nonpos : ∀ i, i < p.numConstraints →
+    (p.rowBounds[i]!).2.isSome = true → (evalAx p r)[i]! ≤ 0
+
 /-! ## Sense-aware wrappers. -/
 
 /-- Optimality wrt the user's original sense. -/
