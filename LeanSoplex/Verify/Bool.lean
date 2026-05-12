@@ -29,44 +29,62 @@ open LeanSoplex
 
 /-- Structural well-formedness for a `Problem`: declared array lengths
     match `numVars` / `numConstraints`, and every sparse entry's
-    `(row, col)` is in range. -/
-def problemShapeOk (p : Problem) : Bool := Id.run do
-  if p.c.size ≠ p.numVars then return false
-  if p.colBounds.size ≠ p.numVars then return false
-  if p.rowBounds.size ≠ p.numConstraints then return false
-  for k in [0:p.a.size] do
-    let (r, c, _) := p.a[k]!
-    if r ≥ p.numConstraints || c ≥ p.numVars then return false
-  return true
+    `(row, col)` is in range. Implemented as a conjunction of size
+    checks and an `Array.all` over the sparse entries so the
+    soundness layer can extract each conjunct via `decide_eq_true_iff`
+    and `Array.all_eq_true`. -/
+def problemShapeOk (p : Problem) : Bool :=
+  decide (p.c.size = p.numVars)
+  && decide (p.colBounds.size = p.numVars)
+  && decide (p.rowBounds.size = p.numConstraints)
+  && p.a.all (fun entry =>
+       decide (entry.1 < p.numConstraints) && decide (entry.2.1 < p.numVars))
 
-/-! ## Sparse matrix arithmetic. -/
+/-! ## Sparse matrix arithmetic.
+
+  Stated via `Array.foldl` rather than a `for` loop with an early-exit
+  range. Both forms are semantically equivalent on well-shaped `p`, but
+  the `foldl` form is what `Array.foldl_induction` (core Lean) operates
+  on, so reasoning in `LeanSoplex.Verify.Arith` is direct.
+-/
+
+/-- Apply a single sparse entry `(r, c, v)` to the accumulator: add
+    `v * x[c]!` into slot `r` of `out`, defensively skipping the entry
+    if either index is out of range. Both `out` and `x` keep their
+    sizes. -/
+@[inline] private def applyAx (x : Array Rat) (out : Array Rat)
+    (entry : Nat × Nat × Rat) : Array Rat :=
+  let (r, c, v) := entry
+  if h : r < out.size ∧ c < x.size then
+    out.set r (out[r]! + v * x[c]!) h.1
+  else out
+
+/-- Apply a single sparse entry `(r, c, v)` to the transposed
+    accumulator: add `v * y[r]!` into slot `c` of `out`. -/
+@[inline] private def applyATy (y : Array Rat) (out : Array Rat)
+    (entry : Nat × Nat × Rat) : Array Rat :=
+  let (r, c, v) := entry
+  if h : c < out.size ∧ r < y.size then
+    out.set c (out[c]! + v * y[r]!) h.1
+  else out
 
 /-- Compute `Ax` as an `Array Rat` of length `p.numConstraints`. -/
-def evalAx (p : Problem) (x : Array Rat) : Array Rat := Id.run do
-  let mut out : Array Rat := Array.replicate p.numConstraints 0
-  for k in [0:p.a.size] do
-    let (r, c, v) := p.a[k]!
-    if h : r < out.size ∧ c < x.size then
-      out := out.set r (out[r]! + v * x[c]!) (by exact h.1)
-  return out
+def evalAx (p : Problem) (x : Array Rat) : Array Rat :=
+  p.a.foldl (applyAx x) (Array.replicate p.numConstraints 0)
 
 /-- Compute `Aᵀy` as an `Array Rat` of length `p.numVars`. -/
-def evalATy (p : Problem) (y : Array Rat) : Array Rat := Id.run do
-  let mut out : Array Rat := Array.replicate p.numVars 0
-  for k in [0:p.a.size] do
-    let (r, c, v) := p.a[k]!
-    if h : c < out.size ∧ r < y.size then
-      out := out.set c (out[c]! + v * y[r]!) (by exact h.1)
-  return out
+def evalATy (p : Problem) (y : Array Rat) : Array Rat :=
+  p.a.foldl (applyATy y) (Array.replicate p.numVars 0)
 
 /-- Dot product of two same-length `Array Rat`. Returns `0` on length
-    mismatch (falls into the "false" branch of any caller). -/
-def dot (a b : Array Rat) : Rat := Id.run do
-  if a.size ≠ b.size then return 0
-  let mut acc : Rat := 0
-  for i in [0:a.size] do
-    acc := acc + a[i]! * b[i]!
-  return acc
+    mismatch (falls into the "false" branch of any caller).
+    Implemented via `Array.zipWith` + `Array.foldl` so the soundness
+    layer's `dot_set` / linearity lemmas can use `Array.foldl_induction`
+    directly. -/
+def dot (a b : Array Rat) : Rat :=
+  if a.size = b.size then
+    (Array.zipWith (fun x y => x * y) a b).foldl (· + ·) 0
+  else 0
 
 /-! ## Bound checks. -/
 
@@ -130,12 +148,11 @@ def arraySub (a b : Array Rat) : Array Rat := Id.run do
     out := out.push (a[i]! - b[i]!)
   return out
 
-/-- Equality of two same-length `Array Rat`. -/
-def arrayEq (a b : Array Rat) : Bool := Id.run do
-  if a.size ≠ b.size then return false
-  for i in [0:a.size] do
-    if a[i]! ≠ b[i]! then return false
-  return true
+/-- Equality of two `Array Rat`s. Implemented as a size precheck plus
+    a pairwise comparison over `Array.zip` so the soundness layer can
+    extract size and per-index equality via `Array.all_eq_true`. -/
+def arrayEq (a b : Array Rat) : Bool :=
+  decide (a.size = b.size) && (a.zip b).all (fun ⟨x, y⟩ => x == y)
 
 /-- Stationarity check: `Aᵀ(yL − yU) + (zL − zU) = c`. -/
 def isStationary (p : Problem) (d : DualBundle) : Bool :=
