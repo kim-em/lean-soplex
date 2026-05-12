@@ -24,22 +24,11 @@ open LeanSoplex
 def main : IO UInt32 := do
   IO.println s!"SoPlex version: {LeanSoplex.version}"
 
-  -- Validate the C++ exception ABI on every platform with a
-  -- nontrivial cross-stdlib link to police:
-  --
-  -- * Windows pairs an explicit `libstdc++.a` with Lean's clang-
-  --   auto-linked `libc++.a` and relies on `--allow-multiple-
-  --   definition` (see `lakefile.lean`); if libc++ ever wins the
-  --   link, the catch will miss and the DLL is broken.
-  -- * Linux compiles SoPlex with the system g++ (libstdc++); Lean's
-  --   clang would otherwise pull `libc++abi.so.1` into `DT_NEEDED`
-  --   and its personality function would win symbol resolution at
-  --   runtime, swallowing every libstdc++-style throw. The lakefile
-  --   suppresses that with `-nostdlib++`; this check is the canary
-  --   for any future regression.
-  --
-  -- Skipped on macOS because the entire toolchain uses libc++ — there
-  -- is no conflict to validate.
+  -- Cross-stdlib ABI canary. SoPlex + bridge compile against libstdc++
+  -- on Linux and Windows but Lean's clang has its own opinions about
+  -- the C++ runtime; if those ever desynchronise, throws stop matching
+  -- catch handlers and silently terminate the process. Skipped on
+  -- macOS where the whole toolchain uses libc++.
   unless System.Platform.isOSX do
     let exnRc := LeanSoplex.exceptionCheck ()
     IO.println s!"exception check = {exnRc}"

@@ -22,12 +22,9 @@ jobs:
       - name: Install GMP / Boost / CMake / build tools
         run: |
           sudo apt-get update
-          # libc++ packages are deliberately *not* installed: the
-          # lakefile passes `-nostdlib++` on Linux so Lean's clang no
-          # longer auto-links libc++/libc++abi (issue #6). If the smoke
-          # binary links and runs without those packages present, libc++
-          # cannot be a `DT_NEEDED` entry, which is the property the fix
-          # depends on.
+          # libc++ is intentionally absent: the lakefile pins Lean's
+          # clang to libstdc++ on Linux. The link / load steps below
+          # double as a check that no libc++ runtime is required.
           sudo apt-get install -y \
             cmake build-essential ninja-build \
             libgmp-dev libgmpxx4ldbl libboost-dev \
@@ -58,13 +55,9 @@ jobs:
 
       - name: Verify libc++ is absent from the loader graph
         run: |
-          # The Linux fix for #6 hinges on libc++/libc++abi being absent
-          # from the dynamic loader's symbol scope so that libstdc++'s
-          # `__gxx_personality_v0` is the only candidate at unwind time.
-          # Check both the direct `DT_NEEDED` entries on our artifacts
-          # (canary for `-nostdlib++` regressing) and the transitive
-          # graph reported by `ldd` (canary for a Lean runtime DSO
-          # silently introducing libc++abi).
+          # `__gxx_personality_v0` must come from libstdc++ at unwind
+          # time. Check both direct `DT_NEEDED` and the transitive
+          # graph via `ldd` on every built artifact.
           status=0
           mapfile -t artifacts < <(
             { find .lake/build -name '*.so' -type f

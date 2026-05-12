@@ -36,17 +36,9 @@ def version : UInt32 := versionImpl ()
     which would crash the compiler if the throw/catch ABI is broken,
     rather than surfacing as a clean executable-level failure.
 
-    Validates two cross-stdlib link workarounds in `lakefile.lean`:
-
-    * Windows: the `-Wl,--allow-multiple-definition` hack pairing an
-      explicit `libstdc++.a` with Lean's clang-auto-linked `libc++.a`;
-      if libc++ ever wins, the catch will miss.
-    * Linux: the `-nostdlib++` flag that suppresses Lean's clang
-      auto-linking libc++abi (issue #6); if a regression reintroduces
-      libc++abi into the runtime symbol scope, its personality
-      function would shadow libstdc++'s and the catch would miss.
-
-    Run from `Main.lean` on every non-macOS platform. -/
+    Run from `Main.lean` on every non-macOS platform as a cross-stdlib
+    ABI canary; see the Linux / Windows branches of `soplexRuntimeLinkArgs`
+    in `lakefile.lean` for the link-time arrangements this validates. -/
 @[extern "lean_soplex_exception_check_ffi"]
 opaque exceptionCheck : Unit → UInt32
 

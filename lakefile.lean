@@ -107,29 +107,21 @@ def soplexRuntimeLinkArgs : Array String :=
       "-lmingwex",     -- C99 wrappers; provides `_vsnprintf` etc.
       "-lmsvcrt"]
   else
-    -- Linux is a cross-stdlib link. SoPlex's `.o` files are produced
-    -- by the system `g++` and the bridge `.o` files by Lake's `c++`
-    -- (also system g++), so both reference libstdc++'s typeinfo,
-    -- vtables, and `__gxx_personality_v0`. Lean's bundled clang
-    -- driver on Linux, however, auto-links its own C++ runtime when
-    -- it sees C++ objects; without intervention the resulting `.so`
-    -- ends up with both `libstdc++.so.6` and `libc++abi.so.1` in
-    -- `DT_NEEDED`, and at runtime libc++abi's personality function
-    -- wins symbol resolution. libstdc++-style throws then fail to
-    -- match catch handlers because libc++abi does not recognise
-    -- libstdc++'s `std::exception` typeinfo — terminate is called
-    -- instead. See issue #6 for the diagnosis.
+    -- SoPlex and the bridge `.o` files are produced by the system
+    -- `g++` against libstdc++, so they reference libstdc++'s typeinfo
+    -- and `__gxx_personality_v0`. The link below has to keep the
+    -- entire C++ runtime on the libstdc++ side; if libc++abi enters
+    -- the picture (even statically, via clang's resource dir) its
+    -- personality function shadows libstdc++'s and libstdc++-style
+    -- throws stop matching catch handlers.
     --
-    -- `-nostdlib++` suppresses clang's automatic libc++ link and
-    -- removes the libc++abi NEEDED entry. We then add libstdc++
-    -- ourselves via the versioned SONAME (`-l:libstdc++.so.6`)
-    -- so we do not rely on a `libstdc++.so` development symlink
-    -- which Ubuntu base images typically omit. `Main.lean`'s
-    -- `LeanSoplex.exceptionCheck` exercises the throw/catch path
-    -- on every CI platform, so a regression here surfaces as a
-    -- CI failure rather than a silent termination from a real
-    -- error path later.
-    #["-nostdlib++",
+    -- `-stdlib=libstdc++` and `-unwindlib=libgcc` pin Lean's clang
+    -- driver to the libstdc++ / libgcc-unwinder pair instead of
+    -- libc++ / libunwind. `-l:libstdc++.so.6` uses the versioned
+    -- SONAME so the link does not rely on a `libstdc++.so` dev
+    -- symlink which Ubuntu base images typically omit.
+    #["-stdlib=libstdc++",
+      "-unwindlib=libgcc",
       "-L/usr/lib/x86_64-linux-gnu",
       "-L/usr/lib/aarch64-linux-gnu",
       "-L/usr/lib64",
