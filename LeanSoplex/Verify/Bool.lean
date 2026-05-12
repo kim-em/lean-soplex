@@ -77,13 +77,14 @@ def evalATy (p : Problem) (y : Array Rat) : Array Rat :=
   p.a.foldl (applyATy y) (Array.replicate p.numVars 0)
 
 /-- Dot product of two same-length `Array Rat`. Returns `0` on length
-    mismatch (falls into the "false" branch of any caller). -/
-def dot (a b : Array Rat) : Rat := Id.run do
-  if a.size ≠ b.size then return 0
-  let mut acc : Rat := 0
-  for i in [0:a.size] do
-    acc := acc + a[i]! * b[i]!
-  return acc
+    mismatch (falls into the "false" branch of any caller).
+    Implemented via `Array.zipWith` + `Array.foldl` so the soundness
+    layer's `dot_set` / linearity lemmas can use `Array.foldl_induction`
+    directly. -/
+def dot (a b : Array Rat) : Rat :=
+  if a.size = b.size then
+    (Array.zipWith (fun x y => x * y) a b).foldl (· + ·) 0
+  else 0
 
 /-! ## Bound checks. -/
 
