@@ -67,15 +67,17 @@ def soplexRuntimeLinkArgs : Array String :=
     -- (libstdc++), so the SoPlex objects pull in libstdc++ symbols.
     -- Lean's bundled clang, however, links the resulting `.so` with a
     -- `NEEDED libc++.so.1` entry (from its own runtime dependencies),
-    -- so libc++ must also be present at *load* time. We pass `-lstdc++`
-    -- to resolve SoPlex's C++ symbols at link time; the CI workflow
+    -- so libc++ must also be present at *load* time. We resolve
+    -- SoPlex's C++ symbols via `-l:libstdc++.so.6` (the versioned
+    -- SONAME, so linking does not depend on a `libstdc++.so` symlink
+    -- which Ubuntu base images typically omit); the CI workflow
     -- additionally installs `libc++1` so the load-time lookup succeeds.
     #["-L/usr/lib/x86_64-linux-gnu",
       "-L/usr/lib/aarch64-linux-gnu",
       "-L/usr/lib64",
       "-L/usr/lib",
       "-lgmpxx", "-lgmp",
-      "-lstdc++", "-lm"]
+      "-l:libstdc++.so.6", "-lm"]
 
 package leanSoplex where
   moreLinkArgs := soplexRuntimeLinkArgs
