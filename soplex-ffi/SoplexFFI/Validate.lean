@@ -14,9 +14,9 @@
   See `PLAN.md` §"API" for the design rationale.
 -/
 
-import LeanSoplex.Verify.Types
+import SoplexFFI.Types
 
-namespace LeanSoplex
+namespace Soplex
 
 /-! ## `validateOptions`. -/
 
@@ -111,4 +111,4 @@ def validate {numConstraints numVars : Nat} (p : Problem numConstraints numVars)
   let a' := normaliseSparse p.a
   pure { p with a := a' }
 
-end LeanSoplex
+end Soplex

@@ -21,9 +21,9 @@
       independently certifies the bridge's translation.
 -/
 
-import LeanSoplex
+import Soplex
 
-open LeanSoplex LeanSoplex.Verify
+open Soplex Soplex.Verify
 
 namespace AccessorGoldens
 

@@ -75,14 +75,14 @@ The build pattern is fully solved by
 structure:
 
 ```
-soplex/                       # vendor as git submodule (scipopt/soplex)
-ffi/lean_soplex.cpp           # C++ glue translating flat sparse LP data
-ffi/lean_soplex_bridge.cpp    # C-ABI entry points Lean calls
-LeanSoplex/Basic.lean         # opaque FFI declarations + Lean-side types
-LeanSoplex/Verify.lean        # pure-Lean certificate checkers (see below)
+soplex-ffi/                   # direct SoPlex binding Lake package
+soplex-ffi/vendor/soplex      # vendor as git submodule (scipopt/soplex)
+soplex-ffi/ffi/               # C++ bridge and C-ABI entry points
+soplex-ffi/SoplexFFI.lean     # low-level Lean API over SoPlex
+Soplex/Basic.lean             # high-level API and verified solve driver
+Soplex/Verify.lean            # pure-Lean certificate checkers (see below)
 Main.lean                     # `ffi-check` executable: FFI runtime check (version, ABI, toy LP)
-lakefile.lean                 # build config; two lean_lib targets
-                              # (LeanSoplex.Verify with no FFI dep, LeanSoplex with)
+lakefile.lean                 # high-level package depending on soplex-ffi
 .github/workflows/ci.yml      # Linux + macOS + Windows CI — MANDATORY
 scripts/install-toolchain.sh
 README.md
@@ -156,7 +156,7 @@ time limit is **proof-producing but not reproducible**: another
 machine might return `unchecked (timeLimit)` for the same inputs.
 
 ```lean
-namespace LeanSoplex
+namespace Soplex
 
 inductive ObjSense | minimize | maximize
 inductive Simplex  | primal | dual | auto
@@ -451,7 +451,7 @@ All decidable on `Rat`.
 ### Lean shape
 
 ```lean
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
 /-- Mathematical predicates over `Rat`. Stated in minimization form;
 maximization is canonicalized away by the driver. -/
@@ -642,8 +642,8 @@ pinned `v8.0.2` release; the goldens live in `AccessorGoldens.lean`
   anything real SoPlex produces, but a real ceiling. Exceeding it
   yields `Verified.unchecked .budgetExceeded`.
 - **Module separation.** Two Lake `lean_lib` targets in one repo:
-  `LeanSoplex.Verify` (pure-Lean checker, no FFI dep) and
-  `LeanSoplex` (the FFI binding, depends on the checker). Consumers
+  `Soplex.Verify` (pure-Lean checker, no FFI dep) and
+  `Soplex` (the FFI binding, depends on the checker). Consumers
   that only want the checker depend on the verify target alone. The
   physical separation makes "no SoPlex dependency" a build
   invariant.
@@ -745,7 +745,7 @@ them later means redoing public types.
    `validate`, `validateOptions`, and the totality conventions for
    the checker (false-on-mismatch, sparse-matrix interpretation).
    No SoPlex yet.
-3. **Implement the pure checker.** `LeanSoplex.Verify` as a
+3. **Implement the pure checker.** `Soplex.Verify` as a
    standalone Lake library: predicates, `is*`/`check*` Booleans,
    `weak_duality`, the three `check*_sound` lemmas, the
    sense-canonicalization wrappers, the denominator-budget check.

@@ -16,9 +16,9 @@
   results commented inline.
 -/
 
-import LeanSoplex.Verify
+import Soplex.Verify
 
-open LeanSoplex LeanSoplex.Verify
+open Soplex Soplex.Verify
 
 /-! ## Test infrastructure. -/
 

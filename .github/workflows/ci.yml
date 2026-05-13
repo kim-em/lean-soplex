@@ -44,7 +44,7 @@ jobs:
           ./scripts/install-toolchain.sh
 
       - name: Build SoPlex
-        run: ./scripts/build-soplex.sh
+        run: ./soplex-ffi/scripts/build-soplex.sh
 
       - name: Build and run verify-tests
         run: |
@@ -52,7 +52,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
       - name: Run ffi-check executable
         run: |
@@ -92,7 +92,7 @@ jobs:
     # make findings block merge once the job has been green for a while.
     continue-on-error: true
     env:
-      # `scripts/build-soplex.sh` reads this to instrument SoPlex's own
+      # `soplex-ffi/scripts/build-soplex.sh` reads this to instrument SoPlex's own
       # .o files; the lakefile's `get_config?` opt-in handles the bridge
       # and exe link. Both must be set for a consistent sanitized build.
       LEAN_SOPLEX_SANITIZE: "1"
@@ -140,7 +140,7 @@ jobs:
           echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
 
       - name: Build SoPlex (sanitized)
-        run: ./scripts/build-soplex.sh
+        run: ./soplex-ffi/scripts/build-soplex.sh
 
       - name: Build and run verify-tests (sanitized)
         run: |
@@ -149,7 +149,7 @@ jobs:
 
       - name: Build sanitized Lean targets
         run: |
-          lake build -Ksanitize=1 LeanSoplex ffi-check \
+          lake build -Ksanitize=1 Soplex ffi-check \
             solve-exact-tests solve-float-tests solve-verified-tests \
             accessor-goldens file-io-tests
 
@@ -217,7 +217,7 @@ jobs:
           ./scripts/install-toolchain.sh
 
       - name: Build SoPlex
-        run: ./scripts/build-soplex.sh
+        run: ./soplex-ffi/scripts/build-soplex.sh
 
       - name: Build and run verify-tests
         run: |
@@ -225,7 +225,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
       - name: Run ffi-check executable
         run: |
@@ -300,14 +300,14 @@ jobs:
       - name: Stage mingw runtime libraries
         run: |
           set -e
-          ./scripts/stage-mingw-libs.sh
-          ls -la vendor/mingw-libs/
+          ./soplex-ffi/scripts/stage-mingw-libs.sh
+          ls -la soplex-ffi/vendor/mingw-libs/
 
       - name: Build SoPlex
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          ./scripts/build-soplex.sh
+          ./soplex-ffi/scripts/build-soplex.sh
 
       - name: Build and run verify-tests
         run: |
@@ -316,11 +316,11 @@ jobs:
           lake build verify-tests
           ./.lake/build/bin/verify-tests.exe
 
-      - name: Build LeanSoplex and run ffi-check executable
+      - name: Build Soplex and run ffi-check executable
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+          lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
           set +e
           ./.lake/build/bin/ffi-check.exe > /tmp/ffi-check.out 2>&1

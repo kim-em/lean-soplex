@@ -1,7 +1,7 @@
 /-
   Soundness theorems bridging the `Bool` checkers in
-  `LeanSoplex.Verify.Bool` to the `Prop` predicates in
-  `LeanSoplex.Verify.Prop`.
+  `Soplex.Verify.Bool` to the `Prop` predicates in
+  `Soplex.Verify.Prop`.
 
   The central technical lemma is `bound_combination_le_dot_q`: for any
   primal-feasible `x`, any dual nonneg/zero-where-absent `d`, and any
@@ -19,11 +19,11 @@
   certificates.
 -/
 
-import LeanSoplex.Verify.Arith
+import Soplex.Verify.Arith
 
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
-open LeanSoplex
+open Soplex
 
 private theorem problemShapeOk_of_prop {m n : Nat} {p : Problem m n}
     (h : ProblemShapeOk p) : problemShapeOk p = true := by
@@ -495,4 +495,4 @@ theorem checkUnbounded_sound {m n : Nat} {p : Problem m n} {x ray : Vector Rat n
     rw [hDrop]
     grind
 
-end LeanSoplex.Verify
+end Soplex.Verify

@@ -1,6 +1,12 @@
-{"version": "1.2.0",
+{"version": "1.1.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"type": "path",
+   "scope": "",
+   "name": "soplexFfi",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "./soplex-ffi",
+   "configFile": "lakefile.lean"}],
  "name": "leanSoplex",
- "lakeDir": ".lake",
- "fixedToolchain": false}
+ "lakeDir": ".lake"}

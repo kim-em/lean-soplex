@@ -3,10 +3,10 @@
 
   Steps:
 
-  1. Prints `SOPLEX_VERSION` via `LeanSoplex.version`, confirming the
+  1. Prints `SOPLEX_VERSION` via `Soplex.version`, confirming the
      FFI is linked and the SoPlex headers used at build time match the
      runtime library actually loaded.
-  2. On non-macOS platforms, runs `LeanSoplex.exceptionCheck`, a
+  2. On non-macOS platforms, runs `Soplex.exceptionCheck`, a
      cross-stdlib C++ exception throw / catch / `what()` round trip.
      Catches libstdc++ vs libc++ mismatches that would otherwise corrupt
      exception handling silently.
@@ -24,12 +24,12 @@
   Exits with status 0 on success; non-zero on any unexpected output.
 -/
 
-import LeanSoplex
+import Soplex
 
-open LeanSoplex
+open Soplex
 
 def main : IO UInt32 := do
-  IO.println s!"SoPlex version: {LeanSoplex.version}"
+  IO.println s!"SoPlex version: {Soplex.version}"
 
   -- Cross-stdlib ABI check. SoPlex + the FFI layer compile against
   -- libstdc++ on Linux and Windows but Lean's clang has its own
@@ -37,7 +37,7 @@ def main : IO UInt32 := do
   -- throws stop matching catch handlers and silently terminate the
   -- process. Skipped on macOS where the whole toolchain uses libc++.
   unless System.Platform.isOSX do
-    let exnRc := LeanSoplex.exceptionCheck ()
+    let exnRc := Soplex.exceptionCheck ()
     IO.println s!"exception check = {exnRc}"
     if exnRc ≠ 0 then
       IO.eprintln s!"std::exception throw/catch broken (rc={exnRc}); cross-stdlib ABI mismatch"

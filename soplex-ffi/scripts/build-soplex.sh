@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Build SoPlex's bundled CMake project and extract its object files for
-# relinking into `libleansoplex.a` by the Lake build.
+# relinking into `libsoplexffi.a` by the Lake build.
 #
 # Idempotent: subsequent runs are cheap (CMake reuses its cache; ar
 # re-extraction overwrites in place). Safe to invoke unconditionally
 # from CI and from local dev loops.
 #
 # Outputs:
-#   build-soplex/lib/libsoplex.a          — SoPlex static library
-#   .lake/build/soplex-objs/*.o           — extracted object files
-#   .lake/build/soplex-objs/.ready        — marker file picked up by Lake
+#   soplex-ffi/build-soplex/lib/libsoplex.a   — SoPlex static library
+#   soplex-ffi/.lake/build/soplex-objs/*.o    — extracted object files
+#   soplex-ffi/.lake/build/soplex-objs/.ready — marker file picked up by Lake
 #
 # Run with the repo root as cwd.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC_DIR="$ROOT/soplex"
+SRC_DIR="$ROOT/vendor/soplex"
 BUILD_DIR="$ROOT/build-soplex"
 OBJS_DIR="$ROOT/.lake/build/soplex-objs"
 

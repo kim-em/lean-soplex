@@ -3,9 +3,9 @@
 Pinned SoPlex release: **v8.0.2** (`SOPLEX_VERSION = 802`, April 2026).
 
 This document records the sign and meaning of each SoPlex rational
-accessor used by the bridge, and the exact translation `ffi/lean_soplex_bridge.cpp`
+accessor used by the bridge, and the exact translation `soplex-ffi/ffi/lean_soplex_bridge.cpp`
 applies to land them in the canonical lower/upper-split `DualBundle`
-that `LeanSoplex.Verify.checkOptimal`, `checkInfeasible`, and
+that `Soplex.Verify.checkOptimal`, `checkInfeasible`, and
 `checkUnbounded` consume.
 
 The translation is *untrusted*: the verification layer catches
@@ -20,7 +20,7 @@ before it can mis-translate a real certificate.
 
 All accessors below act on the LP `solveExact` sends to SoPlex —
 i.e. the **minimisation** form produced by
-`LeanSoplex.Verify.canonicalize`. For `Options.sense := .maximize`,
+`Soplex.Verify.canonicalize`. For `Options.sense := .maximize`,
 `canonicalize` negates `c` before the LP reaches the C++ bridge, so
 SoPlex always sees a minimisation LP and every accessor convention
 below is stated relative to that minimisation form. The
@@ -187,7 +187,7 @@ before the LP is sent to SoPlex. Concretely:
   negated `c` and `.maximize`. Both runs assert the **same**
   `expectedDual`; only the user-facing `objective` flips sign.
 
-This is exactly what `LeanSoplex.Verify` expects: `checkOptimal` is
+This is exactly what `Soplex.Verify` expects: `checkOptimal` is
 always invoked against `canonicalize sense p`, never against the
 raw user-facing `Problem`.
 
@@ -226,7 +226,7 @@ Both Farkas examples confirm:
 ## When this document goes stale
 
 Whenever the pinned SoPlex tag in `lakefile.lean` (or the bridge's
-parameter setup in `ffi/lean_soplex_bridge.cpp`) changes:
+parameter setup in `soplex-ffi/ffi/lean_soplex_bridge.cpp`) changes:
 
 1. Re-run `lake exe accessor-goldens` against the new SoPlex.
 2. If any case fails, update the bridge until the goldens pass.
