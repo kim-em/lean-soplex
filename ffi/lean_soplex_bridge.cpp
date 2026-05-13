@@ -78,6 +78,67 @@ static inline std::string lean_string_at(b_lean_obj_arg arr, size_t i) {
   return std::string(lean_string_cstr(s));
 }
 
+/*
+ * RAII redirection of SoPlex's `spxout` to an in-memory buffer.
+ *
+ * When `enabled` is true, the constructor allocates an `ostringstream`
+ * and points every verbosity level's stream at it; the destructor
+ * restores the original stream pointers. When `enabled` is false the
+ * helper is a complete no-op: no allocation, no setStream calls, and
+ * `str()` returns an empty string.
+ *
+ * Designed for use around any SoPlex call site that wants to capture
+ * solver output — currently `solveExact`, with `solveFloat` to follow
+ * once issue #14 lands. The reference to `SoPlex` is non-owning; the
+ * solver must outlive this object. `SPxOut` stores raw, non-owning
+ * `std::ostream*` pointers, so the saved streams (typically the
+ * process-default `cout`/`cerr`) must outlive both the solver and
+ * this capture — true by default; only a custom caller-installed
+ * stream could violate it.
+ */
+class LogCapture {
+ public:
+  LogCapture(soplex::SoPlex &solver, bool enabled)
+      : solver_(solver), enabled_(enabled) {
+    if (!enabled_) return;
+    oss_.reset(new std::ostringstream());
+    for (int v = 0; v < kNumVerbLevels; ++v) {
+      auto verb = static_cast<soplex::SPxOut::Verbosity>(v);
+      saved_[v] = &solver_.spxout.getStream(verb);
+      solver_.spxout.setStream(verb, *oss_);
+    }
+  }
+  // Vendored `SPxOut::setStream` is non-throwing (a single pointer
+  // assignment), so restoration is safe to run during stack unwinding.
+  ~LogCapture() noexcept {
+    if (!enabled_) return;
+    for (int v = 0; v < kNumVerbLevels; ++v) {
+      auto verb = static_cast<soplex::SPxOut::Verbosity>(v);
+      solver_.spxout.setStream(verb, *saved_[v]);
+    }
+  }
+  LogCapture(const LogCapture &) = delete;
+  LogCapture &operator=(const LogCapture &) = delete;
+
+  std::string str() const {
+    return enabled_ ? oss_->str() : std::string{};
+  }
+
+ private:
+  // SoPlex's `Verbosity` enum is documented as a contiguous range
+  // `VERB_ERROR == 0` .. `VERB_INFO3 == 5`; see `soplex/spxout.h`.
+  static_assert(static_cast<int>(soplex::SPxOut::VERB_ERROR) == 0,
+                "SPxOut::VERB_ERROR must be 0");
+  static_assert(static_cast<int>(soplex::SPxOut::VERB_INFO3) == 5,
+                "SPxOut::VERB_INFO3 must be 5 (six contiguous verbosity levels)");
+  static constexpr int kNumVerbLevels = static_cast<int>(soplex::SPxOut::VERB_INFO3) + 1;
+
+  soplex::SoPlex &solver_;
+  bool enabled_;
+  std::unique_ptr<std::ostringstream> oss_;
+  std::ostream *saved_[kNumVerbLevels] = {};
+};
+
 class Mpq {
  public:
   mpq_t q;
@@ -290,6 +351,11 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
 
     SoPlex solver;
+    // Constructed before any parameter / LP-build call so the whole
+    // solveExact lifecycle (param-setting warnings, LP construction,
+    // optimize, result extraction) writes into the captured buffer
+    // when verbose. Non-verbose path is a no-op.
+    LogCapture logCap(solver, verbose != 0);
     solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
     solver.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
     solver.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
@@ -455,7 +521,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     }
 
     lean_object *cert = mk_certificate(primal, dual, ray);
-    lean_object *sol = mk_solution(status, objective, cert, "");
+    lean_object *sol = mk_solution(status, objective, cert, logCap.str());
     return mk_except_ok(sol);
   } catch (const std::exception &e) {
     return mk_except_error(e.what());
