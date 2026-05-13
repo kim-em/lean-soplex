@@ -210,9 +210,11 @@ def dualBoundCombination (p : Problem) (d : DualBundle) : Rat :=
     A coordinate contributes zero whenever the matching bound is `none`
     (regardless of the multiplier — see `dualNonnegAndZeroWhereAbsent`).
 
-    Returns `0` on any structural mismatch (problem-shape or dual-bundle
-    size) so the function is total; `checkOptimal` always gates on
-    `isDualFeasible` before consulting this value. -/
+    Returns `objOffset` on any structural mismatch — `dualBoundCombination`
+    short-circuits to `0` on a malformed problem, so the only term that
+    survives is the offset. `checkOptimal` always gates on
+    `isDualFeasible` before consulting this value, so the mismatch case
+    is unreachable for accepted certificates. -/
 def dualObj (p : Problem) (d : DualBundle) : Rat :=
   dualBoundCombination p d + p.objOffset
 

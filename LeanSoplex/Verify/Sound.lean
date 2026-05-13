@@ -3,11 +3,17 @@
   `LeanSoplex.Verify.Bool` to the `Prop` predicates in
   `LeanSoplex.Verify.Prop`.
 
-  The central proof obligation is `weak_duality` on `Rat`. The three
-  certificate-soundness lemmas (`checkOptimal_sound`,
-  `checkInfeasible_sound`, `checkUnbounded_sound`) follow from
-  `weak_duality` plus the certificate-specific equalities / strict
-  inequalities.
+  The central technical lemma is `bound_combination_le_dot_q`: for any
+  primal-feasible `x`, any dual nonneg/zero-where-absent `d`, and any
+  `q` satisfying `Aᵀ(yL − yU) + (zL − zU) = q`, the dual bound
+  combination lower-bounds `dot q x`. Specialised:
+
+  * `weak_duality` at `q := p.c` discharges `checkOptimal_sound`.
+  * `q := Array.replicate p.numVars 0` discharges `checkInfeasible_sound`.
+
+  `checkUnbounded_sound` does not use the bound-combination lemma; it
+  builds `y := x + λ · ray` and uses `IsRecessionRay`'s sign
+  discipline plus `evalAx_addSmul` / `primalObj_addSmul` linearity.
 
   These proofs are the Prop-level soundness layer for accepted
   certificates.
@@ -32,22 +38,6 @@ private theorem problemShapeOk_of_prop {p : Problem}
     have hrange := h.sparse_in_range k hk
     rw [Bool.and_eq_true]
     exact ⟨decide_eq_true hrange.1, decide_eq_true hrange.2⟩
-
-private theorem dualShapeOk
-    {p : Problem} {d : DualBundle}
-    (hShape : ProblemShapeOk p)
-    (hDual : DualNonnegZeroWhereAbsent p d) :
-    problemShapeOk p
-     && decide (d.rowLower.size = p.numConstraints)
-     && decide (d.rowUpper.size = p.numConstraints)
-     && decide (d.colLower.size = p.numVars)
-     && decide (d.colUpper.size = p.numVars) = true := by
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true]
-  exact ⟨⟨⟨⟨problemShapeOk_of_prop hShape,
-    by simp [hDual.rowLower_size]⟩,
-    by simp [hDual.rowUpper_size]⟩,
-    by simp [hDual.colLower_size]⟩,
-    by simp [hDual.colUpper_size]⟩
 
 private theorem dualNonnegAndZeroWhereAbsent_imp_shape
     {p : Problem} {d : DualBundle}
