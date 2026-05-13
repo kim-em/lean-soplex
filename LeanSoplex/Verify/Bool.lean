@@ -73,6 +73,73 @@ def evalAx {m n : Nat} (p : Problem m n) (x : Array Rat) : Array Rat :=
 def evalATy {m n : Nat} (p : Problem m n) (y : Array Rat) : Array Rat :=
   p.a.foldl (applyATy y) (Array.replicate n 0)
 
+/-! ### Output-size lemmas for `evalAx` / `evalATy`.
+
+  Stated here so `vEvalAx` / `vEvalATy` below can package the size
+  facts into the type. The proofs go via `Array.foldl_induction`,
+  which is the canonical core-Lean structural induction over the
+  sparse-entry foldl. -/
+
+/-- `applyAx` preserves the output array's size. -/
+theorem applyAx_size (x : Array Rat) (out : Array Rat)
+    (entry : Nat × Nat × Rat) :
+    (applyAx x out entry).size = out.size := by
+  obtain ⟨r, c, v⟩ := entry
+  show (if h : r < out.size ∧ c < x.size
+       then out.set r (out[r]! + v * x[c]!) h.1 else out).size = out.size
+  by_cases h : r < out.size ∧ c < x.size
+  · simp [h, Array.size_set]
+  · simp [h]
+
+/-- `applyATy` preserves the output array's size. -/
+theorem applyATy_size (y : Array Rat) (out : Array Rat)
+    (entry : Nat × Nat × Rat) :
+    (applyATy y out entry).size = out.size := by
+  obtain ⟨r, c, v⟩ := entry
+  show (if h : c < out.size ∧ r < y.size
+       then out.set c (out[c]! + v * y[r]!) h.1 else out).size = out.size
+  by_cases h : c < out.size ∧ r < y.size
+  · simp [h, Array.size_set]
+  · simp [h]
+
+theorem evalAx_size {m n : Nat} (p : Problem m n) (x : Array Rat) :
+    (evalAx p x).size = m := by
+  unfold evalAx
+  refine Array.foldl_induction
+    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = m) ?_ ?_
+  · simp
+  · intro i acc hAcc
+    rw [applyAx_size]; exact hAcc
+
+theorem evalATy_size {m n : Nat} (p : Problem m n) (y : Array Rat) :
+    (evalATy p y).size = n := by
+  unfold evalATy
+  refine Array.foldl_induction
+    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = n) ?_ ?_
+  · simp
+  · intro i acc hAcc
+    rw [applyATy_size]; exact hAcc
+
+/-- `Aᵀy` packaged as a `Vector Rat n`. The output-size obligation is
+    discharged by `evalATy_size`, so callers never have to re-derive
+    it. The input `y` is kept `Array`-shaped because in practice it
+    arrives as `vSub d.rowLower d.rowUpper` whose Vector size differs
+    structurally from `p`'s dimensions even when numerically equal. -/
+@[inline] def vEvalATy {m n : Nat} (p : Problem m n) (y : Array Rat) :
+    Vector Rat n :=
+  ⟨evalATy p y, evalATy_size p y⟩
+
+/-- `Ax` packaged as a `Vector Rat m`. Dual to `vEvalATy`. -/
+@[inline] def vEvalAx {m n : Nat} (p : Problem m n) (x : Array Rat) :
+    Vector Rat m :=
+  ⟨evalAx p x, evalAx_size p x⟩
+
+@[simp] theorem vEvalAx_toArray {m n : Nat} (p : Problem m n) (x : Array Rat) :
+    (vEvalAx p x).toArray = evalAx p x := rfl
+
+@[simp] theorem vEvalATy_toArray {m n : Nat} (p : Problem m n) (y : Array Rat) :
+    (vEvalATy p y).toArray = evalATy p y := rfl
+
 /-- Dot product of two same-length `Array Rat`. Returns `0` on length
     mismatch (falls into the "false" branch of any caller).
     Implemented via `Array.zipWith` + `Array.foldl` so the soundness
@@ -156,15 +223,14 @@ def arraySub (a b : Array Rat) : Array Rat :=
 def arrayEq (a b : Array Rat) : Bool :=
   decide (a.size = b.size) && (a.zip b).all (fun ⟨x, y⟩ => x == y)
 
-/-- Stationarity check: `Aᵀ(yL − yU) + (zL − zU) = c`. The dual
-    differences are computed in `Vector` form (no length-mismatch
-    branch); `evalATy` and the final `arrayEq` still operate on
-    `Array Rat` because `p.c` is an array and `evalATy`'s output
-    size is parameterised by `p` rather than the input. -/
+/-- Stationarity check: `Aᵀ(yL − yU) + (zL − zU) = c`. All three
+    operands live in `Vector Rat n` so the componentwise sum has a
+    fixed length matching `p.c`; the per-index equality is folded
+    into a single `decide` predicate. -/
 def isStationary {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
-  let aty := evalATy p (vSub d.rowLower d.rowUpper).toArray
-  let zdiff := vSub d.colLower d.colUpper
-  arrayEq (Array.zipWith (· + ·) aty zdiff.toArray) p.c.toArray
+  let aty   : Vector Rat n := vEvalATy p (vSub d.rowLower d.rowUpper).toArray
+  let zdiff : Vector Rat n := vSub d.colLower d.colUpper
+  decide (Vector.zipWith (· + ·) aty zdiff = p.c)
 
 /-- Dual feasibility for the optimality certificate. -/
 def isDualFeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
@@ -173,10 +239,10 @@ def isDualFeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
 /-- Farkas (homogeneous) dual feasibility: same shape, but with
     stationarity `Aᵀ(yL − yU) + (zL − zU) = 0` instead of `= c`. -/
 def isFarkasFeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
-  let aty := evalATy p (vSub d.rowLower d.rowUpper).toArray
-  let zdiff := vSub d.colLower d.colUpper
+  let aty   : Vector Rat n := vEvalATy p (vSub d.rowLower d.rowUpper).toArray
+  let zdiff : Vector Rat n := vSub d.colLower d.colUpper
   dualNonnegAndZeroWhereAbsent p d
-  && (Array.zipWith (· + ·) aty zdiff.toArray).all (· == 0)
+  && (Vector.zipWith (· + ·) aty zdiff).all (· == 0)
 
 /-! ## Objective values. -/
 
@@ -199,9 +265,7 @@ def primalObj {m n : Nat} (p : Problem m n) (x : Array Rat) : Rat :=
     and the strict-positive check for `boundCombinationPos` are
     layered on top. -/
 def dualBoundCombination {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Rat :=
-  if problemShapeOk p
-     && decide (m = m)
-     && decide (n = n) then
+  if problemShapeOk p then
     let rowPart := (Array.range m).foldl (fun (acc : Rat) i =>
       let (lo, hi) := p.rowBounds[i]!
       acc + loContrib lo d.rowLower[i]! - hiContrib hi d.rowUpper[i]!) 0

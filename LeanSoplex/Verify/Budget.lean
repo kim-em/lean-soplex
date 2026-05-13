@@ -39,23 +39,24 @@ namespace LeanSoplex.Verify
 
 open LeanSoplex
 
-@[inline] private def arrayWithinBudget (n : Nat) (xs : Array Rat) : Bool :=
+@[inline] private def vectorWithinBudget {k : Nat}
+    (n : Nat) (xs : Vector Rat k) : Bool :=
   xs.all (fun q => decide (q.bitLen ≤ n))
 
 @[inline] private def optionVectorWithinBudget {k : Nat}
     (n : Nat) (o : Option (Vector Rat k)) : Bool :=
   match o with
   | none    => true
-  | some xs => arrayWithinBudget n xs.toArray
+  | some xs => vectorWithinBudget n xs
 
 @[inline] private def dualWithinBudget {m n_ : Nat}
     (n : Nat) (o : Option (DualBundle m n_)) : Bool :=
   match o with
   | none   => true
-  | some d => arrayWithinBudget n d.rowLower.toArray
-           && arrayWithinBudget n d.rowUpper.toArray
-           && arrayWithinBudget n d.colLower.toArray
-           && arrayWithinBudget n d.colUpper.toArray
+  | some d => vectorWithinBudget n d.rowLower
+           && vectorWithinBudget n d.rowUpper
+           && vectorWithinBudget n d.colLower
+           && vectorWithinBudget n d.colUpper
 
 /-- Every populated coordinate of `cert` satisfies `Rat.bitLen ≤ n`,
     where `budget = some n`. `budget = none` disables the check

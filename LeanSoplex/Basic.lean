@@ -85,14 +85,20 @@ private def floatArrayOfArray (xs : Array Float) : FloatArray := Id.run do
 private def ratStrings (xs : Array Rat) : Array String :=
   xs.map toString
 
-private def optionRatMask (xs : Array (Option Rat)) : ByteArray := Id.run do
+/-- Vector-typed variant of `ratStrings`: keeps the size in the type
+    until we cross the FFI boundary (the C++ side wants `Array String`).
+    Avoids a `.toArray` projection at the call site. -/
+private def ratStringsV {n : Nat} (xs : Vector Rat n) : Array String :=
+  (xs.map toString).toArray
+
+private def optionRatMask {n : Nat} (xs : Vector (Option Rat) n) : ByteArray := Id.run do
   let mut bs := ByteArray.empty
   for x in xs do
     bs := bs.push (if x.isSome then 1 else 0)
   return bs
 
-private def optionRatStrings (xs : Array (Option Rat)) : Array String :=
-  xs.map (fun x => x.elim "0" toString)
+private def optionRatStrings {n : Nat} (xs : Vector (Option Rat) n) : Array String :=
+  (xs.map (fun x => x.elim "0" toString)).toArray
 
 private def checkedU32 (field : String) (n : Nat) :
     Except ProblemError UInt32 :=
@@ -139,14 +145,14 @@ private def problemFlatten {m n : Nat} (p : Problem m n) :
   let rows ← p.a.mapM (fun e => checkedU32 "sparse row index" e.1)
   let cols ← p.a.mapM (fun e => checkedU32 "sparse column index" e.2.1)
   let vals  := p.a.map (fun e => e.2.2)
-  let rowLo := p.rowBounds.toArray.map Prod.fst
-  let rowHi := p.rowBounds.toArray.map Prod.snd
-  let colLo := p.colBounds.toArray.map Prod.fst
-  let colHi := p.colBounds.toArray.map Prod.snd
+  let rowLo := p.rowBounds.map Prod.fst
+  let rowHi := p.rowBounds.map Prod.snd
+  let colLo := p.colBounds.map Prod.fst
+  let colHi := p.colBounds.map Prod.snd
   pure {
     numVars        := numVars
     numConstraints := numConstraints
-    c              := ratStrings p.c.toArray
+    c              := ratStringsV p.c
     objOffset      := toString p.objOffset
     aRows          := packUInt32Array rows
     aCols          := packUInt32Array cols
@@ -160,6 +166,15 @@ private def problemFlatten {m n : Nat} (p : Problem m n) :
     colHiMask      := optionRatMask colHi
     colHi          := optionRatStrings colHi }
 
+/-- C++ bridge for exact solve. `{m n : Nat}` are implicit so the
+    Lean caller passes them positionally to the FFI as `lean_object*`;
+    the C++ side declares matching `b_lean_obj_arg /*m*/, /*n*/` slots
+    but ignores their values (they are erased at compile time as far
+    as the C++ logic is concerned). Tried phrasing the return as
+    `Solution numConstraints.toNat numVars.toNat` to drop the
+    implicits; the call site then needs a `UInt32.ofNat n |>.toNat = n`
+    coercion proof that adds more friction than the saved arg-slots
+    are worth. -/
 @[extern "lean_soplex_solve_exact"]
 private opaque solveExactFlat {m n : Nat}
     (numVars numConstraints : UInt32)
