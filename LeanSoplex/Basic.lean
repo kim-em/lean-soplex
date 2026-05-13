@@ -239,4 +239,42 @@ def smokeSolve
     (packUInt32Array rows) (packUInt32Array cols)
     (floatArrayOfArray vals)
 
+/-! ## Verified-solve driver.
+
+  Composes `validateOptions`, `validate`, `solveExact`, and
+  `verifyOutcome` from `LeanSoplex.Verify.Driver`. See PLAN.md
+  §"User-facing driver".
+-/
+
+/-- Drive `validate`, `solveExact`, then the checker, packaged as a
+    `VerifiedSolve` carrying a real soundness-lemma proof.
+
+    * `validateOptions` and `validate` run first; either failure
+      surfaces as `Except.error`.
+    * `Options.presolve` is forced `false` internally — the checker
+      must run against the (normalised) input LP, not whatever
+      SoPlex's presolve transformed it into. See PLAN.md §"What this
+      catches" §4.
+    * `denomBudget` is a ceiling on the bit length of every rational
+      coordinate in the returned certificate; exceeding it yields
+      `Verified.unchecked .budgetExceeded`. `none` disables the check.
+    * The returned `normalized` field is `validate p`, the `Problem`
+      the proof is indexed by. Downstream code reasons about that
+      value, not about the raw user input.
+
+    Every failure path (non-terminal status, missing certificate
+    field, failed `check*`, budget overrun) lands in
+    `Verified.unchecked _`; the three positive constructors are only
+    populated from `checkOptimal_sound` / `checkInfeasible_sound` /
+    `checkUnbounded_sound`. -/
+def solveVerified (opts : Options) (p : Problem)
+    (denomBudget : Option Nat := some 10000) :
+    Except SolveError (VerifiedSolve opts.sense) := do
+  let _ ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let normalized ← validate p |>.mapError SolveError.invalidProblem
+  let opts' := { opts with presolve := false }
+  let sol ← solveExact opts' normalized
+  pure { normalized
+         verified := verifyOutcome opts denomBudget normalized sol }
+
 end LeanSoplex
