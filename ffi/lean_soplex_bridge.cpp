@@ -12,10 +12,24 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <exception>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <lean/lean.h>
+#include <gmp.h>
+#ifndef NDEBUG
+#define NDEBUG
+#endif
+#include <soplex.h>
 
 #include "lean_soplex.h"
+
+using namespace soplex;
 
 /*
  * Same glibc-compatibility shim as in `lean-csdp`: Lean's bundled clang on
@@ -55,12 +69,399 @@ static inline const double *float_array_const_ptr(b_lean_obj_arg arr) {
   return lean_float_array_cptr(arr);
 }
 
+static inline uint8_t byte_array_u8(b_lean_obj_arg arr, size_t i) {
+  return lean_sarray_cptr(arr)[i];
+}
+
+static inline std::string lean_string_at(b_lean_obj_arg arr, size_t i) {
+  lean_object *s = lean_array_get_core(arr, i);
+  return std::string(lean_string_cstr(s));
+}
+
+class Mpq {
+ public:
+  mpq_t q;
+
+  Mpq() { mpq_init(q); }
+  explicit Mpq(const std::string &s) {
+    mpq_init(q);
+    if (mpq_set_str(q, s.c_str(), 10) != 0) {
+      throw std::runtime_error("invalid rational string: " + s);
+    }
+    mpq_canonicalize(q);
+  }
+  Mpq(const Mpq &) = delete;
+  Mpq &operator=(const Mpq &) = delete;
+  Mpq(Mpq &&other) noexcept {
+    mpq_init(q);
+    mpq_swap(q, other.q);
+  }
+  Mpq &operator=(Mpq &&other) noexcept {
+    if (this != &other) mpq_swap(q, other.q);
+    return *this;
+  }
+  ~Mpq() { mpq_clear(q); }
+};
+
+static lean_object *mk_rat_from_mpq(const mpq_t q) {
+  mpq_t z;
+  mpq_init(z);
+  mpq_set(z, q);
+  mpq_canonicalize(z);
+  char *num = mpz_get_str(nullptr, 10, mpq_numref(z));
+  char *den = mpz_get_str(nullptr, 10, mpq_denref(z));
+  if (num == nullptr || den == nullptr) {
+    mpq_clear(z);
+    throw std::runtime_error("mpz_get_str failed");
+  }
+  lean_object *r = lean_alloc_ctor(0, 4, 0);
+  lean_ctor_set(r, 0, lean_cstr_to_int(num));
+  lean_ctor_set(r, 1, lean_cstr_to_nat(den));
+  lean_ctor_set(r, 2, lean_box(0));
+  lean_ctor_set(r, 3, lean_box(0));
+  void (*freefunc)(void *, size_t);
+  mp_get_memory_functions(nullptr, nullptr, &freefunc);
+  freefunc(num, std::strlen(num) + 1);
+  freefunc(den, std::strlen(den) + 1);
+  mpq_clear(z);
+  return r;
+}
+
+static lean_object *mk_rat_from_string(const std::string &s) {
+  Mpq q(s);
+  return mk_rat_from_mpq(q.q);
+}
+
+static lean_object *mk_array_from_mpqs(const std::vector<Mpq> &xs) {
+  lean_object *a = lean_alloc_array(xs.size(), xs.size());
+  lean_array_set_size(a, xs.size());
+  for (size_t i = 0; i < xs.size(); ++i) {
+    lean_array_cptr(a)[i] = mk_rat_from_mpq(xs[i].q);
+  }
+  return a;
+}
+
+static lean_object *mk_none() {
+  return lean_box(0);
+}
+
+static lean_object *mk_some(lean_object *x) {
+  lean_object *o = lean_alloc_ctor(1, 1, 0);
+  lean_ctor_set(o, 0, x);
+  return o;
+}
+
+static lean_object *mk_dual_bundle(
+    const std::vector<Mpq> &rowLower,
+    const std::vector<Mpq> &rowUpper,
+    const std::vector<Mpq> &colLower,
+    const std::vector<Mpq> &colUpper) {
+  lean_object *d = lean_alloc_ctor(0, 4, 0);
+  lean_ctor_set(d, 0, mk_array_from_mpqs(rowLower));
+  lean_ctor_set(d, 1, mk_array_from_mpqs(rowUpper));
+  lean_ctor_set(d, 2, mk_array_from_mpqs(colLower));
+  lean_ctor_set(d, 3, mk_array_from_mpqs(colUpper));
+  return d;
+}
+
+static lean_object *mk_certificate(
+    lean_object *primalOpt, lean_object *dualOpt, lean_object *rayOpt) {
+  lean_object *c = lean_alloc_ctor(0, 3, 0);
+  lean_ctor_set(c, 0, primalOpt);
+  lean_ctor_set(c, 1, dualOpt);
+  lean_ctor_set(c, 2, rayOpt);
+  return c;
+}
+
+static lean_object *mk_solution(
+    uint8_t status, lean_object *objectiveOpt, lean_object *cert, const std::string &log) {
+  lean_object *s = lean_alloc_ctor(0, 3, sizeof(uint8_t));
+  lean_ctor_set(s, 0, objectiveOpt);
+  lean_ctor_set(s, 1, cert);
+  lean_ctor_set(s, 2, lean_mk_string(log.c_str()));
+  lean_ctor_set_uint8(s, sizeof(void *) * 3, status);
+  return s;
+}
+
+static lean_object *mk_except_ok(lean_object *x) {
+  lean_object *r = lean_alloc_ctor(1, 1, 0);
+  lean_ctor_set(r, 0, x);
+  return r;
+}
+
+static lean_object *mk_except_error(const std::string &msg) {
+  lean_object *r = lean_alloc_ctor(0, 1, 0);
+  lean_ctor_set(r, 0, lean_mk_string(msg.c_str()));
+  return r;
+}
+
+static void init_mpq_vector(std::vector<Mpq> &xs, size_t n) {
+  xs.clear();
+  xs.reserve(n);
+  for (size_t i = 0; i < n; ++i) xs.emplace_back();
+}
+
+static std::vector<Mpq> split_pos(const std::vector<Mpq> &signedVals, bool positivePart) {
+  std::vector<Mpq> out;
+  init_mpq_vector(out, signedVals.size());
+  for (size_t i = 0; i < signedVals.size(); ++i) {
+    int cmp = mpq_sgn(signedVals[i].q);
+    if ((positivePart && cmp > 0) || (!positivePart && cmp < 0)) {
+      mpq_set(out[i].q, signedVals[i].q);
+      if (!positivePart) mpq_neg(out[i].q, out[i].q);
+    }
+  }
+  return out;
+}
+
+static void negate_all(std::vector<Mpq> &xs) {
+  for (auto &x : xs) mpq_neg(x.q, x.q);
+}
+
+static void compute_at_y(
+    size_t numVars, const int32_t *rows, const int32_t *cols,
+    const std::vector<Mpq> &vals, const std::vector<Mpq> &y,
+    std::vector<Mpq> &out) {
+  init_mpq_vector(out, numVars);
+  for (size_t k = 0; k < vals.size(); ++k) {
+    mpq_t tmp;
+    mpq_init(tmp);
+    mpq_mul(tmp, vals[k].q, y[rows[k]].q);
+    mpq_add(out[cols[k]].q, out[cols[k]].q, tmp);
+    mpq_clear(tmp);
+  }
+}
+
+static int bound_combination_sign(
+    const std::vector<Mpq> &rowSigned, const std::vector<Mpq> &colSigned,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) {
+  Mpq acc;
+  mpq_t tmp;
+  mpq_init(tmp);
+  auto add_bound = [&](const Mpq &signedVal, bool lower, const std::string &bound) {
+    if ((lower && mpq_sgn(signedVal.q) <= 0) || (!lower && mpq_sgn(signedVal.q) >= 0)) return;
+    Mpq b(bound);
+    mpq_mul(tmp, signedVal.q, b.q);
+    if (!lower) mpq_neg(tmp, tmp);
+    mpq_add(acc.q, acc.q, tmp);
+  };
+  for (size_t i = 0; i < rowSigned.size(); ++i) {
+    if (byte_array_u8(rowLoMask, i)) add_bound(rowSigned[i], true, lean_string_at(rowLo, i));
+    if (byte_array_u8(rowHiMask, i)) add_bound(rowSigned[i], false, lean_string_at(rowHi, i));
+  }
+  for (size_t j = 0; j < colSigned.size(); ++j) {
+    if (byte_array_u8(colLoMask, j)) add_bound(colSigned[j], true, lean_string_at(colLo, j));
+    if (byte_array_u8(colHiMask, j)) add_bound(colSigned[j], false, lean_string_at(colHi, j));
+  }
+  int s = mpq_sgn(acc.q);
+  mpq_clear(tmp);
+  return s;
+}
+
 extern "C" LEAN_EXPORT uint32_t lean_soplex_version_ffi(void) {
   return static_cast<uint32_t>(lean_soplex_version());
 }
 
 extern "C" LEAN_EXPORT uint32_t lean_soplex_exception_check_ffi(void) {
   return static_cast<uint32_t>(lean_soplex_exception_check());
+}
+
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    uint8_t /*sense*/, uint8_t simplex,
+    uint8_t hasTimeLimit, double timeLimit,
+    uint8_t hasIterLimit, uint32_t iterLimit,
+    uint8_t verbose, uint32_t randomSeed,
+    uint8_t precisionBoost, uint8_t presolve,
+    b_lean_obj_arg c_arr, b_lean_obj_arg objOffset,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
+  try {
+    const int numVars = static_cast<int>(numVars_u);
+    const int numConstraints = static_cast<int>(numConstraints_u);
+    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
+    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
+    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+
+    SoPlex solver;
+    solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
+    solver.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
+    solver.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
+    // Exact certificates come from the rational refinement/getters. In
+    // this Boost/GMP-only build, forcing the floating-point tolerances to
+    // literal zero can make the refinement loop stall on tiny examples.
+    solver.setIntParam(SoPlex::READMODE, SoPlex::READMODE_RATIONAL);
+    solver.setIntParam(SoPlex::CHECKMODE, SoPlex::CHECKMODE_RATIONAL);
+    // SoPlex 8.0.2 only enables this knob in MPFR builds. The local
+    // static build used by this package is Boost/GMP-only, where setting
+    // it to true is rejected by the parameter layer and can leave the
+    // solver inconsistent. False is always safe; true keeps SoPlex's
+    // build-time default.
+    if (!precisionBoost) solver.setBoolParam(SoPlex::PRECISION_BOOSTING, false);
+    solver.setIntParam(SoPlex::SIMPLIFIER, presolve ? SoPlex::SIMPLIFIER_INTERNAL : SoPlex::SIMPLIFIER_OFF);
+    solver.setIntParam(SoPlex::VERBOSITY, verbose ? SoPlex::VERBOSITY_NORMAL : SoPlex::VERBOSITY_ERROR);
+    solver.setRandomSeed(randomSeed);
+    if (hasTimeLimit) solver.setRealParam(SoPlex::TIMELIMIT, timeLimit);
+    if (hasIterLimit) solver.setIntParam(SoPlex::ITERLIMIT, static_cast<int>(iterLimit));
+    if (simplex == 0) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_PRIMAL);
+    if (simplex == 1) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_DUAL);
+
+    std::vector<Mpq> c;
+    c.reserve(numVars);
+    for (int j = 0; j < numVars; ++j) c.emplace_back(lean_string_at(c_arr, j));
+
+    std::vector<Mpq> aVals;
+    aVals.reserve(nnz);
+    for (size_t k = 0; k < nnz; ++k) aVals.emplace_back(lean_string_at(a_vals_arr, k));
+
+    DSVectorRational emptyCol(0);
+    for (int j = 0; j < numVars; ++j) {
+      Rational obj(c[j].q);
+      Rational lo = byte_array_u8(colLoMask, j)
+          ? Rational(Mpq(lean_string_at(colLo, j)).q)
+          : -Rational(infinity);
+      Rational hi = byte_array_u8(colHiMask, j)
+          ? Rational(Mpq(lean_string_at(colHi, j)).q)
+          : Rational(infinity);
+      solver.addColRational(LPColRational(obj, emptyCol, hi, lo));
+    }
+
+    std::vector<std::vector<int>> rowIdx(numConstraints);
+    std::vector<std::vector<size_t>> rowValIdx(numConstraints);
+    for (size_t k = 0; k < nnz; ++k) {
+      int r = a_rows[k];
+      int col = a_cols[k];
+      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
+        return mk_except_error("sparse index out of range");
+      }
+      rowIdx[r].push_back(col);
+      rowValIdx[r].push_back(k);
+    }
+
+    for (int i = 0; i < numConstraints; ++i) {
+      Rational lo = byte_array_u8(rowLoMask, i)
+          ? Rational(Mpq(lean_string_at(rowLo, i)).q)
+          : -Rational(infinity);
+      Rational hi = byte_array_u8(rowHiMask, i)
+          ? Rational(Mpq(lean_string_at(rowHi, i)).q)
+          : Rational(infinity);
+      DSVectorRational vals(static_cast<int>(rowIdx[i].size()));
+      for (size_t t = 0; t < rowIdx[i].size(); ++t) {
+        vals.add(rowIdx[i][t], Rational(aVals[rowValIdx[i][t]].q));
+      }
+      solver.addRowRational(LPRowRational(lo, vals, hi));
+    }
+
+    if (solver.intParam(SoPlex::SYNCMODE) == SoPlex::SYNCMODE_MANUAL) solver.syncLPReal();
+    SPxSolver::Status st = solver.optimize();
+    uint8_t status = 5; // numericFailure
+    lean_object *objective = mk_none();
+    lean_object *primal = mk_none();
+    lean_object *dual = mk_none();
+    lean_object *ray = mk_none();
+
+    auto fetch = [&](size_t n, auto getter, const char *what) {
+      std::vector<Mpq> xs;
+      init_mpq_vector(xs, n);
+      std::unique_ptr<mpq_t[]> raw(new mpq_t[n]);
+      for (size_t i = 0; i < n; ++i) mpq_init(raw[i]);
+      bool ok = (solver.*getter)(raw.get(), static_cast<int>(n));
+      if (!ok) throw std::runtime_error(std::string("SoPlex failed to return ") + what);
+      for (size_t i = 0; i < n; ++i) {
+        mpq_set(xs[i].q, raw[i]);
+        mpq_canonicalize(xs[i].q);
+        mpq_clear(raw[i]);
+      }
+      return xs;
+    };
+
+    switch (st) {
+      case SPxSolver::OPTIMAL:
+      case SPxSolver::OPTIMAL_UNSCALED_VIOLATIONS: {
+        status = 0;
+        std::ostringstream obj;
+        obj << solver.objValueRational();
+        objective = mk_some(mk_rat_from_string(obj.str()));
+        std::vector<Mpq> x = fetch(numVars,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRational),
+          "primal solution");
+        primal = mk_some(mk_array_from_mpqs(x));
+        std::vector<Mpq> y = fetch(numConstraints,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getDualRational),
+          "dual solution");
+        std::vector<Mpq> z = fetch(numVars,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getRedCostRational),
+          "reduced costs");
+        auto rowLower = split_pos(y, true);
+        auto rowUpper = split_pos(y, false);
+        auto colLower = split_pos(z, true);
+        auto colUpper = split_pos(z, false);
+        dual = mk_some(mk_dual_bundle(rowLower, rowUpper, colLower, colUpper));
+        break;
+      }
+      case SPxSolver::INFEASIBLE: {
+        status = 1;
+        std::vector<Mpq> y = fetch(numConstraints,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getDualFarkasRational),
+          "dual Farkas vector");
+        std::vector<Mpq> aty;
+        compute_at_y(numVars, a_rows, a_cols, aVals, y, aty);
+        for (auto &v : aty) mpq_neg(v.q, v.q);
+        if (bound_combination_sign(y, aty, rowLoMask, rowLo, rowHiMask, rowHi,
+                                   colLoMask, colLo, colHiMask, colHi) < 0) {
+          negate_all(y);
+          negate_all(aty);
+        }
+        auto rowLower = split_pos(y, true);
+        auto rowUpper = split_pos(y, false);
+        auto colLower = split_pos(aty, true);
+        auto colUpper = split_pos(aty, false);
+        dual = mk_some(mk_dual_bundle(rowLower, rowUpper, colLower, colUpper));
+        break;
+      }
+      case SPxSolver::UNBOUNDED: {
+        status = 2;
+        std::vector<Mpq> x = fetch(numVars,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRational),
+          "primal base point");
+        std::vector<Mpq> r = fetch(numVars,
+          static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRayRational),
+          "primal ray");
+        primal = mk_some(mk_array_from_mpqs(x));
+        ray = mk_some(mk_array_from_mpqs(r));
+        break;
+      }
+      case SPxSolver::ABORT_TIME:
+        status = 3;
+        break;
+      case SPxSolver::ABORT_ITER:
+        status = 4;
+        break;
+      case SPxSolver::ABORT_VALUE:
+      case SPxSolver::SINGULAR:
+      case SPxSolver::NO_RATIOTESTER:
+      case SPxSolver::REGULAR:
+        status = 5;
+        break;
+      default:
+        status = 7;
+        break;
+    }
+
+    lean_object *cert = mk_certificate(primal, dual, ray);
+    lean_object *sol = mk_solution(status, objective, cert, "");
+    return mk_except_ok(sol);
+  } catch (const std::exception &e) {
+    return mk_except_error(e.what());
+  } catch (...) {
+    return mk_except_error("unknown C++ exception");
+  }
 }
 
 /*
