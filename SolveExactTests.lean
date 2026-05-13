@@ -109,6 +109,35 @@ private def tDuplicateAndBigRat (_ : Unit) : Outcome :=
         s!"bad duplicate/big-rat cert: x={repr x}, d={repr d}"
     | _, _, _ => .fail s!"unexpected solution: {repr s}"
 
+private def tVerboseLogCaptured (_ : Unit) : Outcome :=
+  let p := mkProblem 2 1
+    (c := #[1, 1])
+    (a := #[(0, 0, 1), (0, 1, 1)])
+    (rowBounds := #[(some 1, some 1)])
+    (colBounds := #[(some 0, none), (some 0, none)])
+  let opts := { noPresolve with verbose := true }
+  match solveExact opts p with
+  | .error e => .fail s!"solveExact failed: {repr e}"
+  | .ok s =>
+    -- Verbose mode must produce a non-empty log containing a recognisable
+    -- SoPlex signature substring. `"SoPlex"` (the banner / version line)
+    -- and `"Optimal"` (the optimization-summary marker) are both stable
+    -- across v8.0.x; either is accepted. `splitOn s` returns at least
+    -- two pieces iff `s` occurs as a substring.
+    let containsSub (needle : String) : Bool := (s.log.splitOn needle).length ≥ 2
+    let hasSig := containsSub "SoPlex" || containsSub "Optimal"
+    expect (s.log.length > 0 && hasSig)
+      s!"verbose log empty or missing SoPlex signature: {s.log}"
+
+private def tNonVerboseLogEmpty (_ : Unit) : Outcome :=
+  let p := mkProblem 2 1
+    (c := #[1, 1])
+    (a := #[(0, 0, 1), (0, 1, 1)])
+    (rowBounds := #[(some 1, some 1)])
+    (colBounds := #[(some 0, none), (some 0, none)])
+  solveChecked noPresolve p fun _ s =>
+    expect (s.log == "") s!"non-verbose log non-empty: {s.log}"
+
 private def tMaximize (_ : Unit) : Outcome :=
   let p := mkProblem 1 1
     (c := #[1])
@@ -130,7 +159,9 @@ def allTests : Array TestCase := #[
   ⟨"infeasible row and bounds", tInfeasibleRowAndBounds⟩,
   ⟨"unbounded", tUnbounded⟩,
   ⟨"duplicate sparse entries and big rationals", tDuplicateAndBigRat⟩,
-  ⟨"maximization canonicalization", tMaximize⟩
+  ⟨"maximization canonicalization", tMaximize⟩,
+  ⟨"verbose log captured", tVerboseLogCaptured⟩,
+  ⟨"non-verbose log empty", tNonVerboseLogEmpty⟩
 ]
 
 def main : IO UInt32 := do
