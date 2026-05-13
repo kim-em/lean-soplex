@@ -248,3 +248,7 @@ lean_exe «verify-tests» where
 lean_exe «solve-exact-tests» where
   root := `SolveExactTests
   moreLinkArgs := soplexRuntimeLinkArgs
+
+lean_exe «solve-float-tests» where
+  root := `SolveFloatTests
+  moreLinkArgs := soplexRuntimeLinkArgs

@@ -52,7 +52,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke
+        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests
 
       - name: Run smoke executable
         run: |
@@ -61,6 +61,12 @@ jobs:
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests
+        run: ./.lake/build/bin/solve-float-tests
 
   macos:
     name: macOS
@@ -111,7 +117,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke
+        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests
 
       - name: Run smoke executable
         run: |
@@ -120,6 +126,12 @@ jobs:
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests
+        run: ./.lake/build/bin/solve-float-tests
 
   windows:
     name: Windows (MSYS2 / mingw-w64)
@@ -184,10 +196,22 @@ jobs:
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build LeanSoplex soplex-smoke
+          lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests
 
           set +e
           ./.lake/build/bin/soplex-smoke.exe > /tmp/smoke.out 2>&1
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-exact-tests.exe
+
+      - name: Run solve-float-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-float-tests.exe

@@ -158,6 +158,63 @@ opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution :=
     |>.mapError solveErrorFromBridge
   pure (mapObjectiveForSense opts.sense sol)
 
+@[extern "lean_soplex_solve_float"]
+private opaque solveFloatFlat
+    (numVars numConstraints : UInt32)
+    (sense simplex : UInt8)
+    (hasTimeLimit : Bool) (timeLimit : Float)
+    (hasIterLimit : Bool) (iterLimit : UInt32)
+    (verbose : Bool) (randomSeed : UInt32)
+    (presolve : Bool)
+    (c : @& Array String) (objOffset : @& String)
+    (aRows aCols : @& ByteArray) (aVals : @& Array String)
+    (rowLoMask : @& ByteArray) (rowLo : @& Array String)
+    (rowHiMask : @& ByteArray) (rowHi : @& Array String)
+    (colLoMask : @& ByteArray) (colLo : @& Array String)
+    (colHiMask : @& ByteArray) (colHi : @& Array String) :
+    Except String FloatSolution
+
+private def mapFloatObjectiveForSense (sense : ObjSense) (s : FloatSolution) : FloatSolution :=
+  match sense with
+  | .minimize => s
+  | .maximize => { s with objective := s.objective.map Neg.neg }
+
+/-- Floating-point solve through SoPlex. Mirrors `solveExact`'s ABI
+    (decimal-string `Rat` marshalling) but builds the LP via
+    `addColReal` / `addRowReal` and runs SoPlex in its default mode.
+
+    The returned `primalAsRat` entries are exact rationals representing
+    the IEEE-754 doubles SoPlex computed (via `mpq_set_d`), **not**
+    decimal rationals and **not** verifier-grade certificates: e.g.
+    `0.1` round-trips as `7205759403792794 / 2^56`. The distinct
+    `FloatSolution` return type — separate from `Solution` — makes
+    feeding these into the certificate checker hard to do by accident. -/
+opaque solveFloat (opts : Options) (p : Problem) : Except SolveError FloatSolution := do
+  let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let p ← validate p |>.mapError SolveError.invalidProblem
+  let pSolve := canonicalize opts.sense p
+  let rows := pSolve.a.map (fun e => UInt32.ofNat e.1)
+  let cols := pSolve.a.map (fun e => UInt32.ofNat e.2.1)
+  let vals := pSolve.a.map (fun e => e.2.2)
+  let rowLo := pSolve.rowBounds.map Prod.fst
+  let rowHi := pSolve.rowBounds.map Prod.snd
+  let colLo := pSolve.colBounds.map Prod.fst
+  let colHi := pSolve.colBounds.map Prod.snd
+  let sol ← solveFloatFlat
+    (UInt32.ofNat pSolve.numVars) (UInt32.ofNat pSolve.numConstraints)
+    (objSenseTag .minimize) (simplexTag opts.simplex)
+    opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
+    opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
+    opts.verbose opts.randomSeed opts.presolve
+    (ratStrings pSolve.c) (toString pSolve.objOffset)
+    (packUInt32Array rows) (packUInt32Array cols) (ratStrings vals)
+    (optionRatMask rowLo) (optionRatStrings rowLo)
+    (optionRatMask rowHi) (optionRatStrings rowHi)
+    (optionRatMask colLo) (optionRatStrings colLo)
+    (optionRatMask colHi) (optionRatStrings colHi)
+    |>.mapError solveErrorFromBridge
+  pure (mapFloatObjectiveForSense opts.sense sol)
+
 /--
 Solve the equality-constrained LP
 

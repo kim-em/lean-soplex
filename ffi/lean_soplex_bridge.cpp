@@ -193,6 +193,29 @@ static lean_object *mk_rat_from_string(const std::string &s) {
   return mk_rat_from_mpq(q.q);
 }
 
+/*
+ * Build a Lean `Rat` from an IEEE-754 double via `mpq_set_d`. The result
+ * is the *exact* rational represented by the double's binary fraction,
+ * e.g. `0.1` becomes `7205759403792794 / 2^56`, not `1/10`. Used by
+ * `lean_soplex_solve_float` to surface SoPlex's `Real` primal values
+ * losslessly as rationals — never as a verifier-grade certificate.
+ */
+static lean_object *mk_rat_from_double(double d) {
+  Mpq q;
+  mpq_set_d(q.q, d);
+  mpq_canonicalize(q.q);
+  return mk_rat_from_mpq(q.q);
+}
+
+/*
+ * Parse a Lean-side decimal-string `Rat` to a `double`. Used by the
+ * float-mode bridge to feed `addColReal` / `addRowReal`.
+ */
+static double parse_rat_to_double(const std::string &s) {
+  Mpq q(s);
+  return mpq_get_d(q.q);
+}
+
 static lean_object *mk_array_from_mpqs(const std::vector<Mpq> &xs) {
   lean_object *a = lean_alloc_array(xs.size(), xs.size());
   lean_array_set_size(a, xs.size());
@@ -523,6 +546,180 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     lean_object *cert = mk_certificate(primal, dual, ray);
     lean_object *sol = mk_solution(status, objective, cert, logCap.str());
     return mk_except_ok(sol);
+  } catch (const std::exception &e) {
+    return mk_except_error(e.what());
+  } catch (...) {
+    return mk_except_error("unknown C++ exception");
+  }
+}
+
+/*
+ * Build a `some : Float → Option Float` Lean value. `Option` is a
+ * universe-polymorphic inductive, so its data argument is always
+ * passed as a boxed `lean_object *` — the `some` constructor has one
+ * object field, never a scalar Float slot. We therefore box the
+ * double with `lean_box_float` before storing.
+ */
+static lean_object *mk_some_float(double d) {
+  lean_object *o = lean_alloc_ctor(1, 1, 0);
+  lean_ctor_set(o, 0, lean_box_float(d));
+  return o;
+}
+
+/*
+ * Build a Lean `FloatSolution` value. The declaration is
+ *   structure FloatSolution where
+ *     status      : SolveStatus       -- enum, 1 scalar byte
+ *     primalAsRat : Option (Array Rat)
+ *     objective   : Option Float
+ *     log         : String
+ * Lean places object fields first (in declaration order), then scalars.
+ * So the ctor has 3 object slots followed by 1 byte of scalar data.
+ */
+static lean_object *mk_float_solution(
+    uint8_t status, lean_object *primalOpt, lean_object *objectiveOpt,
+    const std::string &log) {
+  lean_object *s = lean_alloc_ctor(0, 3, sizeof(uint8_t));
+  lean_ctor_set(s, 0, primalOpt);
+  lean_ctor_set(s, 1, objectiveOpt);
+  lean_ctor_set(s, 2, lean_mk_string(log.c_str()));
+  lean_ctor_set_uint8(s, sizeof(void *) * 3, status);
+  return s;
+}
+
+/*
+ * Float-mode solve. Mirrors `lean_soplex_solve_exact` structurally but
+ * builds the LP via `addColReal` / `addRowReal` and runs SoPlex in its
+ * default floating-point mode. The returned `primalAsRat` is the exact
+ * rational representation of each IEEE-754 double SoPlex produced
+ * (via `mpq_set_d`), not a decimal rational and not a verifier-grade
+ * certificate. See PLAN.md §"API".
+ *
+ * Marshalling helpers (`Mpq`, `mk_rat_from_mpq`, `mk_array_from_mpqs`,
+ * `mk_some` / `mk_none`, `mk_except_*`, `lean_string_at`,
+ * `byte_array_*`) are shared with `lean_soplex_solve_exact` above.
+ */
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    uint8_t /*sense*/, uint8_t simplex,
+    uint8_t hasTimeLimit, double timeLimit,
+    uint8_t hasIterLimit, uint32_t iterLimit,
+    uint8_t verbose, uint32_t randomSeed,
+    uint8_t presolve,
+    b_lean_obj_arg c_arr, b_lean_obj_arg /*objOffset*/,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
+  try {
+    const int numVars = static_cast<int>(numVars_u);
+    const int numConstraints = static_cast<int>(numConstraints_u);
+    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
+    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
+    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+
+    SoPlex solver;
+    solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
+    solver.setIntParam(SoPlex::SIMPLIFIER,
+        presolve ? SoPlex::SIMPLIFIER_INTERNAL : SoPlex::SIMPLIFIER_OFF);
+    solver.setIntParam(SoPlex::VERBOSITY,
+        verbose ? SoPlex::VERBOSITY_NORMAL : SoPlex::VERBOSITY_ERROR);
+    solver.setRandomSeed(randomSeed);
+    if (hasTimeLimit) solver.setRealParam(SoPlex::TIMELIMIT, timeLimit);
+    if (hasIterLimit) solver.setIntParam(SoPlex::ITERLIMIT, static_cast<int>(iterLimit));
+    if (simplex == 0) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_PRIMAL);
+    if (simplex == 1) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_DUAL);
+
+    std::vector<double> cVals;
+    cVals.reserve(numVars);
+    for (int j = 0; j < numVars; ++j) {
+      cVals.push_back(parse_rat_to_double(lean_string_at(c_arr, j)));
+    }
+
+    std::vector<double> aVals;
+    aVals.reserve(nnz);
+    for (size_t k = 0; k < nnz; ++k) {
+      aVals.push_back(parse_rat_to_double(lean_string_at(a_vals_arr, k)));
+    }
+
+    DSVector emptyCol(0);
+    for (int j = 0; j < numVars; ++j) {
+      double lo = byte_array_u8(colLoMask, j)
+          ? parse_rat_to_double(lean_string_at(colLo, j))
+          : -infinity;
+      double hi = byte_array_u8(colHiMask, j)
+          ? parse_rat_to_double(lean_string_at(colHi, j))
+          : infinity;
+      solver.addColReal(LPCol(cVals[j], emptyCol, hi, lo));
+    }
+
+    std::vector<DSVector> rows(numConstraints);
+    for (size_t k = 0; k < nnz; ++k) {
+      int r = a_rows[k];
+      int col = a_cols[k];
+      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
+        return mk_except_error("sparse index out of range");
+      }
+      rows[r].add(col, aVals[k]);
+    }
+
+    for (int i = 0; i < numConstraints; ++i) {
+      double lo = byte_array_u8(rowLoMask, i)
+          ? parse_rat_to_double(lean_string_at(rowLo, i))
+          : -infinity;
+      double hi = byte_array_u8(rowHiMask, i)
+          ? parse_rat_to_double(lean_string_at(rowHi, i))
+          : infinity;
+      solver.addRowReal(LPRow(lo, rows[i], hi));
+    }
+
+    SPxSolver::Status st = solver.optimize();
+    uint8_t status = 5; // numericFailure
+    lean_object *primal = mk_none();
+    lean_object *objective = mk_none();
+
+    switch (st) {
+      case SPxSolver::OPTIMAL:
+      case SPxSolver::OPTIMAL_UNSCALED_VIOLATIONS: {
+        status = 0;
+        std::vector<double> x(numVars);
+        if (!solver.getPrimalReal(x.data(), numVars)) {
+          throw std::runtime_error("SoPlex failed to return primal solution");
+        }
+        lean_object *arr = lean_alloc_array(numVars, numVars);
+        lean_array_set_size(arr, numVars);
+        for (int j = 0; j < numVars; ++j) {
+          lean_array_cptr(arr)[j] = mk_rat_from_double(x[j]);
+        }
+        primal = mk_some(arr);
+        objective = mk_some_float(solver.objValueReal());
+        break;
+      }
+      case SPxSolver::INFEASIBLE:
+        status = 1;
+        break;
+      case SPxSolver::UNBOUNDED:
+        status = 2;
+        break;
+      case SPxSolver::ABORT_TIME:
+        status = 3;
+        break;
+      case SPxSolver::ABORT_ITER:
+        status = 4;
+        break;
+      case SPxSolver::ABORT_VALUE:
+      case SPxSolver::SINGULAR:
+      case SPxSolver::NO_RATIOTESTER:
+      case SPxSolver::REGULAR:
+        status = 5;
+        break;
+      default:
+        status = 7;
+        break;
+    }
+
+    return mk_except_ok(mk_float_solution(status, primal, objective, ""));
   } catch (const std::exception &e) {
     return mk_except_error(e.what());
   } catch (...) {
