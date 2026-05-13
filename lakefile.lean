@@ -259,10 +259,18 @@ lean_lib LeanSoplexVerify where
   roots := #[`LeanSoplex.Verify]
 
 /-- FFI binding. The `extern_lib leansoplex` produced above is linked
-    automatically. -/
+    automatically.
+
+    `precompileModules` is disabled under `-Ksanitize=1` because the
+    asan-instrumented `libleansoplex.so` would be `dlopen`-ed by an
+    *un*-instrumented `lean` host process during compilation, which
+    fails with `undefined symbol: __asan_init`.  With precompile off,
+    modules compile to `.olean` only and the bridge `.o` files get
+    linked directly into each `lean_exe` at exe-link time — where
+    `sanitizerArgs` already pull in the static asan runtime. -/
 @[default_target]
 lean_lib LeanSoplex where
-  precompileModules := true
+  precompileModules := !sanitizerEnabled
   moreLinkArgs := soplexRuntimeLinkArgs
 
 lean_exe «soplex-smoke» where
