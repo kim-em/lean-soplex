@@ -1,0 +1,72 @@
+/-
+  Denominator-budget check on certificate rationals.
+
+  PLAN.md §"User-facing driver" specifies a `denomBudget` parameter
+  on `solveVerified`: a ceiling on the combined `numerator + denominator`
+  bit length of every `Rat` coordinate in a returned `Certificate`.
+
+  The check is a pure `Bool` predicate so the user-facing driver can
+  wrap a `false` result as `Verified.unchecked .budgetExceeded` without
+  touching the certificate checker proper. `Rat` values produced by
+  core Lean are reduced by construction, so `num` and `den` can be
+  read directly without an explicit `gcd` normalisation step.
+-/
+
+import LeanSoplex.Verify.Types
+
+namespace Nat
+
+/-- Bit length of `n` in binary: the smallest `k` such that `n < 2^k`.
+    `bitLen 0 = 0`, `bitLen 1 = 1`, `bitLen 2 = 2`, `bitLen 3 = 2`,
+    `bitLen 4 = 3`, ... Not in core Lean as of `v4.29.1`; defined here
+    in terms of `Nat.log2` so the budget check is purely arithmetic. -/
+def bitLen (n : Nat) : Nat :=
+  if n = 0 then 0 else Nat.log2 n + 1
+
+end Nat
+
+namespace Rat
+
+/-- Combined numerator + denominator bit length of a reduced rational.
+    Matches the formula in PLAN.md §"User-facing driver":
+    `numerator.natAbs.bitLen + denominator.bitLen`. -/
+def bitLen (q : Rat) : Nat :=
+  q.num.natAbs.bitLen + q.den.bitLen
+
+end Rat
+
+namespace LeanSoplex.Verify
+
+open LeanSoplex
+
+@[inline] private def arrayWithinBudget (n : Nat) (xs : Array Rat) : Bool :=
+  xs.all (fun q => decide (q.bitLen ≤ n))
+
+@[inline] private def optionArrayWithinBudget
+    (n : Nat) (o : Option (Array Rat)) : Bool :=
+  match o with
+  | none    => true
+  | some xs => arrayWithinBudget n xs
+
+@[inline] private def dualWithinBudget
+    (n : Nat) (o : Option DualBundle) : Bool :=
+  match o with
+  | none   => true
+  | some d => arrayWithinBudget n d.rowLower
+           && arrayWithinBudget n d.rowUpper
+           && arrayWithinBudget n d.colLower
+           && arrayWithinBudget n d.colUpper
+
+/-- Every populated coordinate of `cert` satisfies `Rat.bitLen ≤ n`,
+    where `budget = some n`. `budget = none` disables the check
+    (always `true`). Used by `solveVerified` to wrap a `false` as
+    `Verified.unchecked .budgetExceeded`. -/
+def certificateWithinBudget (budget : Option Nat) (cert : Certificate) : Bool :=
+  match budget with
+  | none   => true
+  | some n =>
+    optionArrayWithinBudget n cert.primal
+    && dualWithinBudget n cert.dual
+    && optionArrayWithinBudget n cert.ray
+
+end LeanSoplex.Verify

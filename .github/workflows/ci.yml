@@ -52,7 +52,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke
+        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
 
       - name: Run smoke executable
         run: |
@@ -61,6 +61,25 @@ jobs:
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests
+        run: ./.lake/build/bin/solve-float-tests
+
+      - name: Run solve-verified-tests
+        run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Build and run accessor-goldens
+        run: |
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens
+
+      - name: Build and run file-io-tests
+        run: |
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests
 
   linux-asan:
     name: Linux ASan/UBSan
@@ -127,7 +146,9 @@ jobs:
 
       - name: Build sanitized Lean targets
         run: |
-          lake build -Ksanitize=1 LeanSoplex soplex-smoke solve-exact-tests
+          lake build -Ksanitize=1 LeanSoplex soplex-smoke \
+            solve-exact-tests solve-float-tests solve-verified-tests \
+            accessor-goldens file-io-tests
 
       - name: Run soplex-smoke under ASan/UBSan
         run: |
@@ -138,12 +159,19 @@ jobs:
           exit $rc
 
       - name: Run solve-exact-tests under ASan/UBSan
-        run: |
-          set +e
-          ./.lake/build/bin/solve-exact-tests > /tmp/solve.out 2>&1
-          rc=$?
-          tail -40 /tmp/solve.out
-          exit $rc
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests under ASan/UBSan
+        run: ./.lake/build/bin/solve-float-tests
+
+      - name: Run solve-verified-tests under ASan/UBSan
+        run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Run accessor-goldens under ASan/UBSan
+        run: ./.lake/build/bin/accessor-goldens
+
+      - name: Run file-io-tests under ASan/UBSan
+        run: ./.lake/build/bin/file-io-tests
 
   macos:
     name: macOS
@@ -194,7 +222,7 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke
+        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
 
       - name: Run smoke executable
         run: |
@@ -203,6 +231,25 @@ jobs:
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests
+        run: ./.lake/build/bin/solve-float-tests
+
+      - name: Run solve-verified-tests
+        run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Build and run accessor-goldens
+        run: |
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens
+
+      - name: Build and run file-io-tests
+        run: |
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests
 
   windows:
     name: Windows (MSYS2 / mingw-w64)
@@ -267,10 +314,42 @@ jobs:
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build LeanSoplex soplex-smoke
+          lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
 
           set +e
           ./.lake/build/bin/soplex-smoke.exe > /tmp/smoke.out 2>&1
           rc=$?
           tail -20 /tmp/smoke.out
           exit $rc
+
+      - name: Run solve-exact-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-exact-tests.exe
+
+      - name: Run solve-float-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-float-tests.exe
+
+      - name: Run solve-verified-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-verified-tests.exe
+
+      - name: Build and run accessor-goldens
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens.exe
+
+      - name: Build and run file-io-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests.exe

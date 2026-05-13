@@ -93,6 +93,50 @@ private def optionRatMask (xs : Array (Option Rat)) : ByteArray := Id.run do
 private def optionRatStrings (xs : Array (Option Rat)) : Array String :=
   xs.map (fun x => x.elim "0" toString)
 
+/-- Flat marshalling of a `Problem`'s sparse / bound data into the
+    ByteArray + decimal-string form the C++ bridge expects. Shared
+    between `solveExact`, `writeMps`, and `writeLp`. -/
+private structure ProblemFlat where
+  numVars        : UInt32
+  numConstraints : UInt32
+  c              : Array String
+  objOffset      : String
+  aRows          : ByteArray
+  aCols          : ByteArray
+  aVals          : Array String
+  rowLoMask      : ByteArray
+  rowLo          : Array String
+  rowHiMask      : ByteArray
+  rowHi          : Array String
+  colLoMask      : ByteArray
+  colLo          : Array String
+  colHiMask      : ByteArray
+  colHi          : Array String
+
+private def problemFlatten (p : Problem) : ProblemFlat :=
+  let rows  := p.a.map (fun e => UInt32.ofNat e.1)
+  let cols  := p.a.map (fun e => UInt32.ofNat e.2.1)
+  let vals  := p.a.map (fun e => e.2.2)
+  let rowLo := p.rowBounds.map Prod.fst
+  let rowHi := p.rowBounds.map Prod.snd
+  let colLo := p.colBounds.map Prod.fst
+  let colHi := p.colBounds.map Prod.snd
+  { numVars        := UInt32.ofNat p.numVars
+    numConstraints := UInt32.ofNat p.numConstraints
+    c              := ratStrings p.c
+    objOffset      := toString p.objOffset
+    aRows          := packUInt32Array rows
+    aCols          := packUInt32Array cols
+    aVals          := ratStrings vals
+    rowLoMask      := optionRatMask rowLo
+    rowLo          := optionRatStrings rowLo
+    rowHiMask      := optionRatMask rowHi
+    rowHi          := optionRatStrings rowHi
+    colLoMask      := optionRatMask colLo
+    colLo          := optionRatStrings colLo
+    colHiMask      := optionRatMask colHi
+    colHi          := optionRatStrings colHi }
+
 @[extern "lean_soplex_solve_exact"]
 private opaque solveExactFlat
     (numVars numConstraints : UInt32)
@@ -135,28 +179,155 @@ private def simplexTag : Simplex → UInt8
 opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution := do
   let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
   let p ← validate p |>.mapError SolveError.invalidProblem
-  let pSolve := canonicalize opts.sense p
-  let rows := pSolve.a.map (fun e => UInt32.ofNat e.1)
-  let cols := pSolve.a.map (fun e => UInt32.ofNat e.2.1)
-  let vals := pSolve.a.map (fun e => e.2.2)
-  let rowLo := pSolve.rowBounds.map Prod.fst
-  let rowHi := pSolve.rowBounds.map Prod.snd
-  let colLo := pSolve.colBounds.map Prod.fst
-  let colHi := pSolve.colBounds.map Prod.snd
+  let f := problemFlatten (canonicalize opts.sense p)
   let sol ← solveExactFlat
-    (UInt32.ofNat pSolve.numVars) (UInt32.ofNat pSolve.numConstraints)
+    f.numVars f.numConstraints
     (objSenseTag .minimize) (simplexTag opts.simplex)
     opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
     opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
     opts.verbose opts.randomSeed opts.precisionBoost opts.presolve
-    (ratStrings pSolve.c) (toString pSolve.objOffset)
-    (packUInt32Array rows) (packUInt32Array cols) (ratStrings vals)
-    (optionRatMask rowLo) (optionRatStrings rowLo)
-    (optionRatMask rowHi) (optionRatStrings rowHi)
-    (optionRatMask colLo) (optionRatStrings colLo)
-    (optionRatMask colHi) (optionRatStrings colHi)
+    f.c f.objOffset
+    f.aRows f.aCols f.aVals
+    f.rowLoMask f.rowLo
+    f.rowHiMask f.rowHi
+    f.colLoMask f.colLo
+    f.colHiMask f.colHi
     |>.mapError solveErrorFromBridge
   pure (mapObjectiveForSense opts.sense sol)
+
+@[extern "lean_soplex_solve_float"]
+private opaque solveFloatFlat
+    (numVars numConstraints : UInt32)
+    (sense simplex : UInt8)
+    (hasTimeLimit : Bool) (timeLimit : Float)
+    (hasIterLimit : Bool) (iterLimit : UInt32)
+    (verbose : Bool) (randomSeed : UInt32)
+    (presolve : Bool)
+    (c : @& Array String) (objOffset : @& String)
+    (aRows aCols : @& ByteArray) (aVals : @& Array String)
+    (rowLoMask : @& ByteArray) (rowLo : @& Array String)
+    (rowHiMask : @& ByteArray) (rowHi : @& Array String)
+    (colLoMask : @& ByteArray) (colLo : @& Array String)
+    (colHiMask : @& ByteArray) (colHi : @& Array String) :
+    Except String FloatSolution
+
+private def mapFloatObjectiveForSense (sense : ObjSense) (s : FloatSolution) : FloatSolution :=
+  match sense with
+  | .minimize => s
+  | .maximize => { s with objective := s.objective.map Neg.neg }
+
+/-- Floating-point solve through SoPlex. Mirrors `solveExact`'s ABI
+    (decimal-string `Rat` marshalling) but builds the LP via
+    `addColReal` / `addRowReal` and runs SoPlex in its default mode.
+
+    The returned `primalAsRat` entries are exact rationals representing
+    the IEEE-754 doubles SoPlex computed (via `mpq_set_d`), **not**
+    decimal rationals and **not** verifier-grade certificates: e.g.
+    `0.1` round-trips as `7205759403792794 / 2^56`. The distinct
+    `FloatSolution` return type — separate from `Solution` — makes
+    feeding these into the certificate checker hard to do by accident. -/
+opaque solveFloat (opts : Options) (p : Problem) : Except SolveError FloatSolution := do
+  let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let p ← validate p |>.mapError SolveError.invalidProblem
+  let f := problemFlatten (canonicalize opts.sense p)
+  let sol ← solveFloatFlat
+    f.numVars f.numConstraints
+    (objSenseTag .minimize) (simplexTag opts.simplex)
+    opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
+    opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
+    opts.verbose opts.randomSeed opts.presolve
+    f.c f.objOffset
+    f.aRows f.aCols f.aVals
+    f.rowLoMask f.rowLo
+    f.rowHiMask f.rowHi
+    f.colLoMask f.colLo
+    f.colHiMask f.colHi
+    |>.mapError solveErrorFromBridge
+  pure (mapFloatObjectiveForSense opts.sense sol)
+
+/-! ## MPS / LP file I/O.
+
+  Four `opaque` entry points wired to SoPlex's `SPxLPBase<Rational>`
+  format-specific readers / writers (see `ffi/lean_soplex_bridge.cpp`):
+
+  * Bridge-level failures (file not found, parse error, write error)
+    become `SolveError.parseError` carrying the path; the bridge
+    captures the error message.
+  * Reads return an *unvalidated* `Problem` — sparse entries appear in
+    the order SoPlex emits them. Callers that want the normalised form
+    should pass the result through `validate`.
+  * Writes pre-normalise via `validate`. A malformed `Problem` surfaces
+    as `SolveError.invalidProblem`.
+
+  Round-trip equivalence under `validate` is *structural-after-validate*,
+  not permutation-invariant: see `FileIoTests.lean`. Format-specific
+  caveats — notably `writeLp` expanding ranged rows into two non-ranged
+  rows — are SoPlex format properties, not bridge artefacts. -/
+
+@[extern "lean_soplex_read_mps_ffi"]
+private opaque readMpsImpl (path : @& String) : Except String Problem
+
+@[extern "lean_soplex_read_lp_ffi"]
+private opaque readLpImpl (path : @& String) : Except String Problem
+
+@[extern "lean_soplex_write_mps_ffi"]
+private opaque writeMpsFlat
+    (path : @& String)
+    (numVars numConstraints : UInt32)
+    (c : @& Array String) (objOffset : @& String)
+    (aRows aCols : @& ByteArray) (aVals : @& Array String)
+    (rowLoMask : @& ByteArray) (rowLo : @& Array String)
+    (rowHiMask : @& ByteArray) (rowHi : @& Array String)
+    (colLoMask : @& ByteArray) (colLo : @& Array String)
+    (colHiMask : @& ByteArray) (colHi : @& Array String) :
+    Except String Unit
+
+@[extern "lean_soplex_write_lp_ffi"]
+private opaque writeLpFlat
+    (path : @& String)
+    (numVars numConstraints : UInt32)
+    (c : @& Array String) (objOffset : @& String)
+    (aRows aCols : @& ByteArray) (aVals : @& Array String)
+    (rowLoMask : @& ByteArray) (rowLo : @& Array String)
+    (rowHiMask : @& ByteArray) (rowHi : @& Array String)
+    (colLoMask : @& ByteArray) (colLo : @& Array String)
+    (colHiMask : @& ByteArray) (colHi : @& Array String) :
+    Except String Unit
+
+/-- Parse a `Problem` from an MPS file via SoPlex's rational reader. -/
+opaque readMps (path : System.FilePath) : Except SolveError Problem :=
+  (readMpsImpl path.toString).mapError fun e => .parseError path.toString e
+
+/-- Write a `Problem` to an MPS file via SoPlex's rational writer.
+    The `Problem` is `validate`d before serialisation. -/
+opaque writeMps (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
+  let p ← validate p |>.mapError SolveError.invalidProblem
+  let s := path.toString
+  let f := problemFlatten p
+  writeMpsFlat s f.numVars f.numConstraints f.c f.objOffset
+    f.aRows f.aCols f.aVals
+    f.rowLoMask f.rowLo f.rowHiMask f.rowHi
+    f.colLoMask f.colLo f.colHiMask f.colHi
+    |>.mapError fun e => .parseError s e
+
+/-- Parse a `Problem` from an LP-format file via SoPlex's rational reader. -/
+opaque readLp (path : System.FilePath) : Except SolveError Problem :=
+  (readLpImpl path.toString).mapError fun e => .parseError path.toString e
+
+/-- Write a `Problem` to an LP-format file via SoPlex's rational writer.
+    The `Problem` is `validate`d before serialisation. Note that SoPlex's
+    LP-format writer expands a ranged row (both `lo` and `hi` finite,
+    `lo ≠ hi`) into two separate non-ranged rows. Use MPS for ranged
+    rows if you need structural round-trip. -/
+opaque writeLp (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
+  let p ← validate p |>.mapError SolveError.invalidProblem
+  let s := path.toString
+  let f := problemFlatten p
+  writeLpFlat s f.numVars f.numConstraints f.c f.objOffset
+    f.aRows f.aCols f.aVals
+    f.rowLoMask f.rowLo f.rowHiMask f.rowHi
+    f.colLoMask f.colLo f.colHiMask f.colHi
+    |>.mapError fun e => .parseError s e
 
 /--
 Solve the equality-constrained LP
@@ -181,5 +352,49 @@ def smokeSolve
     (floatArrayOfArray c) (floatArrayOfArray b)
     (packUInt32Array rows) (packUInt32Array cols)
     (floatArrayOfArray vals)
+
+/-! ## Verified-solve driver.
+
+  Composes `validateOptions`, `validate`, `solveExact`, and
+  `verifyOutcome` from `LeanSoplex.Verify.Driver`. See PLAN.md
+  §"User-facing driver".
+-/
+
+/-- Default `denomBudget` for `solveVerified`: combined numerator +
+    denominator bit length per rational coordinate. `10000` is comfortable
+    headroom over what well-behaved LPs produce while still ruling out
+    refinement runaway. -/
+def defaultDenomBudget : Option Nat := some 10000
+
+/-- Drive `validate`, `solveExact`, then the checker, packaged as a
+    `VerifiedSolve` carrying a real soundness-lemma proof.
+
+    * `validateOptions` and `validate` run first; either failure
+      surfaces as `Except.error`.
+    * `Options.presolve` is forced `false` internally — the checker
+      must run against the (normalised) input LP, not whatever
+      SoPlex's presolve transformed it into. See PLAN.md §"What this
+      catches" §4.
+    * `denomBudget` is a ceiling on the bit length of every rational
+      coordinate in the returned certificate; exceeding it yields
+      `Verified.unchecked .budgetExceeded`. `none` disables the check.
+    * The returned `normalized` field is `validate p`, the `Problem`
+      the proof is indexed by. Downstream code reasons about that
+      value, not about the raw user input.
+
+    Every failure path (non-terminal status, missing certificate
+    field, failed `check*`, budget overrun) lands in
+    `Verified.unchecked _`; the three positive constructors are only
+    populated from `checkOptimal_sound` / `checkInfeasible_sound` /
+    `checkUnbounded_sound`. -/
+def solveVerified (opts : Options) (p : Problem)
+    (denomBudget : Option Nat := defaultDenomBudget) :
+    Except SolveError (VerifiedSolve opts.sense) := do
+  let _ ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let normalized ← validate p |>.mapError SolveError.invalidProblem
+  let opts' := { opts with presolve := false }
+  let sol ← solveExact opts' normalized
+  pure { normalized
+         verified := verifyOutcome opts denomBudget normalized sol }
 
 end LeanSoplex

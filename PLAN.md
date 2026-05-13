@@ -626,6 +626,10 @@ non-verifying certificates. Required artifacts:
    rows; free / fixed / one-sided / boxed columns; min / max sense.
 3. Golden tests per row-sense × column-status combination, in CI.
 
+The translation is documented in `docs/accessors.md` for the
+pinned `v8.0.2` release; the goldens live in `AccessorGoldens.lean`
+(`lake exe accessor-goldens`) and run on every CI platform.
+
 ### Decisions (recorded for future implementers)
 
 - **Presolve.** `solveVerified` forces it off; `solveExact` defaults

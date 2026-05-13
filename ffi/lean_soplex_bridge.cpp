@@ -14,10 +14,12 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <lean/lean.h>
@@ -78,6 +80,67 @@ static inline std::string lean_string_at(b_lean_obj_arg arr, size_t i) {
   return std::string(lean_string_cstr(s));
 }
 
+/*
+ * RAII redirection of SoPlex's `spxout` to an in-memory buffer.
+ *
+ * When `enabled` is true, the constructor allocates an `ostringstream`
+ * and points every verbosity level's stream at it; the destructor
+ * restores the original stream pointers. When `enabled` is false the
+ * helper is a complete no-op: no allocation, no setStream calls, and
+ * `str()` returns an empty string.
+ *
+ * Designed for use around any SoPlex call site that wants to capture
+ * solver output — currently `solveExact`, with `solveFloat` to follow
+ * once issue #14 lands. The reference to `SoPlex` is non-owning; the
+ * solver must outlive this object. `SPxOut` stores raw, non-owning
+ * `std::ostream*` pointers, so the saved streams (typically the
+ * process-default `cout`/`cerr`) must outlive both the solver and
+ * this capture — true by default; only a custom caller-installed
+ * stream could violate it.
+ */
+class LogCapture {
+ public:
+  LogCapture(soplex::SoPlex &solver, bool enabled)
+      : solver_(solver), enabled_(enabled) {
+    if (!enabled_) return;
+    oss_.reset(new std::ostringstream());
+    for (int v = 0; v < kNumVerbLevels; ++v) {
+      auto verb = static_cast<soplex::SPxOut::Verbosity>(v);
+      saved_[v] = &solver_.spxout.getStream(verb);
+      solver_.spxout.setStream(verb, *oss_);
+    }
+  }
+  // Vendored `SPxOut::setStream` is non-throwing (a single pointer
+  // assignment), so restoration is safe to run during stack unwinding.
+  ~LogCapture() noexcept {
+    if (!enabled_) return;
+    for (int v = 0; v < kNumVerbLevels; ++v) {
+      auto verb = static_cast<soplex::SPxOut::Verbosity>(v);
+      solver_.spxout.setStream(verb, *saved_[v]);
+    }
+  }
+  LogCapture(const LogCapture &) = delete;
+  LogCapture &operator=(const LogCapture &) = delete;
+
+  std::string str() const {
+    return enabled_ ? oss_->str() : std::string{};
+  }
+
+ private:
+  // SoPlex's `Verbosity` enum is documented as a contiguous range
+  // `VERB_ERROR == 0` .. `VERB_INFO3 == 5`; see `soplex/spxout.h`.
+  static_assert(static_cast<int>(soplex::SPxOut::VERB_ERROR) == 0,
+                "SPxOut::VERB_ERROR must be 0");
+  static_assert(static_cast<int>(soplex::SPxOut::VERB_INFO3) == 5,
+                "SPxOut::VERB_INFO3 must be 5 (six contiguous verbosity levels)");
+  static constexpr int kNumVerbLevels = static_cast<int>(soplex::SPxOut::VERB_INFO3) + 1;
+
+  soplex::SoPlex &solver_;
+  bool enabled_;
+  std::unique_ptr<std::ostringstream> oss_;
+  std::ostream *saved_[kNumVerbLevels] = {};
+};
+
 class Mpq {
  public:
   mpq_t q;
@@ -130,6 +193,29 @@ static lean_object *mk_rat_from_mpq(const mpq_t q) {
 static lean_object *mk_rat_from_string(const std::string &s) {
   Mpq q(s);
   return mk_rat_from_mpq(q.q);
+}
+
+/*
+ * Build a Lean `Rat` from an IEEE-754 double via `mpq_set_d`. The result
+ * is the *exact* rational represented by the double's binary fraction,
+ * e.g. `0.1` becomes `7205759403792794 / 2^56`, not `1/10`. Used by
+ * `lean_soplex_solve_float` to surface SoPlex's `Real` primal values
+ * losslessly as rationals — never as a verifier-grade certificate.
+ */
+static lean_object *mk_rat_from_double(double d) {
+  Mpq q;
+  mpq_set_d(q.q, d);
+  mpq_canonicalize(q.q);
+  return mk_rat_from_mpq(q.q);
+}
+
+/*
+ * Parse a Lean-side decimal-string `Rat` to a `double`. Used by the
+ * float-mode bridge to feed `addColReal` / `addRowReal`.
+ */
+static double parse_rat_to_double(const std::string &s) {
+  Mpq q(s);
+  return mpq_get_d(q.q);
 }
 
 static lean_object *mk_array_from_mpqs(const std::vector<Mpq> &xs) {
@@ -290,6 +376,11 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
 
     SoPlex solver;
+    // Constructed before any parameter / LP-build call so the whole
+    // solveExact lifecycle (param-setting warnings, LP construction,
+    // optimize, result extraction) writes into the captured buffer
+    // when verbose. Non-verbose path is a no-op.
+    LogCapture logCap(solver, verbose != 0);
     solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
     solver.setIntParam(SoPlex::SOLVEMODE, SoPlex::SOLVEMODE_RATIONAL);
     solver.setIntParam(SoPlex::SYNCMODE, SoPlex::SYNCMODE_AUTO);
@@ -455,8 +546,182 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     }
 
     lean_object *cert = mk_certificate(primal, dual, ray);
-    lean_object *sol = mk_solution(status, objective, cert, "");
+    lean_object *sol = mk_solution(status, objective, cert, logCap.str());
     return mk_except_ok(sol);
+  } catch (const std::exception &e) {
+    return mk_except_error(e.what());
+  } catch (...) {
+    return mk_except_error("unknown C++ exception");
+  }
+}
+
+/*
+ * Build a `some : Float → Option Float` Lean value. `Option` is a
+ * universe-polymorphic inductive, so its data argument is always
+ * passed as a boxed `lean_object *` — the `some` constructor has one
+ * object field, never a scalar Float slot. We therefore box the
+ * double with `lean_box_float` before storing.
+ */
+static lean_object *mk_some_float(double d) {
+  lean_object *o = lean_alloc_ctor(1, 1, 0);
+  lean_ctor_set(o, 0, lean_box_float(d));
+  return o;
+}
+
+/*
+ * Build a Lean `FloatSolution` value. The declaration is
+ *   structure FloatSolution where
+ *     status      : SolveStatus       -- enum, 1 scalar byte
+ *     primalAsRat : Option (Array Rat)
+ *     objective   : Option Float
+ *     log         : String
+ * Lean places object fields first (in declaration order), then scalars.
+ * So the ctor has 3 object slots followed by 1 byte of scalar data.
+ */
+static lean_object *mk_float_solution(
+    uint8_t status, lean_object *primalOpt, lean_object *objectiveOpt,
+    const std::string &log) {
+  lean_object *s = lean_alloc_ctor(0, 3, sizeof(uint8_t));
+  lean_ctor_set(s, 0, primalOpt);
+  lean_ctor_set(s, 1, objectiveOpt);
+  lean_ctor_set(s, 2, lean_mk_string(log.c_str()));
+  lean_ctor_set_uint8(s, sizeof(void *) * 3, status);
+  return s;
+}
+
+/*
+ * Float-mode solve. Mirrors `lean_soplex_solve_exact` structurally but
+ * builds the LP via `addColReal` / `addRowReal` and runs SoPlex in its
+ * default floating-point mode. The returned `primalAsRat` is the exact
+ * rational representation of each IEEE-754 double SoPlex produced
+ * (via `mpq_set_d`), not a decimal rational and not a verifier-grade
+ * certificate. See PLAN.md §"API".
+ *
+ * Marshalling helpers (`Mpq`, `mk_rat_from_mpq`, `mk_array_from_mpqs`,
+ * `mk_some` / `mk_none`, `mk_except_*`, `lean_string_at`,
+ * `byte_array_*`) are shared with `lean_soplex_solve_exact` above.
+ */
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    uint8_t /*sense*/, uint8_t simplex,
+    uint8_t hasTimeLimit, double timeLimit,
+    uint8_t hasIterLimit, uint32_t iterLimit,
+    uint8_t verbose, uint32_t randomSeed,
+    uint8_t presolve,
+    b_lean_obj_arg c_arr, b_lean_obj_arg /*objOffset*/,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
+  try {
+    const int numVars = static_cast<int>(numVars_u);
+    const int numConstraints = static_cast<int>(numConstraints_u);
+    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
+    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
+    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+
+    SoPlex solver;
+    solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
+    solver.setIntParam(SoPlex::SIMPLIFIER,
+        presolve ? SoPlex::SIMPLIFIER_INTERNAL : SoPlex::SIMPLIFIER_OFF);
+    solver.setIntParam(SoPlex::VERBOSITY,
+        verbose ? SoPlex::VERBOSITY_NORMAL : SoPlex::VERBOSITY_ERROR);
+    solver.setRandomSeed(randomSeed);
+    if (hasTimeLimit) solver.setRealParam(SoPlex::TIMELIMIT, timeLimit);
+    if (hasIterLimit) solver.setIntParam(SoPlex::ITERLIMIT, static_cast<int>(iterLimit));
+    if (simplex == 0) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_PRIMAL);
+    if (simplex == 1) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_DUAL);
+
+    std::vector<double> cVals;
+    cVals.reserve(numVars);
+    for (int j = 0; j < numVars; ++j) {
+      cVals.push_back(parse_rat_to_double(lean_string_at(c_arr, j)));
+    }
+
+    std::vector<double> aVals;
+    aVals.reserve(nnz);
+    for (size_t k = 0; k < nnz; ++k) {
+      aVals.push_back(parse_rat_to_double(lean_string_at(a_vals_arr, k)));
+    }
+
+    DSVector emptyCol(0);
+    for (int j = 0; j < numVars; ++j) {
+      double lo = byte_array_u8(colLoMask, j)
+          ? parse_rat_to_double(lean_string_at(colLo, j))
+          : -infinity;
+      double hi = byte_array_u8(colHiMask, j)
+          ? parse_rat_to_double(lean_string_at(colHi, j))
+          : infinity;
+      solver.addColReal(LPCol(cVals[j], emptyCol, hi, lo));
+    }
+
+    std::vector<DSVector> rows(numConstraints);
+    for (size_t k = 0; k < nnz; ++k) {
+      int r = a_rows[k];
+      int col = a_cols[k];
+      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
+        return mk_except_error("sparse index out of range");
+      }
+      rows[r].add(col, aVals[k]);
+    }
+
+    for (int i = 0; i < numConstraints; ++i) {
+      double lo = byte_array_u8(rowLoMask, i)
+          ? parse_rat_to_double(lean_string_at(rowLo, i))
+          : -infinity;
+      double hi = byte_array_u8(rowHiMask, i)
+          ? parse_rat_to_double(lean_string_at(rowHi, i))
+          : infinity;
+      solver.addRowReal(LPRow(lo, rows[i], hi));
+    }
+
+    SPxSolver::Status st = solver.optimize();
+    uint8_t status = 5; // numericFailure
+    lean_object *primal = mk_none();
+    lean_object *objective = mk_none();
+
+    switch (st) {
+      case SPxSolver::OPTIMAL:
+      case SPxSolver::OPTIMAL_UNSCALED_VIOLATIONS: {
+        status = 0;
+        std::vector<double> x(numVars);
+        if (!solver.getPrimalReal(x.data(), numVars)) {
+          throw std::runtime_error("SoPlex failed to return primal solution");
+        }
+        lean_object *arr = lean_alloc_array(numVars, numVars);
+        lean_array_set_size(arr, numVars);
+        for (int j = 0; j < numVars; ++j) {
+          lean_array_cptr(arr)[j] = mk_rat_from_double(x[j]);
+        }
+        primal = mk_some(arr);
+        objective = mk_some_float(solver.objValueReal());
+        break;
+      }
+      case SPxSolver::INFEASIBLE:
+        status = 1;
+        break;
+      case SPxSolver::UNBOUNDED:
+        status = 2;
+        break;
+      case SPxSolver::ABORT_TIME:
+        status = 3;
+        break;
+      case SPxSolver::ABORT_ITER:
+        status = 4;
+        break;
+      case SPxSolver::ABORT_VALUE:
+      case SPxSolver::SINGULAR:
+      case SPxSolver::NO_RATIOTESTER:
+      case SPxSolver::REGULAR:
+        status = 5;
+        break;
+      default:
+        status = 7;
+        break;
+    }
+
+    return mk_except_ok(mk_float_solution(status, primal, objective, ""));
   } catch (const std::exception &e) {
     return mk_except_error(e.what());
   } catch (...) {
@@ -525,4 +790,392 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_smoke_solve_ffi(
   lean_ctor_set_float(result, sizeof(void *), objval);
   lean_ctor_set_uint32(result, sizeof(void *) + sizeof(double), static_cast<uint32_t>(rc));
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// MPS / LP file I/O.
+//
+// We use SoPlex's `SPxLPBase<Rational>` (a.k.a. `SPxLPRational`) directly
+// rather than going through the top-level `SoPlex::readFile` / `writeFile`
+// surface. Two reasons:
+//
+//  * Explicit format control. `SoPlex::readFile` dispatches on the
+//    `READMODE` parameter (REAL vs RATIONAL precision), and
+//    `writeFile`/`writeFileLPBase` dispatches LP vs MPS purely by the
+//    `.lp` / `.mps` filename suffix. We want the caller's choice of
+//    `readMps` / `readLp` / `writeMps` / `writeLp` to be honoured
+//    regardless of file extension.
+//  * `SPxLPBase<Rational>::readLPF` / `readMPS` / `writeLPF` / `writeMPS`
+//    are the natural format-specific entry points and they operate
+//    directly on the rational LP we want.
+//
+// Round-trip note: ranged rows survive MPS round-trip (RANGES section)
+// but `writeLPF` expands a ranged row into two non-ranged rows. That's a
+// SoPlex format-conversion property, not a bridge property; we don't
+// paper over it.
+// ---------------------------------------------------------------------------
+
+using SPxLPRat = SPxLPBase<Rational>;
+
+static lean_object *mk_nat_from_int(int n) {
+  return lean_unsigned_to_nat(static_cast<unsigned>(n));
+}
+
+static lean_object *mk_prod2(lean_object *a, lean_object *b) {
+  lean_object *p = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(p, 0, a);
+  lean_ctor_set(p, 1, b);
+  return p;
+}
+
+static std::string rational_to_string(const Rational &r) {
+  std::ostringstream os;
+  os << r;
+  return os.str();
+}
+
+static bool is_neg_infinity(const Rational &r) {
+  return r <= Rational(-infinity);
+}
+
+static bool is_pos_infinity(const Rational &r) {
+  return r >= Rational(infinity);
+}
+
+// Optional<String> representing a finite lower bound: empty string ⇔ none.
+// Decoupled from Lean allocation so we can do all C++-side / GMP-side
+// work (which is the throw-prone half) before any Lean ctor allocation.
+static std::string opt_lower_str(const Rational &r) {
+  return is_neg_infinity(r) ? std::string() : rational_to_string(r);
+}
+
+static std::string opt_upper_str(const Rational &r) {
+  return is_pos_infinity(r) ? std::string() : rational_to_string(r);
+}
+
+// Build an `Option Rat` Lean object from the encoded-string form above.
+static lean_object *mk_opt_rat(const std::string &s, bool present) {
+  return present ? mk_some(mk_rat_from_string(s)) : mk_none();
+}
+
+// Construct a `LeanSoplex.Problem` Lean object.
+//
+// `Problem` is a structure with the following fields in declaration order;
+// Lean lays out a structure as a single anonymous constructor with one
+// argument slot per field:
+//
+//   numVars        : Nat
+//   numConstraints : Nat
+//   c              : Array Rat
+//   objOffset      : Rat
+//   a              : Array (Nat × Nat × Rat)
+//   rowBounds      : Array (Option Rat × Option Rat)
+//   colBounds      : Array (Option Rat × Option Rat)
+static lean_object *mk_problem(
+    lean_object *numVars, lean_object *numConstraints,
+    lean_object *c, lean_object *objOffset,
+    lean_object *a, lean_object *rowBounds, lean_object *colBounds) {
+  lean_object *p = lean_alloc_ctor(0, 7, 0);
+  lean_ctor_set(p, 0, numVars);
+  lean_ctor_set(p, 1, numConstraints);
+  lean_ctor_set(p, 2, c);
+  lean_ctor_set(p, 3, objOffset);
+  lean_ctor_set(p, 4, a);
+  lean_ctor_set(p, 5, rowBounds);
+  lean_ctor_set(p, 6, colBounds);
+  return p;
+}
+
+// Walk an `SPxLPBase<Rational>` (already filled by `readLPF` / `readMPS`)
+// into our canonical `Problem` shape.
+//
+// SoPlex stores LPs internally in maximisation form, but `obj(j)`
+// returns the coefficient *as the file wrote it* regardless of sense
+// (it negates twice — once because storage is in max form, once because
+// the user-facing sense maps it back). Our `Problem` is always
+// interpreted as a minimisation problem (sense lives in `Options`), so
+// if the file said `Maximize` we must negate every objective coefficient
+// and the offset by hand. We do NOT call `lp.changeSense(MINIMIZE)` —
+// it would also flip the internal storage and re-apply on the next
+// `obj()` call, undoing exactly the change we want.
+//
+// Exception-safety note: every Rational is converted to its decimal
+// string representation in a first pass (this is where GMP / `mpq_get_str`
+// can throw). Only once all strings are in hand do we allocate Lean
+// constructors; from that point on we never throw, so partially built
+// Lean objects cannot leak.
+static lean_object *problem_from_lp(SPxLPRat &lp) {
+  const bool isMax = (lp.spxSense() == SPxLPRat::MAXIMIZE);
+  const int nVars = lp.nCols();
+  const int nCons = lp.nRows();
+
+  // Phase 1 — pull every Rational out as a std::string. Throws stay in
+  // this phase, before any Lean allocation has happened.
+  auto signedRat = [&](const Rational &r) -> std::string {
+    return isMax ? rational_to_string(-r) : rational_to_string(r);
+  };
+
+  std::string offsetStr = signedRat(lp.objOffset());
+  std::vector<std::string> cStrs(nVars);
+  for (int j = 0; j < nVars; ++j) cStrs[j] = signedRat(lp.obj(j));
+
+  std::vector<std::pair<std::string, std::string>> colBoundStrs(nVars);
+  std::vector<std::pair<bool, bool>> colBoundPresent(nVars);
+  for (int j = 0; j < nVars; ++j) {
+    const Rational &lo = lp.lower(j);
+    const Rational &hi = lp.upper(j);
+    colBoundPresent[j] = {!is_neg_infinity(lo), !is_pos_infinity(hi)};
+    colBoundStrs[j] = {opt_lower_str(lo), opt_upper_str(hi)};
+  }
+
+  std::vector<std::pair<std::string, std::string>> rowBoundStrs(nCons);
+  std::vector<std::pair<bool, bool>> rowBoundPresent(nCons);
+  // (row, col, value-string) — note the value strings, not Rationals.
+  std::vector<std::tuple<int, int, std::string>> entries;
+  for (int i = 0; i < nCons; ++i) {
+    const Rational &lhs = lp.lhs(i);
+    const Rational &rhs = lp.rhs(i);
+    rowBoundPresent[i] = {!is_neg_infinity(lhs), !is_pos_infinity(rhs)};
+    rowBoundStrs[i] = {opt_lower_str(lhs), opt_upper_str(rhs)};
+    const SVectorRational &row = lp.rowVector(i);
+    for (int k = 0; k < row.size(); ++k) {
+      entries.emplace_back(i, row.index(k), rational_to_string(row.value(k)));
+    }
+  }
+
+  // Phase 2 — pure Lean allocations. lean_alloc_* terminate on OOM
+  // rather than throwing, and `mk_rat_from_string` on a well-formed
+  // decimal string is non-throwing, so partial-allocation leaks are
+  // ruled out.
+  lean_object *cArr = lean_alloc_array(static_cast<size_t>(nVars), static_cast<size_t>(nVars));
+  lean_array_set_size(cArr, static_cast<size_t>(nVars));
+  for (int j = 0; j < nVars; ++j) {
+    lean_array_cptr(cArr)[j] = mk_rat_from_string(cStrs[j]);
+  }
+
+  lean_object *colB = lean_alloc_array(static_cast<size_t>(nVars), static_cast<size_t>(nVars));
+  lean_array_set_size(colB, static_cast<size_t>(nVars));
+  for (int j = 0; j < nVars; ++j) {
+    lean_object *lo = mk_opt_rat(colBoundStrs[j].first, colBoundPresent[j].first);
+    lean_object *hi = mk_opt_rat(colBoundStrs[j].second, colBoundPresent[j].second);
+    lean_array_cptr(colB)[j] = mk_prod2(lo, hi);
+  }
+
+  lean_object *rowB = lean_alloc_array(static_cast<size_t>(nCons), static_cast<size_t>(nCons));
+  lean_array_set_size(rowB, static_cast<size_t>(nCons));
+  for (int i = 0; i < nCons; ++i) {
+    lean_object *lo = mk_opt_rat(rowBoundStrs[i].first, rowBoundPresent[i].first);
+    lean_object *hi = mk_opt_rat(rowBoundStrs[i].second, rowBoundPresent[i].second);
+    lean_array_cptr(rowB)[i] = mk_prod2(lo, hi);
+  }
+
+  const size_t nnz = entries.size();
+  lean_object *aArr = lean_alloc_array(nnz, nnz);
+  lean_array_set_size(aArr, nnz);
+  for (size_t k = 0; k < nnz; ++k) {
+    const auto &e = entries[k];
+    lean_object *triple = mk_prod2(
+        mk_nat_from_int(std::get<0>(e)),
+        mk_prod2(mk_nat_from_int(std::get<1>(e)),
+                 mk_rat_from_string(std::get<2>(e))));
+    lean_array_cptr(aArr)[k] = triple;
+  }
+
+  return mk_problem(
+      mk_nat_from_int(nVars), mk_nat_from_int(nCons),
+      cArr, mk_rat_from_string(offsetStr),
+      aArr, rowB, colB);
+}
+
+enum class LpFormat { LP, MPS };
+
+static lean_obj_res read_lp_file(b_lean_obj_arg path_obj, LpFormat fmt) noexcept {
+  try {
+    const char *path = lean_string_cstr(path_obj);
+    std::ifstream in(path);
+    if (!in) {
+      return mk_except_error(std::string("cannot open file for read: ") + path);
+    }
+    SPxLPRat lp;
+    // SoPlex's reader/writer emit warnings via `SPX_MSG_WARNING((*spxout),
+    // ...)` which dereferences `spxout`. The default `SPxLPBase` ctor
+    // leaves `spxout` as `nullptr` (the `SoPlex` class normally wires
+    // its own SPxOut into the LP it owns), so standalone construction
+    // segfaults on the first warning. Give it a local sink; verbosity
+    // is set to ERROR so nothing actually prints unless the format
+    // parser is shouting about a real problem.
+    SPxOut spxout;
+    spxout.setVerbosity(SPxOut::VERB_ERROR);
+    lp.setOutstream(spxout);
+    NameSet rowNames;
+    NameSet colNames;
+    DIdxSet intVars;
+    const bool ok = (fmt == LpFormat::MPS)
+        ? lp.readMPS(in, &rowNames, &colNames, &intVars)
+        : lp.readLPF(in, &rowNames, &colNames, &intVars);
+    if (!ok) {
+      return mk_except_error(std::string("SoPlex failed to parse ")
+                             + (fmt == LpFormat::MPS ? "MPS" : "LP")
+                             + " file: " + path);
+    }
+    // Integer-marked variables would relax silently to continuous,
+    // changing the problem's meaning. Reject them; `Problem` has no
+    // integrality field, so we cannot faithfully represent them.
+    if (intVars.size() > 0) {
+      return mk_except_error(
+          std::string("integer variables are not supported (file: ") + path + ")");
+    }
+    return mk_except_ok(problem_from_lp(lp));
+  } catch (const std::exception &e) {
+    return mk_except_error(e.what());
+  } catch (...) {
+    return mk_except_error("unknown C++ exception");
+  }
+}
+
+// Build an `SPxLPBase<Rational>` from the flat Problem marshalling and
+// stream it out via `writeMPS` / `writeLPF`. Mirrors `lean_soplex_solve_exact`'s
+// LP-construction path (same `addColRational` / `addRowRational` shape,
+// same handling of optional bound masks) but does not call `optimize`.
+static lean_obj_res write_lp_file(
+    b_lean_obj_arg path_obj,
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    b_lean_obj_arg c_arr, b_lean_obj_arg objOffset_str,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi,
+    LpFormat fmt) noexcept {
+  try {
+    const char *path = lean_string_cstr(path_obj);
+    const int numVars = static_cast<int>(numVars_u);
+    const int numConstraints = static_cast<int>(numConstraints_u);
+    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
+    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
+    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+
+    SPxLPRat lp;
+    // See `read_lp_file` for why this `SPxOut` is necessary.
+    SPxOut spxout;
+    spxout.setVerbosity(SPxOut::VERB_ERROR);
+    lp.setOutstream(spxout);
+    lp.changeSense(SPxLPRat::MINIMIZE);
+
+    std::vector<Mpq> cVals;
+    cVals.reserve(numVars);
+    for (int j = 0; j < numVars; ++j) cVals.emplace_back(lean_string_at(c_arr, j));
+
+    std::vector<Mpq> aVals;
+    aVals.reserve(nnz);
+    for (size_t k = 0; k < nnz; ++k) aVals.emplace_back(lean_string_at(a_vals_arr, k));
+
+    DSVectorRational emptyCol(0);
+    for (int j = 0; j < numVars; ++j) {
+      Rational obj(cVals[j].q);
+      Rational lo = byte_array_u8(colLoMask, j)
+          ? Rational(Mpq(lean_string_at(colLo, j)).q)
+          : -Rational(infinity);
+      Rational hi = byte_array_u8(colHiMask, j)
+          ? Rational(Mpq(lean_string_at(colHi, j)).q)
+          : Rational(infinity);
+      lp.addCol(LPColRational(obj, emptyCol, hi, lo));
+    }
+
+    std::vector<std::vector<int>> rowIdx(numConstraints);
+    std::vector<std::vector<size_t>> rowValIdx(numConstraints);
+    for (size_t k = 0; k < nnz; ++k) {
+      int r = a_rows[k];
+      int col = a_cols[k];
+      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
+        return mk_except_error("sparse index out of range");
+      }
+      rowIdx[r].push_back(col);
+      rowValIdx[r].push_back(k);
+    }
+
+    for (int i = 0; i < numConstraints; ++i) {
+      Rational lo = byte_array_u8(rowLoMask, i)
+          ? Rational(Mpq(lean_string_at(rowLo, i)).q)
+          : -Rational(infinity);
+      Rational hi = byte_array_u8(rowHiMask, i)
+          ? Rational(Mpq(lean_string_at(rowHi, i)).q)
+          : Rational(infinity);
+      DSVectorRational vals(static_cast<int>(rowIdx[i].size()));
+      for (size_t t = 0; t < rowIdx[i].size(); ++t) {
+        vals.add(rowIdx[i][t], Rational(aVals[rowValIdx[i][t]].q));
+      }
+      lp.addRow(LPRowRational(lo, vals, hi));
+    }
+
+    // SoPlex's `writeLPF` and `writeMPS` for `Rational` do not emit
+    // `objOffset` (LP format has no syntax for it; MPS *can* express it
+    // via an RHS row against the N-row, which SoPlex reads but does not
+    // write). Silently dropping a nonzero offset on write would produce
+    // a file whose round-trip is mathematically wrong, so reject up
+    // front. Callers can rewrite the offset into an explicit auxiliary
+    // variable if they really need it on disk.
+    Mpq off(std::string(lean_string_cstr(objOffset_str)));
+    if (mpq_sgn(off.q) != 0) {
+      return mk_except_error(
+          "nonzero objOffset is not supported by SoPlex's MPS / LP writers; "
+          "rewrite as an auxiliary variable before writing");
+    }
+
+    std::ofstream out(path);
+    if (!out) {
+      return mk_except_error(std::string("cannot open file for write: ") + path);
+    }
+    if (fmt == LpFormat::MPS) {
+      lp.writeMPS(out, nullptr, nullptr, nullptr, /*writeZeroObjective=*/true);
+    } else {
+      lp.writeLPF(out, nullptr, nullptr, nullptr, /*writeZeroObjective=*/true);
+    }
+    if (!out) {
+      return mk_except_error(std::string("error writing file: ") + path);
+    }
+    return mk_except_ok(lean_box(0));
+  } catch (const std::exception &e) {
+    return mk_except_error(e.what());
+  } catch (...) {
+    return mk_except_error("unknown C++ exception");
+  }
+}
+
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_read_mps_ffi(b_lean_obj_arg path_obj) noexcept {
+  return read_lp_file(path_obj, LpFormat::MPS);
+}
+
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_read_lp_ffi(b_lean_obj_arg path_obj) noexcept {
+  return read_lp_file(path_obj, LpFormat::LP);
+}
+
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_write_mps_ffi(
+    b_lean_obj_arg path_obj,
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    b_lean_obj_arg c_arr, b_lean_obj_arg objOffset_str,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
+  return write_lp_file(path_obj, numVars_u, numConstraints_u, c_arr, objOffset_str,
+                       a_rows_arr, a_cols_arr, a_vals_arr,
+                       rowLoMask, rowLo, rowHiMask, rowHi,
+                       colLoMask, colLo, colHiMask, colHi, LpFormat::MPS);
+}
+
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_write_lp_ffi(
+    b_lean_obj_arg path_obj,
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    b_lean_obj_arg c_arr, b_lean_obj_arg objOffset_str,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
+  return write_lp_file(path_obj, numVars_u, numConstraints_u, c_arr, objOffset_str,
+                       a_rows_arr, a_cols_arr, a_vals_arr,
+                       rowLoMask, rowLo, rowHiMask, rowHi,
+                       colLoMask, colLo, colHiMask, colHi, LpFormat::LP);
 }
