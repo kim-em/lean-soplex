@@ -143,17 +143,33 @@ def dualNonnegAndZeroWhereAbsent {m n : Nat}
 def arraySub (a b : Array Rat) : Array Rat :=
   if a.size = b.size then Array.zipWith (· - ·) a b else #[]
 
+/-- Vector-typed componentwise subtraction. Same as `arraySub` but the
+    type signature rules out the length-mismatch case at the boundary
+    instead of pushing it to a runtime `if`. -/
+@[inline] def vSub {n : Nat} (a b : Vector Rat n) : Vector Rat n :=
+  Vector.zipWith (· - ·) a b
+
+/-- Vector-typed dot product. Same as `dot` but the type rules out the
+    length-mismatch case, so there is no `if a.size = b.size` guard
+    and no zero-on-mismatch fallback. -/
+@[inline] def vDot {n : Nat} (a b : Vector Rat n) : Rat :=
+  (Vector.zipWith (· * ·) a b).toArray.foldl (· + ·) 0
+
 /-- Equality of two `Array Rat`s. Implemented as a size precheck plus
     a pairwise comparison over `Array.zip` so the soundness layer can
     extract size and per-index equality via `Array.all_eq_true`. -/
 def arrayEq (a b : Array Rat) : Bool :=
   decide (a.size = b.size) && (a.zip b).all (fun ⟨x, y⟩ => x == y)
 
-/-- Stationarity check: `Aᵀ(yL − yU) + (zL − zU) = c`. -/
+/-- Stationarity check: `Aᵀ(yL − yU) + (zL − zU) = c`. The dual
+    differences are computed in `Vector` form (no length-mismatch
+    branch); `evalATy` and the final `arrayEq` still operate on
+    `Array Rat` because `p.c` is an array and `evalATy`'s output
+    size is parameterised by `p` rather than the input. -/
 def isStationary {m n : Nat} (p : Problem) (d : DualBundle m n) : Bool :=
-  let aty := evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)
-  let zdiff := arraySub d.colLower.toArray d.colUpper.toArray
-  arrayEq (Array.zipWith (· + ·) aty zdiff) p.c
+  let aty := evalATy p (vSub d.rowLower d.rowUpper).toArray
+  let zdiff := vSub d.colLower d.colUpper
+  arrayEq (Array.zipWith (· + ·) aty zdiff.toArray) p.c
 
 /-- Dual feasibility for the optimality certificate. -/
 def isDualFeasible {m n : Nat} (p : Problem) (d : DualBundle m n) : Bool :=
@@ -162,10 +178,10 @@ def isDualFeasible {m n : Nat} (p : Problem) (d : DualBundle m n) : Bool :=
 /-- Farkas (homogeneous) dual feasibility: same shape, but with
     stationarity `Aᵀ(yL − yU) + (zL − zU) = 0` instead of `= c`. -/
 def isFarkasFeasible {m n : Nat} (p : Problem) (d : DualBundle m n) : Bool :=
-  let aty := evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)
-  let zdiff := arraySub d.colLower.toArray d.colUpper.toArray
+  let aty := evalATy p (vSub d.rowLower d.rowUpper).toArray
+  let zdiff := vSub d.colLower d.colUpper
   dualNonnegAndZeroWhereAbsent p d
-  && (Array.zipWith (· + ·) aty zdiff).all (· == 0)
+  && (Array.zipWith (· + ·) aty zdiff.toArray).all (· == 0)
 
 /-! ## Objective values. -/
 

@@ -254,6 +254,46 @@ theorem arraySub_get!_of_eq
   rw [Array.getElem_zipWith]
   rw [← getElem!_pos a i hi, ← getElem!_pos b i hib]
 
+/-! ## Vector-lifted analogues of `arraySub` / `dot` / `evalAx` / `evalATy`.
+
+  The proof obligations that the Array versions need (size match,
+  in-range index, output-size lemma) come for free when the inputs
+  and outputs are `Vector Rat n`: sizes are part of the type. These
+  bridges connect the two views so callers can use the type-safe
+  Vector form without rewriting every soundness lemma. -/
+
+/-- `(vSub a b).toArray` agrees with `arraySub` on the underlying
+    arrays. -/
+theorem vSub_toArray {n : Nat} (a b : Vector Rat n) :
+    (vSub a b).toArray = arraySub a.toArray b.toArray := by
+  unfold vSub arraySub
+  rw [Vector.toArray_zipWith]
+  rw [if_pos (by rw [a.size_toArray, b.size_toArray])]
+
+/-- `vDot` agrees with `dot` on the underlying arrays — the Vector
+    form has no size-mismatch fallback, but on equally-sized inputs
+    they compute the same sum. -/
+theorem vDot_eq_dot {n : Nat} (a b : Vector Rat n) :
+    vDot a b = dot a.toArray b.toArray := by
+  unfold vDot dot
+  rw [if_pos (by rw [a.size_toArray, b.size_toArray])]
+  rw [Vector.toArray_zipWith]
+
+/-- `Aᵀy` as a `Vector Rat p.numVars`. Wraps `evalATy` together with
+    its `_size` lemma so callers never re-derive the output size. -/
+def vEvalATy (p : Problem) {k : Nat} (y : Vector Rat k) : Vector Rat p.numVars :=
+  ⟨evalATy p y.toArray, evalATy_size p y.toArray⟩
+
+/-- `Ax` as a `Vector Rat p.numConstraints`, dual to `vEvalATy`. -/
+def vEvalAx (p : Problem) {k : Nat} (x : Vector Rat k) : Vector Rat p.numConstraints :=
+  ⟨evalAx p x.toArray, evalAx_size p x.toArray⟩
+
+@[simp] theorem vEvalAx_toArray (p : Problem) {k : Nat} (x : Vector Rat k) :
+    (vEvalAx p x).toArray = evalAx p x.toArray := rfl
+
+@[simp] theorem vEvalATy_toArray (p : Problem) {k : Nat} (y : Vector Rat k) :
+    (vEvalATy p y).toArray = evalATy p y.toArray := rfl
+
 /-! ## Sparse bilinear identity.
 
   Core Lean does not expose the Mathlib-style finite-sum API used for
@@ -841,6 +881,9 @@ theorem isStationary_imp
     (h : isStationary p d = true) :
     StationarityAgainst p d p.c := by
   unfold isStationary at h
+  -- Translate Vector ops back to their Array forms so the existing
+  -- size lemmas apply unchanged.
+  simp only [vSub_toArray] at h
   -- Sizes of the inner foldl / zipWith.
   have hRowEq : d.rowLower.toArray.size = d.rowUpper.toArray.size :=
     hDual.rowLower_size.trans hDual.rowUpper_size.symm
@@ -981,6 +1024,7 @@ theorem isFarkasFeasible_imp
   unfold isFarkasFeasible at h
   rw [Bool.and_eq_true] at h
   obtain ⟨hNonneg, hZero⟩ := h
+  simp only [vSub_toArray] at hZero
   have hDual := dualNonnegAndZeroWhereAbsent_imp hNonneg
   -- Sizes.
   have hRowEq : d.rowLower.toArray.size = d.rowUpper.toArray.size :=
