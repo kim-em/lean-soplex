@@ -462,6 +462,46 @@ def tTotalityDualSizeMismatch : Outcome :=
     , colLower := #[0], colUpper := #[0, 0] }
   expectFalse (checkOptimal p x d)
 
+/-! ## Denominator-budget check. -/
+
+/-- A representative small certificate: single-digit numerators and
+    denominators throughout. `Rat.bitLen` is at most a handful of bits
+    on every coordinate, so a budget of `10000` is wildly generous. -/
+private def smallCertificate : Certificate :=
+  { primal := some #[(1 : Rat) / 2, 3, -7 / 4]
+    dual := some
+      { rowLower := #[0, 1]
+        rowUpper := #[0, 0]
+        colLower := #[(2 : Rat) / 3, 0, 0]
+        colUpper := #[0, 0, 0] }
+    ray := none }
+
+def tBudgetSmallPasses : Outcome :=
+  expectTrue (certificateWithinBudget (some 10000) smallCertificate)
+
+def tBudgetNoneAlwaysPasses : Outcome :=
+  expectTrue (certificateWithinBudget none smallCertificate)
+
+/-- A certificate with a hand-constructed large rational. `1234567 / 89`
+    is reduced (1234567 is not divisible by 89) with combined bit length
+    21 + 7 = 28, well over the budget of 5. -/
+def tBudgetLargeRejected : Outcome :=
+  let big : Rat := (1234567 : Rat) / 89
+  let cert : Certificate :=
+    { primal := some #[big], dual := none, ray := none }
+  expectFalse (certificateWithinBudget (some 5) cert)
+
+/-- Pin the `Rat.bitLen` convention: zero has `num = 0` and `den = 1`,
+    so the formula gives `0 + 1 = 1`. Integers always pick up the
+    `den = 1` bit. -/
+def tBudgetBitLenConvention : Outcome :=
+  let r0 : Rat := 0
+  let r1 : Rat := 1
+  let r3 : Rat := 3
+  let rNeg : Rat := -7 / 4
+  expect (r0.bitLen = 1 && r1.bitLen = 2 && r3.bitLen = 3 && rNeg.bitLen = 6)
+    s!"Rat.bitLen pins: 0→{r0.bitLen} 1→{r1.bitLen} 3→{r3.bitLen} -7/4→{rNeg.bitLen}"
+
 /-! ## Driver. -/
 
 def allTests : Array TestCase := #[
@@ -493,7 +533,11 @@ def allTests : Array TestCase := #[
   ⟨"totality: malformed rowBounds → false",         fun _ => tTotalityMalformedRowBounds⟩,
   ⟨"totality: sparse OOR → false",                  fun _ => tTotalitySparseOutOfRange⟩,
   ⟨"totality: checkInfeasible malformed → false",   fun _ => tTotalityInfeasibleMalformed⟩,
-  ⟨"totality: checkUnbounded malformed → false",    fun _ => tTotalityUnboundedMalformed⟩
+  ⟨"totality: checkUnbounded malformed → false",    fun _ => tTotalityUnboundedMalformed⟩,
+  ⟨"budget: small certificate within 10000",        fun _ => tBudgetSmallPasses⟩,
+  ⟨"budget: none disables the check",               fun _ => tBudgetNoneAlwaysPasses⟩,
+  ⟨"budget: large rationals rejected at 5",         fun _ => tBudgetLargeRejected⟩,
+  ⟨"budget: Rat.bitLen convention pinning",         fun _ => tBudgetBitLenConvention⟩
 ]
 
 def main : IO UInt32 := do
