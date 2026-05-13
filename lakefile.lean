@@ -244,3 +244,7 @@ lean_exe «soplex-smoke» where
 lean_exe «verify-tests» where
   root := `VerifyTests
   moreLinkArgs := #[]
+
+lean_exe «solve-exact-tests» where
+  root := `SolveExactTests
+  moreLinkArgs := soplexRuntimeLinkArgs

@@ -16,7 +16,11 @@
   certificate types) lands in subsequent commits per `PLAN.md`.
 -/
 
+import LeanSoplex.Verify
+
 namespace LeanSoplex
+
+open LeanSoplex.Verify
 
 /-- SoPlex's compile-time `SOPLEX_VERSION` macro, e.g. `802` for v8.0.2. -/
 @[extern "lean_soplex_version_ffi"]
@@ -76,6 +80,83 @@ private def floatArrayOfArray (xs : Array Float) : FloatArray := Id.run do
   let mut a := FloatArray.empty
   for x in xs do a := a.push x
   return a
+
+private def ratStrings (xs : Array Rat) : Array String :=
+  xs.map toString
+
+private def optionRatMask (xs : Array (Option Rat)) : ByteArray := Id.run do
+  let mut bs := ByteArray.empty
+  for x in xs do
+    bs := bs.push (if x.isSome then 1 else 0)
+  return bs
+
+private def optionRatStrings (xs : Array (Option Rat)) : Array String :=
+  xs.map (fun x => x.elim "0" toString)
+
+@[extern "lean_soplex_solve_exact"]
+private opaque solveExactFlat
+    (numVars numConstraints : UInt32)
+    (sense simplex : UInt8)
+    (hasTimeLimit : Bool) (timeLimit : Float)
+    (hasIterLimit : Bool) (iterLimit : UInt32)
+    (verbose : Bool) (randomSeed : UInt32)
+    (precisionBoost presolve : Bool)
+    (c : @& Array String) (objOffset : @& String)
+    (aRows aCols : @& ByteArray) (aVals : @& Array String)
+    (rowLoMask : @& ByteArray) (rowLo : @& Array String)
+    (rowHiMask : @& ByteArray) (rowHi : @& Array String)
+    (colLoMask : @& ByteArray) (colLo : @& Array String)
+    (colHiMask : @& ByteArray) (colHi : @& Array String) :
+    Except String Solution
+
+private def solveErrorFromBridge (e : String) : SolveError :=
+  .bridge e
+
+private def mapObjectiveForSense (sense : ObjSense) (s : Solution) : Solution :=
+  match sense with
+  | .minimize => s
+  | .maximize => { s with objective := s.objective.map Neg.neg }
+
+private def objSenseTag : ObjSense → UInt8
+  | .minimize => 0
+  | .maximize => 1
+
+private def simplexTag : Simplex → UInt8
+  | .primal => 0
+  | .dual => 1
+  | .auto => 2
+
+/-- Exact rational solve through SoPlex. The bridge receives rationals
+    as canonical decimal strings (`"n"` or `"n/d"`), deliberately avoiding
+    any dependence on Lean's small-vs-boxed integer representation across
+    the C++ ABI. For `.maximize`, the LP sent to SoPlex is the verifier's
+    minimization canonicalization; the reported objective is flipped back
+    into the caller's original sense. -/
+opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution := do
+  let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let p ← validate p |>.mapError SolveError.invalidProblem
+  let pSolve := canonicalize opts.sense p
+  let rows := pSolve.a.map (fun e => UInt32.ofNat e.1)
+  let cols := pSolve.a.map (fun e => UInt32.ofNat e.2.1)
+  let vals := pSolve.a.map (fun e => e.2.2)
+  let rowLo := pSolve.rowBounds.map Prod.fst
+  let rowHi := pSolve.rowBounds.map Prod.snd
+  let colLo := pSolve.colBounds.map Prod.fst
+  let colHi := pSolve.colBounds.map Prod.snd
+  let sol ← solveExactFlat
+    (UInt32.ofNat pSolve.numVars) (UInt32.ofNat pSolve.numConstraints)
+    (objSenseTag .minimize) (simplexTag opts.simplex)
+    opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
+    opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
+    opts.verbose opts.randomSeed opts.precisionBoost opts.presolve
+    (ratStrings pSolve.c) (toString pSolve.objOffset)
+    (packUInt32Array rows) (packUInt32Array cols) (ratStrings vals)
+    (optionRatMask rowLo) (optionRatStrings rowLo)
+    (optionRatMask rowHi) (optionRatStrings rowHi)
+    (optionRatMask colLo) (optionRatStrings colLo)
+    (optionRatMask colHi) (optionRatStrings colHi)
+    |>.mapError solveErrorFromBridge
+  pure (mapObjectiveForSense opts.sense sol)
 
 /--
 Solve the equality-constrained LP
