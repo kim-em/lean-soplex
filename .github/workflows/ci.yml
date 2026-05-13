@@ -52,14 +52,14 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
-      - name: Run smoke executable
+      - name: Run ffi-check executable
         run: |
           set +e
-          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests
@@ -149,16 +149,16 @@ jobs:
 
       - name: Build sanitized Lean targets
         run: |
-          lake build -Ksanitize=1 LeanSoplex soplex-smoke \
+          lake build -Ksanitize=1 LeanSoplex ffi-check \
             solve-exact-tests solve-float-tests solve-verified-tests \
             accessor-goldens file-io-tests
 
-      - name: Run soplex-smoke under ASan/UBSan
+      - name: Run ffi-check under ASan/UBSan
         run: |
           set +e
-          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -40 /tmp/smoke.out
+          tail -40 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests under ASan/UBSan
@@ -225,14 +225,14 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
-      - name: Run smoke executable
+      - name: Run ffi-check executable
         run: |
           set +e
-          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests
@@ -316,16 +316,16 @@ jobs:
           lake build verify-tests
           ./.lake/build/bin/verify-tests.exe
 
-      - name: Build LeanSoplex and run smoke executable
+      - name: Build LeanSoplex and run ffi-check executable
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+          lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
           set +e
-          ./.lake/build/bin/soplex-smoke.exe > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check.exe > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests

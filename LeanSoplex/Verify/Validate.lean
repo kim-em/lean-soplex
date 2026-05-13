@@ -1,8 +1,8 @@
 /-
   Pure-Lean validators for `Problem` and `Options`.
 
-  `validate` is the gatekeeper that everything entering the FFI or the
-  certificate checker passes through. It guarantees:
+  `validate` normalizes and rejects every `Problem` value before it
+  reaches the FFI or the certificate checker. It guarantees:
 
   * Every array field has the declared length.
   * Every sparse entry's `(row, col)` is in range.

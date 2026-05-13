@@ -1,7 +1,7 @@
 /*
  * lean_soplex.cpp — thin C++ glue from the plain-C bridge ABI to SoPlex.
  *
- * Scope today is intentionally narrow: a version accessor plus a smoke
+ * Scope today is intentionally narrow: a version accessor plus a toy LP
  * solve that exercises SoPlex enough to verify the build / link / runtime
  * pipeline on every CI platform. The real exact-mode API (and certificate
  * extraction) lives behind a separate set of entry points and lands in a
@@ -26,8 +26,8 @@ extern "C" int lean_soplex_version(void) {
 }
 
 /*
- * Cross-stdlib ABI smoke check. The Windows link uses
- * `-Wl,--allow-multiple-definition` to bridge a libstdc++ / libc++
+ * Cross-stdlib C++ ABI check. The Windows link uses
+ * `-Wl,--allow-multiple-definition` to paper over a libstdc++ / libc++
  * conflict (see lakefile.lean). The hack is only safe if libstdc++
  * definitions actually win at link time so the C++ runtime, exception
  * typeinfo, and vtable layouts match what the bridge / SoPlex objects
@@ -56,7 +56,7 @@ extern "C" int lean_soplex_exception_check(void) {
   return 3;
 }
 
-extern "C" int lean_soplex_smoke_solve(
+extern "C" int lean_soplex_ffi_check_solve(
     int32_t numVars,
     int32_t numConstraints,
     const double *c,

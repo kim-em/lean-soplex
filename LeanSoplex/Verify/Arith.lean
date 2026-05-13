@@ -1,18 +1,18 @@
 /-
-  Bespoke `Rat` / `Array` arithmetic + Bool→Prop bridges used by the
+  Bespoke `Rat` / `Array` arithmetic + Bool-to-Prop lemmas used by the
   soundness proofs in `LeanSoplex.Verify.Sound`.
 
   PLAN.md §"Lean shape" makes the verifier standalone — no Mathlib —
   so this file contains the small set of derived lemmas that core
   Lean 4 does not ship under the names mathlib provides, plus the
-  one-direction bridges that turn each `Bool` check from
+  one-direction lemmas that turn each `Bool` check from
   `LeanSoplex.Verify.Bool` into a usable `Prop` fact.
 
-  Scope of this module today: Rat helpers, the `arrayEq` bridge,
-  and the `problemShapeOk` bridge. The sparse-bilinear identity
+  Scope of this module today: Rat helpers, the `arrayEq` and
+  `problemShapeOk` Bool-to-Prop lemmas. The sparse-bilinear identity
   `dot y (evalAx p x) = dot (evalATy p y) x` and the rest of the
-  per-check bridges live alongside `weak_duality` (PR-B); they are
-  not used until the math layer needs them.
+  per-check Bool-to-Prop lemmas live alongside `weak_duality` (PR-B);
+  they are not used until the math layer needs them.
 -/
 
 import LeanSoplex.Verify.Bool
@@ -52,10 +52,10 @@ protected theorem sub_le_sub {a b c d : Rat} (h₁ : a ≤ b) (h₂ : d ≤ c) :
 
 end RatAux
 
-/-! ## `arrayEq` bridge.
+/-! ## `arrayEq` Bool-to-Prop lemma.
 
   `arrayEq` is the Bool-level equality check used by `isStationary`.
-  This bridge extracts a per-index Prop equality from the Bool true
+  This lemma extracts a per-index Prop equality from the Bool true
   hypothesis, which subsequent stationarity / Farkas reasoning
   consumes. -/
 
@@ -85,13 +85,13 @@ theorem arrayEq_true_imp_eq
   simp [Array.getElem_zip] at this
   exact this
 
-/-! ## `problemShapeOk` bridge. -/
+/-! ## `problemShapeOk` Bool-to-Prop lemma. -/
 
 /-- Bundled Prop-level shape predicate. `problemShapeOk p = true ↔`
     this, but only the forward direction is needed for soundness
     (we extract shape facts from a Bool hypothesis we already have).
     `validate` callers can also extract these facts from successful
-    validation, but the bridge is more useful for direct extraction. -/
+    validation; this lemma is more useful for direct extraction. -/
 structure ProblemShapeOk (p : Problem) : Prop where
   c_size : p.c.size = p.numVars
   colBounds_size : p.colBounds.size = p.numVars
@@ -116,7 +116,7 @@ theorem problemShapeOk_imp
   rw [Bool.and_eq_true] at this
   exact ⟨of_decide_eq_true this.1, of_decide_eq_true this.2⟩
 
-/-! ## Bridges for the new refactored Bool checks.
+/-! ## Bool-to-Prop lemmas for the new refactored Bool checks.
 
   Each lemma is a single-direction `Bool = true → Prop fact`. The
   Prop targets live in `LeanSoplex.Verify.Prop`. The bilinear
@@ -193,7 +193,8 @@ theorem dualNonnegAndZeroWhereAbsent_imp
 /-! ## Size lemmas for `evalAx` / `evalATy` / `arraySub`.
 
   These are the foundational size facts the soundness layer uses to
-  discharge index-in-range obligations when bridging Bool↔Prop. -/
+  discharge index-in-range obligations when applying the Bool-to-Prop
+  lemmas. -/
 
 /-- `applyAx` preserves the output array's size. -/
 theorem applyAx_size (x : Array Rat) (out : Array Rat)
@@ -833,7 +834,7 @@ theorem evalAx_addSmul_get!
   rw [← dot_y_evalAx_eq_dot_evalATy_x p e r hShape heSize hr]
   rw [hX, hR]
 
-/-! ## `isStationary` bridge.
+/-! ## `isStationary` Bool-to-Prop lemma.
 
   Translates the Bool-level array equality into the componentwise
   `StationarityAgainst p d p.c` Prop. The proof unpacks `arrayEq` to

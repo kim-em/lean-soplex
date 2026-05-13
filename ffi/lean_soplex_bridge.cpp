@@ -730,7 +730,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
 }
 
 /*
- * Smoke solve. Inputs:
+ * FFI-check toy LP solve. Inputs:
  *   c          : FloatArray of length numVars
  *   b          : FloatArray of length numConstraints
  *   a_rows     : ByteArray of int32 of length a_nnz
@@ -738,14 +738,14 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
  *   a_vals     : FloatArray of length a_nnz
  *
  * Returns a Lean structure
- *   { ret    : UInt32           -- 0 ok, 1 infeas, 2 unbounded, ~0 error
- *     obj    : Float
- *     primal : FloatArray }
+ *   { primal : FloatArray
+ *     ret    : UInt32           -- 0 ok, 1 infeas, 2 unbounded, ~0 error
+ *     obj    : Float }
  *
- * `ret = (uint32_t)-1` (i.e. 0xFFFFFFFF) is reserved for any bridge or
+ * `ret = (uint32_t)-1` (i.e. 0xFFFFFFFF) is reserved for any FFI-layer or
  * SoPlex error that didn't terminate normally.
  */
-extern "C" LEAN_EXPORT lean_obj_res lean_soplex_smoke_solve_ffi(
+extern "C" LEAN_EXPORT lean_obj_res lean_soplex_ffi_check_solve_ffi(
     b_lean_obj_arg c_arr,
     b_lean_obj_arg b_arr,
     b_lean_obj_arg a_rows,
@@ -761,7 +761,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_smoke_solve_ffi(
   double *primal_ptr = reinterpret_cast<double *>(lean_sarray_cptr(primal_out));
   double objval = 0.0;
 
-  int rc = lean_soplex_smoke_solve(
+  int rc = lean_soplex_ffi_check_solve(
       numVars, numConstraints,
       float_array_const_ptr(c_arr),
       float_array_const_ptr(b_arr),
@@ -773,7 +773,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_smoke_solve_ffi(
       &objval);
 
   /*
-   * Layout for `LeanSoplex.SmokeResult`:
+   * Layout for `LeanSoplex.FfiCheckResult`:
    *   primal : FloatArray   -- object field
    *   ret    : UInt32       -- scalar field
    *   obj    : Float        -- scalar field

@@ -80,7 +80,7 @@ ffi/lean_soplex.cpp           # C++ glue translating flat sparse LP data
 ffi/lean_soplex_bridge.cpp    # C-ABI entry points Lean calls
 LeanSoplex/Basic.lean         # opaque FFI declarations + Lean-side types
 LeanSoplex/Verify.lean        # pure-Lean certificate checkers (see below)
-Main.lean                     # worked examples (also used as smoke test)
+Main.lean                     # `ffi-check` executable: FFI runtime check (version, ABI, toy LP)
 lakefile.lean                 # build config; two lean_lib targets
                               # (LeanSoplex.Verify with no FFI dep, LeanSoplex with)
 .github/workflows/ci.yml      # Linux + macOS + Windows CI — MANDATORY
@@ -486,8 +486,8 @@ mismatch (wrong array lengths, sparse indices out of range, unequal
 that have not already run `validate` get a benign `false` rather
 than undefined behavior. Soundness lemmas
 (`checkOptimal_sound : checkOptimal p x d = true → IsFeasible p x ∧ IsOptimalMin p x`,
-analogously for `Infeasible`/`Unbounded`) bridge the `Bool` world to
-the `Prop` world.
+analogously for `Infeasible`/`Unbounded`) lift the `Bool` checks to
+their `Prop` counterparts.
 
 The one non-trivial proof obligation is **weak duality on `Rat`**:
 

@@ -134,7 +134,7 @@ def soplexRuntimeLinkArgs : Array String :=
     -- libraries so libc++ wins, exception throw/catch will break at
     -- runtime. `Main.lean` calls `LeanSoplex.exceptionCheck` (which
     -- throws `std::runtime_error`, catches via `std::exception &`,
-    -- and validates `what()`) before the smoke LP solve, so a wrong
+    -- and validates `what()`) before the toy LP solve, so a wrong
     -- C++ ABI shows up as a CI failure rather than a silently
     -- corrupted DLL.
     --
@@ -280,7 +280,10 @@ lean_lib LeanSoplex where
   precompileModules := !sanitizerEnabled
   moreLinkArgs := soplexRuntimeLinkArgs
 
-lean_exe «soplex-smoke» where
+/-- End-to-end FFI runtime check: prints the SoPlex version, runs the
+    cross-stdlib ABI throw/catch test, and solves a toy LP. Used by CI
+    to confirm the binding links, loads, and computes on every platform. -/
+lean_exe «ffi-check» where
   root := `Main
   moreLinkArgs := soplexRuntimeLinkArgs
 

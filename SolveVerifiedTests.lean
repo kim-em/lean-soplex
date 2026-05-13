@@ -251,7 +251,7 @@ private def tFailedCheckOptimal (_ : Unit) : Outcome :=
 
 /-- Non-terminal statuses pass straight through to `.unchecked status`,
     even when the certificate happens to be over budget — the budget
-    check is gated on a terminal status, not applied unconditionally. -/
+    check only runs when the status is terminal, not unconditionally. -/
 private def tNonTerminalPreservesStatus (_ : Unit) : Outcome :=
   let sol : Solution :=
     { status := .timeLimit, objective := none

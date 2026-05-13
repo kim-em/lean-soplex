@@ -71,7 +71,7 @@ def IsUnboundedMin (p : Problem) : Prop :=
 
   Mirrors the Bool checks in `LeanSoplex.Verify.Bool` but at the Prop
   level so the soundness proofs can talk about them without
-  unfolding `Array.all`/`arrayEq`. Bridges Bool↔Prop live in
+  unfolding `Array.all`/`arrayEq`. The Bool-to-Prop lemmas live in
   `LeanSoplex.Verify.Arith`. -/
 
 /-- Componentwise nonnegativity plus zero-where-the-matching-bound-is-

@@ -8,10 +8,11 @@ boosting) LP solving wrapped behind a **pure-Lean certificate checker**,
 so the bindings can be trusted independently of the solver. See
 [`PLAN.md`](./PLAN.md) for the full design and trust model.
 
-This README documents the v0 state: the build pipeline and a smoke test
-that confirms SoPlex compiles, links, and runs on Linux, macOS, and
-Windows. The full FFI surface (`solveExact`, `solveFloat`, file I/O, the
-certificate verifier) lands in subsequent commits.
+This README documents the v0 state: the build pipeline and an
+end-to-end FFI runtime check (`ffi-check`) that confirms SoPlex
+compiles, links, loads, and computes on Linux, macOS, and Windows. The
+full FFI surface (`solveExact`, `solveFloat`, file I/O, the certificate
+verifier) lands in subsequent commits.
 
 ## Status
 
@@ -40,16 +41,16 @@ cd lean-soplex
 # Skip on Linux / macOS.
 [ "$OSTYPE" = "msys" ] && ./scripts/stage-mingw-libs.sh
 ./scripts/build-soplex.sh    # compiles SoPlex via its bundled CMake
-lake build soplex-smoke      # builds the Lean binding + smoke test
-./.lake/build/bin/soplex-smoke
+lake build ffi-check         # builds the Lean binding + FFI runtime check
+./.lake/build/bin/ffi-check
 ```
 
-The smoke test prints SoPlex's version, solves a toy LP, and exits 0
-on success.
+`ffi-check` prints SoPlex's version, runs a cross-stdlib C++ ABI
+throw/catch test, solves a toy LP, and exits 0 on success.
 
 The first `build-soplex.sh` invocation is slow (~1–3 min to compile
 SoPlex). Subsequent runs are nearly instant — CMake reuses its cache,
-and Lake only recompiles the bridge if its `.cpp` files change.
+and Lake only recompiles the FFI `.cpp` files if they change.
 
 ## Trust model
 
@@ -79,7 +80,7 @@ ffi/lean_soplex_bridge.cpp    # extern "C" entry points Lean calls
 ffi/lean_soplex.h             # C ABI between the two .cpp files above
 LeanSoplex/Basic.lean         # opaque FFI declarations + Lean-side types
 LeanSoplex/Verify.lean        # pure-Lean certificate checker (stub)
-Main.lean                     # smoke-test executable
+Main.lean                     # `ffi-check` executable (FFI runtime check)
 lakefile.lean                 # Lake build config (two lean_lib targets)
 scripts/build-soplex.sh       # invokes SoPlex's CMake, extracts objects
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer

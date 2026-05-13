@@ -13,9 +13,8 @@
   * `LeanSoplex.Verify.Bool`      — decidable `is*` / `check*` checks.
   * `LeanSoplex.Verify.Budget`    — `certificateWithinBudget`: ceiling
                                     on rational coordinate bit lengths.
-  * `LeanSoplex.Verify.Arith`     — Rat / Array toolkit and Bool→Prop
-                                    bridge lemmas used by the soundness
-                                    layer.
+  * `LeanSoplex.Verify.Arith`     — Rat / Array toolkit and Bool-to-Prop
+                                    lemmas used by the soundness layer.
   * `LeanSoplex.Verify.Prop`      — mathematical `IsFeasible` etc.
   * `LeanSoplex.Verify.Sound`     — soundness theorems for accepted
                                     certificates.
