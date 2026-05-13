@@ -12,7 +12,7 @@
   read directly without an explicit `gcd` normalisation step.
 -/
 
-import LeanSoplex.Verify.Types
+import Soplex.Verify.Types
 
 namespace Nat
 
@@ -35,9 +35,9 @@ def bitLen (q : Rat) : Nat :=
 
 end Rat
 
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
-open LeanSoplex
+open Soplex
 
 @[inline] private def vectorWithinBudget {k : Nat}
     (n : Nat) (xs : Vector Rat k) : Bool :=
@@ -71,4 +71,4 @@ def certificateWithinBudget {m n_ : Nat}
     && dualWithinBudget n cert.dual
     && optionVectorWithinBudget n cert.ray
 
-end LeanSoplex.Verify
+end Soplex.Verify

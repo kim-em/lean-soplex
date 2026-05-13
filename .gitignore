@@ -3,5 +3,8 @@
 /build
 /build-soplex
 /vendor/mingw-libs
+/soplex-ffi/.lake
+/soplex-ffi/build-soplex
+/soplex-ffi/vendor/mingw-libs
 *.swp
 .DS_Store

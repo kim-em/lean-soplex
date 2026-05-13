@@ -4,9 +4,9 @@
   prove (literally — the `h` field is a real soundness-lemma
   proof) optimality / infeasibility / unboundedness.
 -/
-import LeanSoplex
+import Soplex
 
-open LeanSoplex LeanSoplex.Verify
+open Soplex Soplex.Verify
 
 inductive Outcome
   | ok

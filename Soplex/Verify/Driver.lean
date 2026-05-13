@@ -2,24 +2,24 @@
   User-facing verified-solve driver: data types and the pure
   Solution→Verified mapping.
 
-  The `solveVerified` glue in `LeanSoplex.Basic` chains
+  The `solveVerified` glue in `Soplex.Basic` chains
   `validateOptions`, `validate`, and `solveExact`, then defers to
   `verifyOutcome` (below) for the certificate-by-certificate
   bookkeeping. Keeping that bookkeeping in this file (which has no
   FFI dependency) lets the soundness story sit entirely in the
-  pure-Lean `LeanSoplexVerify` library: the FFI side only contributes
+  pure-Lean `SoplexVerify` library: the FFI side only contributes
   the `Solution` value.
 
   See `PLAN.md` §"User-facing driver".
 -/
 
-import LeanSoplex.Verify.Prop
-import LeanSoplex.Verify.Sound
-import LeanSoplex.Verify.Budget
+import Soplex.Verify.Prop
+import Soplex.Verify.Sound
+import Soplex.Verify.Budget
 
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
-open LeanSoplex
+open Soplex
 
 /-- A proof about a specific `Problem`. The problem index is **always
     the validated / normalised form**, never the user's raw input. -/
@@ -112,4 +112,4 @@ def verifyOutcome {m n : Nat} (opts : Options) (denomBudget : Option Nat)
         | _, _ => .unchecked .unbounded
   | s => .unchecked s
 
-end LeanSoplex.Verify
+end Soplex.Verify

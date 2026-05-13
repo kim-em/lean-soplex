@@ -7,29 +7,17 @@
 
   Every `Prop` here is decidable in principle — they're all built out
   of decidable predicates on `Rat` — but we keep the `Bool` view
-  separate (`LeanSoplex.Verify.Bool`) to make sure the checker uses
+  separate (`Soplex.Verify.Bool`) to make sure the checker uses
   the computational definition while soundness theorems reason about
   the mathematical one.
 -/
 
-import LeanSoplex.Verify.Types
-import LeanSoplex.Verify.Bool
+import Soplex.Verify.Types
+import Soplex.Verify.Bool
 
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
-open LeanSoplex
-
-/-! ## Canonicalisation. -/
-
-/-- Flip the objective in place. Identity on everything else. -/
-def negateObjective {m n : Nat} (p : Problem m n) : Problem m n :=
-  { p with c := p.c.map Neg.neg, objOffset := -p.objOffset }
-
-/-- Reduce to minimisation form. -/
-def canonicalize {m n : Nat} (sense : ObjSense) (p : Problem m n) : Problem m n :=
-  match sense with
-  | .minimize => p
-  | .maximize => negateObjective p
+open Soplex
 
 /-! ## Predicates. -/
 
@@ -69,10 +57,10 @@ def IsUnboundedMin {m n : Nat} (p : Problem m n) : Prop :=
 
 /-! ## Prop-level dual feasibility.
 
-  Mirrors the Bool checks in `LeanSoplex.Verify.Bool` but at the Prop
+  Mirrors the Bool checks in `Soplex.Verify.Bool` but at the Prop
   level so the soundness proofs can talk about them without
   unfolding `Array.all`/`arrayEq`. The Bool-to-Prop lemmas live in
-  `LeanSoplex.Verify.Arith`. -/
+  `Soplex.Verify.Arith`. -/
 
 /-- Componentwise nonnegativity plus zero-where-the-matching-bound-is-
     absent. Pulled out so both `IsDualFeasible` and `IsFarkasDualFeasible`
@@ -159,4 +147,4 @@ def IsOptimal {m n : Nat} (p : Problem m n) (sense : ObjSense) (x : Array Rat) :
 def IsUnbounded {m n : Nat} (p : Problem m n) (sense : ObjSense) : Prop :=
   IsUnboundedMin (canonicalize sense p)
 
-end LeanSoplex.Verify
+end Soplex.Verify

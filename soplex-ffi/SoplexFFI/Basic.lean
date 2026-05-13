@@ -13,16 +13,13 @@
     setting, column / row builders, the solver loop, and result
     extraction in a single call.
 
-  * `solveExact`, `solveFloat`, MPS / LP file I/O, and `solveVerified`
-    — the public solver API. Exact certificates are checked by the
-    pure-Lean verifier before proof-carrying results are constructed.
+  * `solveExact`, `solveFloat`, and MPS / LP file I/O — the direct
+    SoPlex-backed solver API.
 -/
 
-import LeanSoplex.Verify
+import SoplexFFI.Validate
 
-namespace LeanSoplex
-
-open LeanSoplex.Verify
+namespace Soplex
 
 /-- SoPlex's compile-time `SOPLEX_VERSION` macro, e.g. `802` for v8.0.2. -/
 @[extern "lean_soplex_version_ffi"]
@@ -293,7 +290,7 @@ opaque solveFloat {m n : Nat} (opts : Options) (p : Problem m n) :
 /-! ## MPS / LP file I/O.
 
   Four `opaque` entry points wired to SoPlex's `SPxLPBase<Rational>`
-  format-specific readers / writers (see `ffi/lean_soplex_bridge.cpp`):
+  format-specific readers / writers (see `soplex-ffi/ffi/lean_soplex_bridge.cpp`):
 
   * Bridge-level failures (file not found, parse error, write error)
     become `SolveError.parseError` carrying the path; the bridge
@@ -406,48 +403,4 @@ def ffiCheckSolve
     (packUInt32Array rows) (packUInt32Array cols)
     (floatArrayOfArray vals)
 
-/-! ## Verified-solve driver.
-
-  Composes `validateOptions`, `validate`, `solveExact`, and
-  `verifyOutcome` from `LeanSoplex.Verify.Driver`. See PLAN.md
-  §"User-facing driver".
--/
-
-/-- Default `denomBudget` for `solveVerified`: combined numerator +
-    denominator bit length per rational coordinate. `10000` is comfortable
-    headroom over what well-behaved LPs produce while still ruling out
-    refinement runaway. -/
-def defaultDenomBudget : Option Nat := some 10000
-
-/-- Drive `validate`, `solveExact`, then the checker, packaged as a
-    `VerifiedSolve` carrying a real soundness-lemma proof.
-
-    * `validateOptions` and `validate` run first; either failure
-      surfaces as `Except.error`.
-    * `Options.presolve` is forced `false` internally — the checker
-      must run against the (normalised) input LP, not whatever
-      SoPlex's presolve transformed it into. See PLAN.md §"What this
-      catches" §4.
-    * `denomBudget` is a ceiling on the bit length of every rational
-      coordinate in the returned certificate; exceeding it yields
-      `Verified.unchecked .budgetExceeded`. `none` disables the check.
-    * The returned `normalized` field is `validate p`, the `Problem`
-      the proof is indexed by. Downstream code reasons about that
-      value, not about the raw user input.
-
-    Every failure path (non-terminal status, missing certificate
-    field, failed `check*`, budget overrun) lands in
-    `Verified.unchecked _`; the three positive constructors are only
-    populated from `checkOptimal_sound` / `checkInfeasible_sound` /
-    `checkUnbounded_sound`. -/
-def solveVerified {m n : Nat} (opts : Options) (p : Problem m n)
-    (denomBudget : Option Nat := defaultDenomBudget) :
-    Except SolveError (VerifiedSolve (m := m) (n := n) opts.sense) := do
-  let _ ← validateOptions opts |>.mapError SolveError.invalidOptions
-  let normalized ← validate p |>.mapError SolveError.invalidProblem
-  let opts' := { opts with presolve := false }
-  let sol ← solveExact opts' normalized
-  pure { normalized
-         verified := verifyOutcome opts denomBudget normalized sol }
-
-end LeanSoplex
+end Soplex

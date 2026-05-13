@@ -1,6 +1,6 @@
 /-
-  Data types shared by the certificate checker (`LeanSoplex.Verify`) and
-  the FFI binding (`LeanSoplex.Basic`).
+  Data types shared by the certificate checker (`Soplex.Verify`) and
+  the FFI binding (`Soplex.Basic`).
 
   Lives inside the `Verify` namespace because the verifier is the
   standalone library; the FFI side imports these types and reuses them
@@ -10,7 +10,7 @@
   §"Verification layer"; this file only restates the types themselves.
 -/
 
-namespace LeanSoplex
+namespace Soplex
 
 /-- Largest natural value this package passes through SoPlex APIs that
     take C++ `int` parameters. -/
@@ -192,4 +192,16 @@ inductive SolveError
   | bridge         (msg : String)
   deriving Repr
 
-end LeanSoplex
+/-! ## Objective canonicalisation. -/
+
+/-- Flip the objective in place. Identity on everything else. -/
+def negateObjective {m n : Nat} (p : Problem m n) : Problem m n :=
+  { p with c := p.c.map Neg.neg, objOffset := -p.objOffset }
+
+/-- Reduce to minimisation form. -/
+def canonicalize {m n : Nat} (sense : ObjSense) (p : Problem m n) : Problem m n :=
+  match sense with
+  | .minimize => p
+  | .maximize => negateObjective p
+
+end Soplex

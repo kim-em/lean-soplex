@@ -12,7 +12,7 @@ for the full design and trust model.
 ## Status
 
 Pinned SoPlex tag: **`v8.0.2`** (vendored as a git submodule under
-[`soplex/`](./soplex)).
+[`soplex-ffi/vendor/soplex`](./soplex-ffi/vendor/soplex)).
 
 Pinned Lean toolchain: see [`lean-toolchain`](./lean-toolchain).
 
@@ -34,15 +34,14 @@ git clone --recurse-submodules https://github.com/kim-em/lean-soplex
 cd lean-soplex
 # Windows MSYS2 MINGW64 only: stage mingw runtime archives once.
 # Skip on Linux / macOS.
-[ "$OSTYPE" = "msys" ] && ./scripts/stage-mingw-libs.sh
-./scripts/build-soplex.sh    # compiles SoPlex via its bundled CMake
-lake build soplex-smoke      # builds the Lean binding + smoke test
-./.lake/build/bin/soplex-smoke
+[ "$OSTYPE" = "msys" ] && ./soplex-ffi/scripts/stage-mingw-libs.sh
+./soplex-ffi/scripts/build-soplex.sh    # compiles SoPlex via its bundled CMake
+lake build ffi-check      # builds the Lean binding + smoke test
+./.lake/build/bin/ffi-check
 ```
 
-The smoke test prints SoPlex's version, solves a toy LP, and exits 0
-on success. The verifier-only target can be built separately with
-`lake build LeanSoplexVerify`; it does not require the FFI library.
+`ffi-check` prints SoPlex's version, solves a toy LP, and exits 0
+on success.
 
 The first `build-soplex.sh` invocation is slow (~1–3 min to compile
 SoPlex). Subsequent runs are nearly instant — CMake reuses its cache,
@@ -50,17 +49,17 @@ and Lake only recompiles the bridge if its `.cpp` files change.
 
 ## Trust model
 
-`lean-soplex` exposes two parallel libraries:
+`lean-soplex` is layered over a local `soplex-ffi` package:
 
-* **`LeanSoplex.Verify`** — a pure-Lean certificate checker that
-  validates LP optimality / infeasibility / unboundedness certificates
-  against a `Problem` value. No FFI dependency; depends only on core
-  Lean. Consumers that only want the checker (e.g. to validate
-  certificates produced elsewhere) can depend on this target alone.
+* **`SoplexFFI`** — the direct SoPlex binding package. It owns the
+  vendored solver build, C++ bridge, thin Lean extern wrappers,
+  marshalling, direct solve APIs, and file I/O.
 
-* **`LeanSoplex`** — the FFI binding to SoPlex. Treated as an
-  unverified oracle. Every certificate it produces is checked
-  in pure Lean before any proof is constructed.
+* **`Soplex`** — the high-level package. It re-exports the direct
+  SoPlex APIs and adds `Soplex.Verify` plus `solveVerified`.
+
+SoPlex is treated as an unverified oracle. Every exact certificate it
+produces is checked in Lean before any proof is constructed.
 
 A bug anywhere in SoPlex, the C++ bridge, or the sign-convention
 translation can only cause a verifier rejection
@@ -70,15 +69,16 @@ translation can only cause a verifier rejection
 ## Layout
 
 ```
-soplex/                       # vendor submodule (scipopt/soplex, tag v8.0.2)
-ffi/lean_soplex.cpp           # C++ glue calling into SoPlex
-ffi/lean_soplex_bridge.cpp    # extern "C" entry points Lean calls
-ffi/lean_soplex.h             # C ABI between the two .cpp files above
-LeanSoplex/Basic.lean         # opaque FFI declarations + solver/file I/O API
-LeanSoplex/Verify.lean        # pure-Lean certificate checker
-Main.lean                     # smoke-test executable
-lakefile.lean                 # Lake build config (two lean_lib targets)
-scripts/build-soplex.sh       # invokes SoPlex's CMake, extracts objects
+soplex-ffi/                   # direct SoPlex binding Lake package
+soplex-ffi/vendor/soplex      # vendor submodule (scipopt/soplex, tag v8.0.2)
+soplex-ffi/ffi/               # C++ bridge and C ABI entry points
+soplex-ffi/SoplexFFI.lean     # direct FFI package entry point
+Soplex/Basic.lean             # high-level API + solveVerified
+Soplex/Verify.lean            # pure-Lean certificate checker
+Main.lean                     # `ffi-check` executable
+lakefile.lean                 # high-level Lake package
+soplex-ffi/lakefile.lean      # low-level Lake package with extern_lib
+soplex-ffi/scripts/build-soplex.sh # invokes SoPlex's CMake
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer
 .github/workflows/ci.yml      # Linux + macOS + Windows CI matrix
 ```

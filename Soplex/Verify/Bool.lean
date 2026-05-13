@@ -7,15 +7,15 @@
   Callers that have not run `validate` get a benign `false` instead
   of undefined behaviour.
 
-  Soundness lemmas live in `LeanSoplex.Verify.Sound`; they lift these
-  `Bool` checks to the `Prop` predicates in `LeanSoplex.Verify.Prop`.
+  Soundness lemmas live in `Soplex.Verify.Sound`; they lift these
+  `Bool` checks to the `Prop` predicates in `Soplex.Verify.Prop`.
 -/
 
-import LeanSoplex.Verify.Types
+import Soplex.Verify.Types
 
-namespace LeanSoplex.Verify
+namespace Soplex.Verify
 
-open LeanSoplex
+open Soplex
 
 /-! ## Problem shape sanity check.
 
@@ -41,7 +41,7 @@ def problemShapeOk {m n : Nat} (p : Problem m n) : Bool :=
   Stated via `Array.foldl` rather than a `for` loop with an early-exit
   range. Both forms are semantically equivalent on well-shaped `p`, but
   the `foldl` form is what `Array.foldl_induction` (core Lean) operates
-  on, so reasoning in `LeanSoplex.Verify.Arith` is direct.
+  on, so reasoning in `Soplex.Verify.Arith` is direct.
 -/
 
 /-- Apply a single sparse entry `(r, c, v)` to the accumulator: add
@@ -337,4 +337,4 @@ def checkUnbounded {m n : Nat} (p : Problem m n) (x ray : Vector Rat n) : Bool :
   && isRecessionRay p ray
   && dot p.c.toArray ray.toArray < 0
 
-end LeanSoplex.Verify
+end Soplex.Verify

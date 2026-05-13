@@ -858,7 +858,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_ffi_check_solve_ffi(
       &objval);
 
   /*
-   * Layout for `LeanSoplex.FfiCheckResult`:
+   * Layout for `Soplex.FfiCheckResult`:
    *   primal : FloatArray   -- object field
    *   ret    : UInt32       -- scalar field
    *   obj    : Float        -- scalar field
@@ -943,7 +943,7 @@ static lean_object *mk_opt_rat(const std::string &s, bool present) {
   return present ? mk_some(mk_rat_from_string(s)) : mk_none();
 }
 
-// Construct a `LeanSoplex.Problem` Lean object.
+// Construct a `Soplex.Problem` Lean object.
 //
 // `Problem m n` is a structure with the following fields in
 // declaration order; Lean lays out a structure as a single anonymous
