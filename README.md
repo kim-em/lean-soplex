@@ -3,15 +3,11 @@
 Lean 4 FFI bindings for [SoPlex](https://soplex.zib.de/), the linear
 programming solver from the SCIP optimization suite.
 
-The long-term goal is exact-mode (iterative-refinement + precision-
-boosting) LP solving wrapped behind a **pure-Lean certificate checker**,
-so the bindings can be trusted independently of the solver. See
-[`PLAN.md`](./PLAN.md) for the full design and trust model.
-
-This README documents the v0 state: the build pipeline and a smoke test
-that confirms SoPlex compiles, links, and runs on Linux, macOS, and
-Windows. The full FFI surface (`solveExact`, `solveFloat`, file I/O, the
-certificate verifier) lands in subsequent commits.
+The library exposes exact-mode and floating-point LP solves, MPS / LP
+file I/O, and a **pure-Lean certificate checker**. Exact certificates
+returned by SoPlex are treated as oracle output and checked in Lean
+before any proof-carrying result is constructed. See [`PLAN.md`](./PLAN.md)
+for the full design and trust model.
 
 ## Status
 
@@ -45,7 +41,8 @@ lake build soplex-smoke      # builds the Lean binding + smoke test
 ```
 
 The smoke test prints SoPlex's version, solves a toy LP, and exits 0
-on success.
+on success. The verifier-only target can be built separately with
+`lake build LeanSoplexVerify`; it does not require the FFI library.
 
 The first `build-soplex.sh` invocation is slow (~1–3 min to compile
 SoPlex). Subsequent runs are nearly instant — CMake reuses its cache,
@@ -53,7 +50,7 @@ and Lake only recompiles the bridge if its `.cpp` files change.
 
 ## Trust model
 
-The plan is for `lean-soplex` to expose two parallel libraries:
+`lean-soplex` exposes two parallel libraries:
 
 * **`LeanSoplex.Verify`** — a pure-Lean certificate checker that
   validates LP optimality / infeasibility / unboundedness certificates
@@ -77,8 +74,8 @@ soplex/                       # vendor submodule (scipopt/soplex, tag v8.0.2)
 ffi/lean_soplex.cpp           # C++ glue calling into SoPlex
 ffi/lean_soplex_bridge.cpp    # extern "C" entry points Lean calls
 ffi/lean_soplex.h             # C ABI between the two .cpp files above
-LeanSoplex/Basic.lean         # opaque FFI declarations + Lean-side types
-LeanSoplex/Verify.lean        # pure-Lean certificate checker (stub)
+LeanSoplex/Basic.lean         # opaque FFI declarations + solver/file I/O API
+LeanSoplex/Verify.lean        # pure-Lean certificate checker
 Main.lean                     # smoke-test executable
 lakefile.lean                 # Lake build config (two lean_lib targets)
 scripts/build-soplex.sh       # invokes SoPlex's CMake, extracts objects

@@ -8,11 +8,9 @@
   one-direction bridges that turn each `Bool` check from
   `LeanSoplex.Verify.Bool` into a usable `Prop` fact.
 
-  Scope of this module today: Rat helpers, the `arrayEq` bridge,
-  and the `problemShapeOk` bridge. The sparse-bilinear identity
-  `dot y (evalAx p x) = dot (evalATy p y) x` and the rest of the
-  per-check bridges live alongside `weak_duality` (PR-B); they are
-  not used until the math layer needs them.
+  Scope of this module: Rat helpers, array size/index lemmas, sparse
+  bilinear identities, and the Bool→Prop bridges consumed by the
+  soundness layer.
 -/
 
 import LeanSoplex.Verify.Bool
@@ -116,12 +114,11 @@ theorem problemShapeOk_imp
   rw [Bool.and_eq_true] at this
   exact ⟨of_decide_eq_true this.1, of_decide_eq_true this.2⟩
 
-/-! ## Bridges for the new refactored Bool checks.
+/-! ## Bridges for Bool checks.
 
   Each lemma is a single-direction `Bool = true → Prop fact`. The
-  Prop targets live in `LeanSoplex.Verify.Prop`. The bilinear
-  identity and `weak_duality` proof live in the next PR (PR-C);
-  what we set up here is just the Bool→Prop extraction layer. -/
+  Prop targets live in `LeanSoplex.Verify.Prop`; the soundness proofs
+  in `LeanSoplex.Verify.Sound` consume these bridges. -/
 
 theorem boundCombinationPos_imp {p : Problem} {d : DualBundle}
     (h : boundCombinationPos p d = true) :

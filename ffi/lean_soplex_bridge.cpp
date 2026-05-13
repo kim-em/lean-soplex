@@ -622,6 +622,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
     const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
 
     SoPlex solver;
+    LogCapture logCap(solver, verbose != 0);
     solver.setIntParam(SoPlex::OBJSENSE, SoPlex::OBJSENSE_MINIMIZE);
     solver.setIntParam(SoPlex::SIMPLIFIER,
         presolve ? SoPlex::SIMPLIFIER_INTERNAL : SoPlex::SIMPLIFIER_OFF);
@@ -721,7 +722,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
         break;
     }
 
-    return mk_except_ok(mk_float_solution(status, primal, objective, ""));
+    return mk_except_ok(mk_float_solution(status, primal, objective, logCap.str()));
   } catch (const std::exception &e) {
     return mk_except_error(e.what());
   } catch (...) {

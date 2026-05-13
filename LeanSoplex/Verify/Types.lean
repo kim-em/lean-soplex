@@ -12,6 +12,10 @@
 
 namespace LeanSoplex
 
+/-- Largest natural value this package passes through SoPlex APIs that
+    take C++ `int` parameters. -/
+def ffiMaxInt : Nat := 2147483647
+
 /-- Objective sense. The verifier internally canonicalises everything
     to `.minimize`; `.maximize` is reduced by negating the objective. -/
 inductive ObjSense | minimize | maximize
@@ -71,6 +75,8 @@ inductive ProblemError
   /-- An array field had the wrong length for the declared `numVars` /
       `numConstraints`. -/
   | wrongLength      (field : String) (expected got : Nat)
+  /-- A field is too large for the FFI representation used by SoPlex. -/
+  | tooLarge         (field : String) (max got : Nat)
   /-- A sparse-entry coordinate or bound array index pointed outside
       the declared dimensions. -/
   | indexOutOfRange  (kind : IndexKind) (index bound : Nat)
@@ -83,6 +89,7 @@ inductive OptionError
   | nanTimeLimit
   | negativeTimeLimit (value : Float)
   | zeroIterLimit
+  | iterLimitTooLarge (max got : Nat)
   deriving Repr
 
 /-- Canonical lower / upper split for dual multipliers.
@@ -161,20 +168,13 @@ structure FloatSolution where
   log         : String
   deriving Repr, Inhabited
 
-/-- Errors surfaced by the FFI layer. User-input or known-solver-
-    -limitation issues live here; impossible states `panic` instead.
-    See `PLAN.md` §"`Except` vs `panic`". -/
+/-- Errors surfaced by the FFI layer. Invalid Lean-side inputs are
+    reported structurally; all unclassified C++ / SoPlex failures remain
+    bridge errors. Impossible states `panic`; see `PLAN.md`
+    §"`Except` vs `panic`". -/
 inductive SolveError
   | invalidProblem (e : ProblemError)
   | invalidOptions (e : OptionError)
-  /-- A known SoPlex limitation hit (e.g. requested feature not in
-      the linked release). -/
-  | unsupported    (feature : String)
-  /-- SoPlex rejected an `Options` field at runtime. -/
-  | parameter      (msg : String)
-  /-- The linked SoPlex lacks a required accessor (e.g. an
-      exact-mode getter introduced in a newer release). -/
-  | missingApi     (feature : String)
   /-- File parse error from `readMps` / `readLp`. -/
   | parseError     (path : String) (msg : String)
   /-- FFI-level failure that didn't `panic`. -/

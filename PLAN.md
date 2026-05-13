@@ -141,9 +141,9 @@ Lean's perspective the result is a function of inputs.
 **`Except` vs `panic`.** Anything attributable to user input or to a
 recoverable SoPlex condition goes in `Except`: a malformed `Problem`
 (caught by `validate`), malformed `Options` (caught by
-`validateOptions`), an unsupported feature, a parameter rejected by
-SoPlex, a missing certificate accessor in the linked SoPlex version,
-a file parse error. Only true bridge-invariant violations —
+`validateOptions`), values too large for the C++ ABI, a file parse
+error, or an unclassified bridge / SoPlex failure. Only true
+bridge-invariant violations —
 allocation failure, a contract-broken Lean object, an unrecoverable
 native crash — `panic`. The line is "user error or known solver
 limitation ⇒ `Except`; impossible state ⇒ `panic`".
@@ -199,6 +199,7 @@ inductive IndexKind | row | col | sparseEntry
 
 inductive ProblemError
   | wrongLength      (field : String) (expected got : Nat)
+  | tooLarge         (field : String) (max got : Nat)
   | indexOutOfRange  (kind : IndexKind) (index bound : Nat)
   | boundInverted    (kind : IndexKind) (i : Nat) (lo hi : Rat)
   deriving Repr
@@ -207,6 +208,7 @@ inductive OptionError
   | nanTimeLimit
   | negativeTimeLimit (value : Float)
   | zeroIterLimit
+  | iterLimitTooLarge (max got : Nat)
   deriving Repr
 
 /-- Validate a `Problem` before it touches C++, returning a normalized
@@ -219,9 +221,9 @@ and pass the result on, or use `solveVerified`, which internally
 validates and returns a `(Σ pN, Verified pN sense)`. -/
 def validate : Problem → Except ProblemError Problem := ...
 
-/-- Validate `Options` (NaN / negative `timeLimit`, zero `iterLimit`,
-unsupported `Simplex` combos, etc.) before they reach C++. Distinct
-from `validate` because `Options` is a separate input space. -/
+/-- Validate `Options` (NaN / negative `timeLimit`, zero or
+oversized `iterLimit`, etc.) before they reach C++. Distinct from
+`validate` because `Options` is a separate input space. -/
 def validateOptions : Options → Except OptionError Options := ...
 
 inductive SolveStatus
@@ -287,9 +289,6 @@ structure FloatSolution where
 inductive SolveError
   | invalidProblem (e : ProblemError)
   | invalidOptions (e : OptionError)
-  | unsupported    (feature : String)        -- known SoPlex limitation
-  | parameter      (msg : String)            -- SoPlex rejected an Options field
-  | missingApi     (feature : String)        -- linked SoPlex lacks an accessor
   | parseError     (path : String) (msg : String)
   | bridge         (msg : String)            -- FFI-level failure that didn't panic
   deriving Repr

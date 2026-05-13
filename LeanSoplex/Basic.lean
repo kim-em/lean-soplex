@@ -1,7 +1,7 @@
 /-
-  Minimal v0 surface for `lean-soplex`.
+  FFI surface for `lean-soplex`.
 
-  This file currently exposes two FFI entry points:
+  This file exposes the SoPlex-backed entry points:
 
   * `version` — returns SoPlex's compile-time version macro. Exists to
     confirm the FFI is linked and the SoPlex headers used at build time
@@ -12,8 +12,9 @@
     SoPlex's constructors, parameter setting, column / row builders, the
     solver loop, and result extraction in a single call.
 
-  The real exact-mode API (`solveExact`, `solveFloat`, file I/O, the
-  certificate types) lands in subsequent commits per `PLAN.md`.
+  * `solveExact`, `solveFloat`, MPS / LP file I/O, and `solveVerified`
+    — the public solver API. Exact certificates are checked by the
+    pure-Lean verifier before proof-carrying results are constructed.
 -/
 
 import LeanSoplex.Verify
@@ -93,6 +94,24 @@ private def optionRatMask (xs : Array (Option Rat)) : ByteArray := Id.run do
 private def optionRatStrings (xs : Array (Option Rat)) : Array String :=
   xs.map (fun x => x.elim "0" toString)
 
+private def checkedU32 (field : String) (n : Nat) :
+    Except ProblemError UInt32 :=
+  if n ≤ ffiMaxInt then
+    pure (UInt32.ofNat n)
+  else
+    throw (.tooLarge field ffiMaxInt n)
+
+private def checkedIterLimit (n : Nat) : Except OptionError UInt32 :=
+  if n ≤ ffiMaxInt then
+    pure (UInt32.ofNat n)
+  else
+    throw (.iterLimitTooLarge ffiMaxInt n)
+
+private def ffiIterLimit (opts : Options) : Except SolveError UInt32 :=
+  match opts.iterLimit with
+  | none => pure 0
+  | some n => checkedIterLimit n |>.mapError SolveError.invalidOptions
+
 /-- Flat marshalling of a `Problem`'s sparse / bound data into the
     ByteArray + decimal-string form the C++ bridge expects. Shared
     between `solveExact`, `writeMps`, and `writeLp`. -/
@@ -113,16 +132,19 @@ private structure ProblemFlat where
   colHiMask      : ByteArray
   colHi          : Array String
 
-private def problemFlatten (p : Problem) : ProblemFlat :=
-  let rows  := p.a.map (fun e => UInt32.ofNat e.1)
-  let cols  := p.a.map (fun e => UInt32.ofNat e.2.1)
+private def problemFlatten (p : Problem) : Except ProblemError ProblemFlat := do
+  let numVars ← checkedU32 "numVars" p.numVars
+  let numConstraints ← checkedU32 "numConstraints" p.numConstraints
+  let rows ← p.a.mapM (fun e => checkedU32 "sparse row index" e.1)
+  let cols ← p.a.mapM (fun e => checkedU32 "sparse column index" e.2.1)
   let vals  := p.a.map (fun e => e.2.2)
   let rowLo := p.rowBounds.map Prod.fst
   let rowHi := p.rowBounds.map Prod.snd
   let colLo := p.colBounds.map Prod.fst
   let colHi := p.colBounds.map Prod.snd
-  { numVars        := UInt32.ofNat p.numVars
-    numConstraints := UInt32.ofNat p.numConstraints
+  pure {
+    numVars        := numVars
+    numConstraints := numConstraints
     c              := ratStrings p.c
     objOffset      := toString p.objOffset
     aRows          := packUInt32Array rows
@@ -178,13 +200,14 @@ private def simplexTag : Simplex → UInt8
     into the caller's original sense. -/
 opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution := do
   let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let iterLimit ← ffiIterLimit opts
   let p ← validate p |>.mapError SolveError.invalidProblem
-  let f := problemFlatten (canonicalize opts.sense p)
+  let f ← problemFlatten (canonicalize opts.sense p) |>.mapError SolveError.invalidProblem
   let sol ← solveExactFlat
     f.numVars f.numConstraints
     (objSenseTag .minimize) (simplexTag opts.simplex)
     opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
-    opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
+    opts.iterLimit.isSome iterLimit
     opts.verbose opts.randomSeed opts.precisionBoost opts.presolve
     f.c f.objOffset
     f.aRows f.aCols f.aVals
@@ -228,13 +251,14 @@ private def mapFloatObjectiveForSense (sense : ObjSense) (s : FloatSolution) : F
     feeding these into the certificate checker hard to do by accident. -/
 opaque solveFloat (opts : Options) (p : Problem) : Except SolveError FloatSolution := do
   let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
+  let iterLimit ← ffiIterLimit opts
   let p ← validate p |>.mapError SolveError.invalidProblem
-  let f := problemFlatten (canonicalize opts.sense p)
+  let f ← problemFlatten (canonicalize opts.sense p) |>.mapError SolveError.invalidProblem
   let sol ← solveFloatFlat
     f.numVars f.numConstraints
     (objSenseTag .minimize) (simplexTag opts.simplex)
     opts.timeLimit.isSome (opts.timeLimit.getD 0.0)
-    opts.iterLimit.isSome (UInt32.ofNat (opts.iterLimit.getD 0))
+    opts.iterLimit.isSome iterLimit
     opts.verbose opts.randomSeed opts.presolve
     f.c f.objOffset
     f.aRows f.aCols f.aVals
@@ -303,7 +327,7 @@ opaque readMps (path : System.FilePath) : Except SolveError Problem :=
 opaque writeMps (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
   let p ← validate p |>.mapError SolveError.invalidProblem
   let s := path.toString
-  let f := problemFlatten p
+  let f ← problemFlatten p |>.mapError SolveError.invalidProblem
   writeMpsFlat s f.numVars f.numConstraints f.c f.objOffset
     f.aRows f.aCols f.aVals
     f.rowLoMask f.rowLo f.rowHiMask f.rowHi
@@ -322,7 +346,7 @@ opaque readLp (path : System.FilePath) : Except SolveError Problem :=
 opaque writeLp (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
   let p ← validate p |>.mapError SolveError.invalidProblem
   let s := path.toString
-  let f := problemFlatten p
+  let f ← problemFlatten p |>.mapError SolveError.invalidProblem
   writeLpFlat s f.numVars f.numConstraints f.c f.objOffset
     f.aRows f.aCols f.aVals
     f.rowLoMask f.rowLo f.rowHiMask f.rowHi
@@ -341,8 +365,7 @@ Solve the equality-constrained LP
 with `c` length `numVars`, `b` length `numConstraints`, and `A` given in
 sparse `(row, col, value)` form. Floating-point precision; **not** an
 exact-mode certificate-producing solve. Used to verify the FFI / link /
-runtime pipeline on every supported platform; see `PLAN.md` for the
-real solver entry points.
+runtime pipeline on every supported platform.
 -/
 def smokeSolve
     (c : Array Float) (b : Array Float)

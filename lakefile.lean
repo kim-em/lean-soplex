@@ -227,6 +227,8 @@ lean_lib LeanSoplexVerify where
     automatically. -/
 @[default_target]
 lean_lib LeanSoplex where
+  roots := #[]
+  globs := #[`LeanSoplex, `LeanSoplex.Basic]
   precompileModules := true
   moreLinkArgs := soplexRuntimeLinkArgs
 
@@ -235,12 +237,8 @@ lean_exe «soplex-smoke» where
   moreLinkArgs := soplexRuntimeLinkArgs
 
 /-- Hand-rolled tests for the pure-Lean certificate checker.
-    `VerifyTests.lean` only imports `LeanSoplex.Verify`, but Lake
-    auto-links the package-level `extern_lib leansoplex` against every
-    exe in the package, so building `verify-tests` still transitively
-    triggers the SoPlex build + the bridge `.o` compile + the DLL
-    link. The `moreLinkArgs := #[]` override clears the GMP / C++
-    runtime args; the DLL itself still has to link successfully. -/
+    `VerifyTests.lean` imports only `LeanSoplex.Verify`, so this target
+    stays independent of the SoPlex FFI library. -/
 lean_exe «verify-tests» where
   root := `VerifyTests
   moreLinkArgs := #[]

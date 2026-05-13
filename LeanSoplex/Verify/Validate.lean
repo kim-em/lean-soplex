@@ -36,6 +36,8 @@ def validateOptions (o : Options) : Except OptionError Options := do
   | some n =>
     if n = 0 then
       throw .zeroIterLimit
+    if n > ffiMaxInt then
+      throw (.iterLimitTooLarge ffiMaxInt n)
   pure o
 
 /-! ## `validate`. -/

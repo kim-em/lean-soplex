@@ -25,15 +25,17 @@ private def mkProblem
 private def noPresolve : Options :=
   { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
 
-/-- Optimal LP: `min x + y  s.t.  x + y = 1, x, y ≥ 0`. The exact-mode
-    answer is `obj = 1`. Float-mode must agree to within double precision. -/
-private def tOptimalEquality (_ : Unit) : Outcome :=
-  let p := mkProblem 2 1
+private def toyProblem : Problem :=
+  mkProblem 2 1
     (c := #[1, 1])
     (a := #[(0, 0, 1), (0, 1, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
-  match solveFloat noPresolve p with
+
+/-- Optimal LP: `min x + y  s.t.  x + y = 1, x, y ≥ 0`. The exact-mode
+    answer is `obj = 1`. Float-mode must agree to within double precision. -/
+private def tOptimalEquality (_ : Unit) : Outcome :=
+  match solveFloat noPresolve toyProblem with
   | .error e => .fail s!"solveFloat failed: {repr e}"
   | .ok s =>
     match s.status, s.primalAsRat, s.objective with
@@ -123,11 +125,32 @@ private def tMaximize (_ : Unit) : Outcome :=
       expect ((obj - 2.0).abs < 1e-9) s!"bad maximize float result: obj={obj}"
     | _, _ => .fail s!"unexpected solution: {repr s}"
 
+/-- Verbose float-mode solves should carry the same captured SoPlex log
+    contract as exact-mode solves. -/
+private def tVerboseLog (_ : Unit) : Outcome :=
+  let opts := { noPresolve with verbose := true }
+  match solveFloat opts toyProblem with
+  | .error e => .fail s!"solveFloat failed: {repr e}"
+  | .ok s =>
+    expect (s.log.length > 0)
+      "expected nonempty verbose log from solveFloat"
+
+/-- FFI-facing options reject values that cannot be represented by the
+    C++ `int` API before narrowing happens. -/
+private def tIterLimitTooLarge (_ : Unit) : Outcome :=
+  let opts := { noPresolve with iterLimit := some 2147483648 }
+  match solveFloat opts toyProblem with
+  | .error (.invalidOptions (.iterLimitTooLarge _ _)) => .ok
+  | .error e => .fail s!"expected iterLimitTooLarge, got {repr e}"
+  | .ok s => .fail s!"expected iterLimitTooLarge, got solution {repr s}"
+
 def allTests : Array TestCase := #[
   ⟨"optimal equality", tOptimalEquality⟩,
   ⟨"infeasible rows", tInfeasibleRows⟩,
   ⟨"binary round-trip of 0.1", tBinaryRoundTrip⟩,
-  ⟨"maximize", tMaximize⟩
+  ⟨"maximize", tMaximize⟩,
+  ⟨"verbose log", tVerboseLog⟩,
+  ⟨"oversized iterLimit rejected", tIterLimitTooLarge⟩
 ]
 
 def main : IO UInt32 := do
