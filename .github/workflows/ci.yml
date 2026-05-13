@@ -83,13 +83,20 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install GMP / Boost / CMake / build tools
+      - name: Install GMP / Boost / CMake / build tools + clang-19 runtime
         run: |
           sudo apt-get update
-          # Same package set as the plain Linux job. `llvm-symbolizer`
-          # (from `llvm`) gives ASan/UBSan readable stack traces.
+          # Same package set as the plain Linux job, plus `clang-19` and
+          # `libclang-rt-19-dev` to match the version of clang bundled
+          # in Lean's toolchain.  Lean ships its clang without the
+          # compiler-rt static archives, so the asan/ubsan link cannot
+          # find `libclang_rt.asan_static.a` etc. until we plant the
+          # apt-installed copies under Lean's expected path (next step).
+          # `llvm-symbolizer` (from `llvm`) gives ASan/UBSan readable
+          # stack traces.
           sudo apt-get install -y \
             cmake build-essential ninja-build clang llvm \
+            clang-19 libclang-rt-19-dev \
             libgmp-dev libgmpxx4ldbl libboost-dev \
             libc++-dev libc++abi-dev \
             zstd
@@ -105,6 +112,35 @@ jobs:
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.elan/bin:$PATH"
           ./scripts/install-toolchain.sh
+
+      - name: Plant compiler-rt sanitizer archives into Lean's clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Lean's bundled clang reports as clang-19 but ships *without*
+          # the compiler-rt archives ASan/UBSan need at link time.  Find
+          # the apt-installed clang-19 runtime archives and symlink them
+          # into the path Lean's clang looks at (note the target triple
+          # baked into clang's resource-dir layout is
+          # `x86_64-unknown-linux-gnu`, but apt's clang-19 may install
+          # under `x86_64-pc-linux-gnu` or `linux/`; we discover the
+          # source dir and link every libclang_rt.* across).
+          LEAN_PREFIX="$(lean --print-prefix)"
+          DEST="$LEAN_PREFIX/lib/clang/19/lib/x86_64-unknown-linux-gnu"
+          SRC_FILE="$(find /usr/lib -name 'libclang_rt.asan_static.a' -path '*/clang/19/*' 2>/dev/null | head -1)"
+          if [ -z "$SRC_FILE" ]; then
+            echo "ERROR: libclang-rt-19-dev installed but libclang_rt.asan_static.a not found" >&2
+            dpkg -L libclang-rt-19-dev | head -40 >&2
+            exit 1
+          fi
+          SRC="$(dirname "$SRC_FILE")"
+          echo "compiler-rt source: $SRC"
+          echo "lean clang expects: $DEST"
+          mkdir -p "$DEST"
+          for f in "$SRC"/libclang_rt.*; do
+            ln -sfn "$f" "$DEST/$(basename "$f")"
+          done
+          ls -la "$DEST"
 
       - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
         run: |
