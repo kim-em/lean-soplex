@@ -90,9 +90,8 @@ static inline std::string lean_string_at(b_lean_obj_arg arr, size_t i) {
  * `str()` returns an empty string.
  *
  * Designed for use around any SoPlex call site that wants to capture
- * solver output — currently `solveExact`, with `solveFloat` to follow
- * once issue #14 lands. The reference to `SoPlex` is non-owning; the
- * solver must outlive this object. `SPxOut` stores raw, non-owning
+ * solver output. The reference to `SoPlex` is non-owning; the solver
+ * must outlive this object. `SPxOut` stores raw, non-owning
  * `std::ostream*` pointers, so the saved streams (typically the
  * process-default `cout`/`cerr`) must outlive both the solver and
  * this capture — true by default; only a custom caller-installed
@@ -216,6 +215,171 @@ static lean_object *mk_rat_from_double(double d) {
 static double parse_rat_to_double(const std::string &s) {
   Mpq q(s);
   return mpq_get_d(q.q);
+}
+
+struct FlatProblemInput {
+  int numVars;
+  int numConstraints;
+  size_t nnz;
+  const int32_t *aRows;
+  const int32_t *aCols;
+  b_lean_obj_arg c;
+  b_lean_obj_arg aVals;
+  b_lean_obj_arg rowLoMask;
+  b_lean_obj_arg rowLo;
+  b_lean_obj_arg rowHiMask;
+  b_lean_obj_arg rowHi;
+  b_lean_obj_arg colLoMask;
+  b_lean_obj_arg colLo;
+  b_lean_obj_arg colHiMask;
+  b_lean_obj_arg colHi;
+};
+
+static FlatProblemInput flat_problem_input(
+    uint32_t numVars_u, uint32_t numConstraints_u,
+    b_lean_obj_arg c_arr,
+    b_lean_obj_arg a_rows_arr, b_lean_obj_arg a_cols_arr, b_lean_obj_arg a_vals_arr,
+    b_lean_obj_arg rowLoMask, b_lean_obj_arg rowLo,
+    b_lean_obj_arg rowHiMask, b_lean_obj_arg rowHi,
+    b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
+    b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) {
+  return FlatProblemInput{
+      static_cast<int>(numVars_u),
+      static_cast<int>(numConstraints_u),
+      lean_sarray_size(a_rows_arr) / sizeof(int32_t),
+      byte_array_as_i32(a_rows_arr),
+      byte_array_as_i32(a_cols_arr),
+      c_arr,
+      a_vals_arr,
+      rowLoMask,
+      rowLo,
+      rowHiMask,
+      rowHi,
+      colLoMask,
+      colLo,
+      colHiMask,
+      colHi};
+}
+
+struct RationalProblemData {
+  std::vector<Mpq> cVals;
+  std::vector<Mpq> aVals;
+  std::vector<std::vector<int>> rowIdx;
+  std::vector<std::vector<size_t>> rowValIdx;
+};
+
+static RationalProblemData parse_rational_problem_data(const FlatProblemInput &in) {
+  RationalProblemData data;
+  data.cVals.reserve(in.numVars);
+  for (int j = 0; j < in.numVars; ++j) data.cVals.emplace_back(lean_string_at(in.c, j));
+
+  data.aVals.reserve(in.nnz);
+  for (size_t k = 0; k < in.nnz; ++k) data.aVals.emplace_back(lean_string_at(in.aVals, k));
+
+  data.rowIdx.resize(in.numConstraints);
+  data.rowValIdx.resize(in.numConstraints);
+  for (size_t k = 0; k < in.nnz; ++k) {
+    int r = in.aRows[k];
+    int col = in.aCols[k];
+    if (r < 0 || r >= in.numConstraints || col < 0 || col >= in.numVars) {
+      throw std::runtime_error("sparse index out of range");
+    }
+    data.rowIdx[r].push_back(col);
+    data.rowValIdx[r].push_back(k);
+  }
+  return data;
+}
+
+static void add_rational_col(SoPlex &solver, const LPColRational &col) {
+  solver.addColRational(col);
+}
+
+static void add_rational_col(SPxLPRational &lp, const LPColRational &col) {
+  lp.addCol(col);
+}
+
+static void add_rational_row(SoPlex &solver, const LPRowRational &row) {
+  solver.addRowRational(row);
+}
+
+static void add_rational_row(SPxLPRational &lp, const LPRowRational &row) {
+  lp.addRow(row);
+}
+
+template <typename Lp>
+static RationalProblemData build_rational_lp(Lp &lp, const FlatProblemInput &in) {
+  RationalProblemData data = parse_rational_problem_data(in);
+  DSVectorRational emptyCol(0);
+  for (int j = 0; j < in.numVars; ++j) {
+    Rational obj(data.cVals[j].q);
+    Rational lo = byte_array_u8(in.colLoMask, j)
+        ? Rational(Mpq(lean_string_at(in.colLo, j)).q)
+        : -Rational(infinity);
+    Rational hi = byte_array_u8(in.colHiMask, j)
+        ? Rational(Mpq(lean_string_at(in.colHi, j)).q)
+        : Rational(infinity);
+    add_rational_col(lp, LPColRational(obj, emptyCol, hi, lo));
+  }
+
+  for (int i = 0; i < in.numConstraints; ++i) {
+    Rational lo = byte_array_u8(in.rowLoMask, i)
+        ? Rational(Mpq(lean_string_at(in.rowLo, i)).q)
+        : -Rational(infinity);
+    Rational hi = byte_array_u8(in.rowHiMask, i)
+        ? Rational(Mpq(lean_string_at(in.rowHi, i)).q)
+        : Rational(infinity);
+    DSVectorRational vals(static_cast<int>(data.rowIdx[i].size()));
+    for (size_t t = 0; t < data.rowIdx[i].size(); ++t) {
+      vals.add(data.rowIdx[i][t], Rational(data.aVals[data.rowValIdx[i][t]].q));
+    }
+    add_rational_row(lp, LPRowRational(lo, vals, hi));
+  }
+  return data;
+}
+
+static void build_real_lp(SoPlex &solver, const FlatProblemInput &in) {
+  std::vector<double> cVals;
+  cVals.reserve(in.numVars);
+  for (int j = 0; j < in.numVars; ++j) {
+    cVals.push_back(parse_rat_to_double(lean_string_at(in.c, j)));
+  }
+
+  std::vector<double> aVals;
+  aVals.reserve(in.nnz);
+  for (size_t k = 0; k < in.nnz; ++k) {
+    aVals.push_back(parse_rat_to_double(lean_string_at(in.aVals, k)));
+  }
+
+  DSVector emptyCol(0);
+  for (int j = 0; j < in.numVars; ++j) {
+    double lo = byte_array_u8(in.colLoMask, j)
+        ? parse_rat_to_double(lean_string_at(in.colLo, j))
+        : -infinity;
+    double hi = byte_array_u8(in.colHiMask, j)
+        ? parse_rat_to_double(lean_string_at(in.colHi, j))
+        : infinity;
+    solver.addColReal(LPCol(cVals[j], emptyCol, hi, lo));
+  }
+
+  std::vector<DSVector> rows(in.numConstraints);
+  for (size_t k = 0; k < in.nnz; ++k) {
+    int r = in.aRows[k];
+    int col = in.aCols[k];
+    if (r < 0 || r >= in.numConstraints || col < 0 || col >= in.numVars) {
+      throw std::runtime_error("sparse index out of range");
+    }
+    rows[r].add(col, aVals[k]);
+  }
+
+  for (int i = 0; i < in.numConstraints; ++i) {
+    double lo = byte_array_u8(in.rowLoMask, i)
+        ? parse_rat_to_double(lean_string_at(in.rowLo, i))
+        : -infinity;
+    double hi = byte_array_u8(in.rowHiMask, i)
+        ? parse_rat_to_double(lean_string_at(in.rowHi, i))
+        : infinity;
+    solver.addRowReal(LPRow(lo, rows[i], hi));
+  }
 }
 
 static lean_object *mk_array_from_mpqs(const std::vector<Mpq> &xs) {
@@ -369,11 +533,9 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
     b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
   try {
-    const int numVars = static_cast<int>(numVars_u);
-    const int numConstraints = static_cast<int>(numConstraints_u);
-    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
-    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
-    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+    const FlatProblemInput input = flat_problem_input(
+        numVars_u, numConstraints_u, c_arr, a_rows_arr, a_cols_arr, a_vals_arr,
+        rowLoMask, rowLo, rowHiMask, rowHi, colLoMask, colLo, colHiMask, colHi);
 
     SoPlex solver;
     // Constructed before any parameter / LP-build call so the whole
@@ -403,51 +565,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     if (simplex == 0) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_PRIMAL);
     if (simplex == 1) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_DUAL);
 
-    std::vector<Mpq> c;
-    c.reserve(numVars);
-    for (int j = 0; j < numVars; ++j) c.emplace_back(lean_string_at(c_arr, j));
-
-    std::vector<Mpq> aVals;
-    aVals.reserve(nnz);
-    for (size_t k = 0; k < nnz; ++k) aVals.emplace_back(lean_string_at(a_vals_arr, k));
-
-    DSVectorRational emptyCol(0);
-    for (int j = 0; j < numVars; ++j) {
-      Rational obj(c[j].q);
-      Rational lo = byte_array_u8(colLoMask, j)
-          ? Rational(Mpq(lean_string_at(colLo, j)).q)
-          : -Rational(infinity);
-      Rational hi = byte_array_u8(colHiMask, j)
-          ? Rational(Mpq(lean_string_at(colHi, j)).q)
-          : Rational(infinity);
-      solver.addColRational(LPColRational(obj, emptyCol, hi, lo));
-    }
-
-    std::vector<std::vector<int>> rowIdx(numConstraints);
-    std::vector<std::vector<size_t>> rowValIdx(numConstraints);
-    for (size_t k = 0; k < nnz; ++k) {
-      int r = a_rows[k];
-      int col = a_cols[k];
-      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
-        return mk_except_error("sparse index out of range");
-      }
-      rowIdx[r].push_back(col);
-      rowValIdx[r].push_back(k);
-    }
-
-    for (int i = 0; i < numConstraints; ++i) {
-      Rational lo = byte_array_u8(rowLoMask, i)
-          ? Rational(Mpq(lean_string_at(rowLo, i)).q)
-          : -Rational(infinity);
-      Rational hi = byte_array_u8(rowHiMask, i)
-          ? Rational(Mpq(lean_string_at(rowHi, i)).q)
-          : Rational(infinity);
-      DSVectorRational vals(static_cast<int>(rowIdx[i].size()));
-      for (size_t t = 0; t < rowIdx[i].size(); ++t) {
-        vals.add(rowIdx[i][t], Rational(aVals[rowValIdx[i][t]].q));
-      }
-      solver.addRowRational(LPRowRational(lo, vals, hi));
-    }
+    RationalProblemData lpData = build_rational_lp(solver, input);
 
     if (solver.intParam(SoPlex::SYNCMODE) == SoPlex::SYNCMODE_MANUAL) solver.syncLPReal();
     SPxSolver::Status st = solver.optimize();
@@ -479,14 +597,14 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
         std::ostringstream obj;
         obj << solver.objValueRational();
         objective = mk_some(mk_rat_from_string(obj.str()));
-        std::vector<Mpq> x = fetch(numVars,
+        std::vector<Mpq> x = fetch(input.numVars,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRational),
           "primal solution");
         primal = mk_some(mk_array_from_mpqs(x));
-        std::vector<Mpq> y = fetch(numConstraints,
+        std::vector<Mpq> y = fetch(input.numConstraints,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getDualRational),
           "dual solution");
-        std::vector<Mpq> z = fetch(numVars,
+        std::vector<Mpq> z = fetch(input.numVars,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getRedCostRational),
           "reduced costs");
         auto rowLower = split_pos(y, true);
@@ -498,11 +616,11 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
       }
       case SPxSolver::INFEASIBLE: {
         status = 1;
-        std::vector<Mpq> y = fetch(numConstraints,
+        std::vector<Mpq> y = fetch(input.numConstraints,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getDualFarkasRational),
           "dual Farkas vector");
         std::vector<Mpq> aty;
-        compute_at_y(numVars, a_rows, a_cols, aVals, y, aty);
+        compute_at_y(input.numVars, input.aRows, input.aCols, lpData.aVals, y, aty);
         for (auto &v : aty) mpq_neg(v.q, v.q);
         if (bound_combination_sign(y, aty, rowLoMask, rowLo, rowHiMask, rowHi,
                                    colLoMask, colLo, colHiMask, colHi) < 0) {
@@ -518,10 +636,10 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
       }
       case SPxSolver::UNBOUNDED: {
         status = 2;
-        std::vector<Mpq> x = fetch(numVars,
+        std::vector<Mpq> x = fetch(input.numVars,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRational),
           "primal base point");
-        std::vector<Mpq> r = fetch(numVars,
+        std::vector<Mpq> r = fetch(input.numVars,
           static_cast<bool (SoPlex::*)(mpq_t *, const int)>(&SoPlex::getPrimalRayRational),
           "primal ray");
         primal = mk_some(mk_array_from_mpqs(x));
@@ -615,11 +733,9 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
     b_lean_obj_arg colLoMask, b_lean_obj_arg colLo,
     b_lean_obj_arg colHiMask, b_lean_obj_arg colHi) noexcept {
   try {
-    const int numVars = static_cast<int>(numVars_u);
-    const int numConstraints = static_cast<int>(numConstraints_u);
-    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
-    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
-    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+    const FlatProblemInput input = flat_problem_input(
+        numVars_u, numConstraints_u, c_arr, a_rows_arr, a_cols_arr, a_vals_arr,
+        rowLoMask, rowLo, rowHiMask, rowHi, colLoMask, colLo, colHiMask, colHi);
 
     SoPlex solver;
     LogCapture logCap(solver, verbose != 0);
@@ -634,48 +750,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
     if (simplex == 0) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_PRIMAL);
     if (simplex == 1) solver.setIntParam(SoPlex::ALGORITHM, SoPlex::ALGORITHM_DUAL);
 
-    std::vector<double> cVals;
-    cVals.reserve(numVars);
-    for (int j = 0; j < numVars; ++j) {
-      cVals.push_back(parse_rat_to_double(lean_string_at(c_arr, j)));
-    }
-
-    std::vector<double> aVals;
-    aVals.reserve(nnz);
-    for (size_t k = 0; k < nnz; ++k) {
-      aVals.push_back(parse_rat_to_double(lean_string_at(a_vals_arr, k)));
-    }
-
-    DSVector emptyCol(0);
-    for (int j = 0; j < numVars; ++j) {
-      double lo = byte_array_u8(colLoMask, j)
-          ? parse_rat_to_double(lean_string_at(colLo, j))
-          : -infinity;
-      double hi = byte_array_u8(colHiMask, j)
-          ? parse_rat_to_double(lean_string_at(colHi, j))
-          : infinity;
-      solver.addColReal(LPCol(cVals[j], emptyCol, hi, lo));
-    }
-
-    std::vector<DSVector> rows(numConstraints);
-    for (size_t k = 0; k < nnz; ++k) {
-      int r = a_rows[k];
-      int col = a_cols[k];
-      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
-        return mk_except_error("sparse index out of range");
-      }
-      rows[r].add(col, aVals[k]);
-    }
-
-    for (int i = 0; i < numConstraints; ++i) {
-      double lo = byte_array_u8(rowLoMask, i)
-          ? parse_rat_to_double(lean_string_at(rowLo, i))
-          : -infinity;
-      double hi = byte_array_u8(rowHiMask, i)
-          ? parse_rat_to_double(lean_string_at(rowHi, i))
-          : infinity;
-      solver.addRowReal(LPRow(lo, rows[i], hi));
-    }
+    build_real_lp(solver, input);
 
     SPxSolver::Status st = solver.optimize();
     uint8_t status = 5; // numericFailure
@@ -686,13 +761,13 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
       case SPxSolver::OPTIMAL:
       case SPxSolver::OPTIMAL_UNSCALED_VIOLATIONS: {
         status = 0;
-        std::vector<double> x(numVars);
-        if (!solver.getPrimalReal(x.data(), numVars)) {
+        std::vector<double> x(input.numVars);
+        if (!solver.getPrimalReal(x.data(), input.numVars)) {
           throw std::runtime_error("SoPlex failed to return primal solution");
         }
-        lean_object *arr = lean_alloc_array(numVars, numVars);
-        lean_array_set_size(arr, numVars);
-        for (int j = 0; j < numVars; ++j) {
+        lean_object *arr = lean_alloc_array(input.numVars, input.numVars);
+        lean_array_set_size(arr, input.numVars);
+        for (int j = 0; j < input.numVars; ++j) {
           lean_array_cptr(arr)[j] = mk_rat_from_double(x[j]);
         }
         primal = mk_some(arr);
@@ -1050,11 +1125,9 @@ static lean_obj_res write_lp_file(
     LpFormat fmt) noexcept {
   try {
     const char *path = lean_string_cstr(path_obj);
-    const int numVars = static_cast<int>(numVars_u);
-    const int numConstraints = static_cast<int>(numConstraints_u);
-    const size_t nnz = lean_sarray_size(a_rows_arr) / sizeof(int32_t);
-    const int32_t *a_rows = byte_array_as_i32(a_rows_arr);
-    const int32_t *a_cols = byte_array_as_i32(a_cols_arr);
+    const FlatProblemInput input = flat_problem_input(
+        numVars_u, numConstraints_u, c_arr, a_rows_arr, a_cols_arr, a_vals_arr,
+        rowLoMask, rowLo, rowHiMask, rowHi, colLoMask, colLo, colHiMask, colHi);
 
     SPxLPRat lp;
     // See `read_lp_file` for why this `SPxOut` is necessary.
@@ -1063,51 +1136,7 @@ static lean_obj_res write_lp_file(
     lp.setOutstream(spxout);
     lp.changeSense(SPxLPRat::MINIMIZE);
 
-    std::vector<Mpq> cVals;
-    cVals.reserve(numVars);
-    for (int j = 0; j < numVars; ++j) cVals.emplace_back(lean_string_at(c_arr, j));
-
-    std::vector<Mpq> aVals;
-    aVals.reserve(nnz);
-    for (size_t k = 0; k < nnz; ++k) aVals.emplace_back(lean_string_at(a_vals_arr, k));
-
-    DSVectorRational emptyCol(0);
-    for (int j = 0; j < numVars; ++j) {
-      Rational obj(cVals[j].q);
-      Rational lo = byte_array_u8(colLoMask, j)
-          ? Rational(Mpq(lean_string_at(colLo, j)).q)
-          : -Rational(infinity);
-      Rational hi = byte_array_u8(colHiMask, j)
-          ? Rational(Mpq(lean_string_at(colHi, j)).q)
-          : Rational(infinity);
-      lp.addCol(LPColRational(obj, emptyCol, hi, lo));
-    }
-
-    std::vector<std::vector<int>> rowIdx(numConstraints);
-    std::vector<std::vector<size_t>> rowValIdx(numConstraints);
-    for (size_t k = 0; k < nnz; ++k) {
-      int r = a_rows[k];
-      int col = a_cols[k];
-      if (r < 0 || r >= numConstraints || col < 0 || col >= numVars) {
-        return mk_except_error("sparse index out of range");
-      }
-      rowIdx[r].push_back(col);
-      rowValIdx[r].push_back(k);
-    }
-
-    for (int i = 0; i < numConstraints; ++i) {
-      Rational lo = byte_array_u8(rowLoMask, i)
-          ? Rational(Mpq(lean_string_at(rowLo, i)).q)
-          : -Rational(infinity);
-      Rational hi = byte_array_u8(rowHiMask, i)
-          ? Rational(Mpq(lean_string_at(rowHi, i)).q)
-          : Rational(infinity);
-      DSVectorRational vals(static_cast<int>(rowIdx[i].size()));
-      for (size_t t = 0; t < rowIdx[i].size(); ++t) {
-        vals.add(rowIdx[i][t], Rational(aVals[rowValIdx[i][t]].q));
-      }
-      lp.addRow(LPRowRational(lo, vals, hi));
-    }
+    build_rational_lp(lp, input);
 
     // SoPlex's `writeLPF` and `writeMPS` for `Rational` do not emit
     // `objOffset` (LP format has no syntax for it; MPS *can* express it
