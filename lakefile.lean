@@ -27,6 +27,33 @@ open System Lake DSL
     been extracted; the lakefile reads that directory at build time.
 -/
 
+/-! ## Sanitizer (ASan/UBSan) opt-in.
+
+    Pass `-Ksanitize=1` (any value, even empty) on the `lake` command
+    line — i.e. `lake build -Ksanitize=1 …` — to compile the bridge
+    `.o` files and link the executables under
+    `-fsanitize=address,undefined`.  The companion
+    `scripts/build-soplex.sh` reads `LEAN_SOPLEX_SANITIZE` from the
+    environment to instrument SoPlex's own object files; the CI job
+    `linux-asan` sets both consistently.
+
+    Linux/clang only — macOS and Windows runners do not exercise this
+    path, and the flag list below assumes clang's sanitizer drivers. -/
+/-- Treats `-Ksanitize=0` / `-Ksanitize=false` as off so the flag matches
+    the `LEAN_SOPLEX_SANITIZE` env var's semantics. Any other value
+    (including the bare `-Ksanitize`) enables sanitizers. -/
+def sanitizerEnabled : Bool :=
+  match get_config? sanitize with
+  | some s => s != "0" && s != "false"
+  | none => false
+
+def sanitizerArgs : Array String :=
+  if sanitizerEnabled then
+    #["-fsanitize=address", "-fsanitize=undefined",
+      "-fno-omit-frame-pointer", "-g"]
+  else
+    #[]
+
 /-! ## Platform-specific link arguments. -/
 
 /-- Path to the macOS Command Line Tools SDK. Hard-coded for the same
@@ -117,7 +144,7 @@ def soplexRuntimeLinkArgs : Array String :=
       "-L/usr/lib64",
       "-L/usr/lib",
       "-lgmpxx", "-lgmp",
-      "-lm"]
+      "-lm"] ++ sanitizerArgs
 
 package leanSoplex where
   moreLinkArgs := soplexRuntimeLinkArgs
@@ -201,7 +228,7 @@ private def bridgeOTarget (pkg : Package) (src : String) :
       "-I", ffiInc,
       "-I", soplexSrcInc,
       "-I", soplexBuildInc
-    ] ++ bridgeStdlibArgs ++ systemIncludeArgs) bridgeCxxDriver
+    ] ++ bridgeStdlibArgs ++ systemIncludeArgs ++ sanitizerArgs) bridgeCxxDriver
 
 /-! ## Combined static library. -/
 
@@ -239,8 +266,10 @@ lean_exe «soplex-smoke» where
     auto-links the package-level `extern_lib leansoplex` against every
     exe in the package, so building `verify-tests` still transitively
     triggers the SoPlex build + the bridge `.o` compile + the DLL
-    link. The `moreLinkArgs := #[]` override clears the GMP / C++
-    runtime args; the DLL itself still has to link successfully. -/
+    link. Lake concatenates the package's `moreLinkArgs` with the exe's,
+    so the package-level GMP / C++ runtime args (and the
+    `-Ksanitize=1`-controlled sanitizer args appended to them on Linux)
+    apply to this exe too; the empty array here adds nothing further. -/
 lean_exe «verify-tests» where
   root := `VerifyTests
   moreLinkArgs := #[]

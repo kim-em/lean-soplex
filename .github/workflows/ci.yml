@@ -62,6 +62,82 @@ jobs:
           tail -20 /tmp/smoke.out
           exit $rc
 
+  linux-asan:
+    name: Linux ASan/UBSan
+    runs-on: ubuntu-latest
+    # Lands `true` while the job stabilises (per issue #21: "can land as
+    # `true` initially while flakes are shaken out"). Flip to `false` to
+    # make findings block merge once the job has been green for a while.
+    continue-on-error: true
+    env:
+      # `scripts/build-soplex.sh` reads this to instrument SoPlex's own
+      # .o files; the lakefile's `get_config?` opt-in handles the bridge
+      # and exe link. Both must be set for a consistent sanitized build.
+      LEAN_SOPLEX_SANITIZE: "1"
+      # LSan would otherwise report Lean-runtime allocations that
+      # legitimately survive process exit. ASan's UAF / OOB checks are
+      # the value we want here.
+      ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:print_stacktrace=1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install GMP / Boost / CMake / build tools
+        run: |
+          sudo apt-get update
+          # Same package set as the plain Linux job. `llvm-symbolizer`
+          # (from `llvm`) gives ASan/UBSan readable stack traces.
+          sudo apt-get install -y \
+            cmake build-essential ninja-build clang llvm \
+            libgmp-dev libgmpxx4ldbl libboost-dev \
+            libc++-dev libc++abi-dev \
+            zstd
+
+      - name: Install elan and Lean toolchain
+        shell: bash
+        run: |
+          set -e
+          if ! command -v elan >/dev/null 2>&1; then
+            curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+            sh elan-init.sh -y --default-toolchain none
+          fi
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.elan/bin:$PATH"
+          ./scripts/install-toolchain.sh
+
+      - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
+        run: |
+          echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
+
+      - name: Build SoPlex (sanitized)
+        run: ./scripts/build-soplex.sh
+
+      - name: Build and run verify-tests (sanitized)
+        run: |
+          lake build -Ksanitize=1 verify-tests
+          ./.lake/build/bin/verify-tests
+
+      - name: Build sanitized Lean targets
+        run: |
+          lake build -Ksanitize=1 LeanSoplex soplex-smoke solve-exact-tests
+
+      - name: Run soplex-smoke under ASan/UBSan
+        run: |
+          set +e
+          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          rc=$?
+          tail -40 /tmp/smoke.out
+          exit $rc
+
+      - name: Run solve-exact-tests under ASan/UBSan
+        run: |
+          set +e
+          ./.lake/build/bin/solve-exact-tests > /tmp/solve.out 2>&1
+          rc=$?
+          tail -40 /tmp/solve.out
+          exit $rc
+
   macos:
     name: macOS
     runs-on: macos-latest
