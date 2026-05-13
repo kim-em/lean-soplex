@@ -37,6 +37,14 @@ open System Lake DSL
     environment to instrument SoPlex's own object files; the CI job
     `linux-asan` sets both consistently.
 
+    Lean's bundled clang ships without compiler-rt's sanitizer
+    runtime archives, so the final link will fail with
+    `cannot open libclang_rt.asan_static.a` until you run
+    `./scripts/install-sanitizer-runtime.sh` once. That helper
+    detects which clang version Lean bundles, installs a matching
+    upstream LLVM toolchain from apt.llvm.org, and symlinks the
+    runtime archives into the path Lean's clang searches.
+
     Linux/clang only — macOS and Windows runners do not exercise this
     path, and the flag list below assumes clang's sanitizer drivers. -/
 /-- Treats `-Ksanitize=0` / `-Ksanitize=false` as off so the flag matches

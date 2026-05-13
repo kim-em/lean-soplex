@@ -87,29 +87,16 @@ jobs:
         run: |
           sudo apt-get update
           # Same package set as the plain Linux job. `llvm-symbolizer`
-          # (from `llvm`) gives ASan/UBSan readable stack traces.
+          # (from `llvm`) gives ASan/UBSan readable stack traces;
+          # `scripts/install-sanitizer-runtime.sh` will pull a
+          # version-matched clang + compiler-rt from apt.llvm.org once
+          # the Lean toolchain is installed and we know which clang
+          # major version it ships.
           sudo apt-get install -y \
             cmake build-essential ninja-build clang llvm \
             libgmp-dev libgmpxx4ldbl libboost-dev \
             libc++-dev libc++abi-dev \
             zstd
-
-      - name: Install clang-19 + compiler-rt from apt.llvm.org
-        run: |
-          # Ubuntu's distro clang-19 ships compiler-rt in the *legacy*
-          # layout (`lib/linux/libclang_rt.asan-x86_64.a`), while Lean's
-          # bundled clang-19 was built with
-          # `LLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON` so it looks for the
-          # *per-target* layout (`lib/x86_64-unknown-linux-gnu/
-          # libclang_rt.asan_static.a`). The two layouts decompose
-          # compiler-rt differently — the filenames are not
-          # mechanically derivable from each other. `apt.llvm.org`
-          # publishes upstream LLVM builds which use the per-target
-          # layout, matching what Lean's clang expects.
-          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-          chmod +x /tmp/llvm.sh
-          sudo /tmp/llvm.sh 19
-          sudo apt-get install -y libclang-rt-19-dev
 
       - name: Install elan and Lean toolchain
         shell: bash
@@ -124,33 +111,7 @@ jobs:
           ./scripts/install-toolchain.sh
 
       - name: Plant compiler-rt sanitizer archives into Lean's clang
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Lean's bundled clang-19 ships *without* the compiler-rt
-          # archives ASan/UBSan need at link time.  Symlink the
-          # apt.llvm.org-installed copies into the per-target
-          # directory Lean's clang looks at.  We discover the source
-          # dir by searching for `libclang_rt.asan_static.a` — only
-          # the per-target layout publishes that filename, so its
-          # location tells us we found the right install.
-          LEAN_PREFIX="$(lean --print-prefix)"
-          DEST="$LEAN_PREFIX/lib/clang/19/lib/x86_64-unknown-linux-gnu"
-          SRC_FILE="$(find /usr/lib -name 'libclang_rt.asan_static.a' -path '*/clang/19/*' 2>/dev/null | head -1)"
-          if [ -z "$SRC_FILE" ]; then
-            echo "ERROR: per-target compiler-rt for clang-19 not found." >&2
-            echo "Files actually installed:" >&2
-            dpkg -L libclang-rt-19-dev | head -80 >&2
-            exit 1
-          fi
-          SRC="$(dirname "$SRC_FILE")"
-          echo "compiler-rt source: $SRC"
-          echo "lean clang expects: $DEST"
-          mkdir -p "$DEST"
-          for f in "$SRC"/libclang_rt.*; do
-            ln -sfn "$f" "$DEST/$(basename "$f")"
-          done
-          ls -la "$DEST" | head -20
+        run: ./scripts/install-sanitizer-runtime.sh
 
       - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
         run: |
