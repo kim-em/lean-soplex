@@ -76,6 +76,11 @@ jobs:
           lake build accessor-goldens
           ./.lake/build/bin/accessor-goldens
 
+      - name: Build and run file-io-tests
+        run: |
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests
+
   macos:
     name: macOS
     runs-on: macos-latest
@@ -148,6 +153,11 @@ jobs:
         run: |
           lake build accessor-goldens
           ./.lake/build/bin/accessor-goldens
+
+      - name: Build and run file-io-tests
+        run: |
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests
 
   windows:
     name: Windows (MSYS2 / mingw-w64)
@@ -244,3 +254,10 @@ jobs:
           export PATH="$(paste -sd: .elan-path):$PATH"
           lake build accessor-goldens
           ./.lake/build/bin/accessor-goldens.exe
+
+      - name: Build and run file-io-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          lake build file-io-tests
+          ./.lake/build/bin/file-io-tests.exe

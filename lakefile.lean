@@ -263,3 +263,7 @@ lean_exe «solve-verified-tests» where
 lean_exe «accessor-goldens» where
   root := `AccessorGoldens
   moreLinkArgs := soplexRuntimeLinkArgs
+
+lean_exe «file-io-tests» where
+  root := `FileIoTests
+  moreLinkArgs := soplexRuntimeLinkArgs
