@@ -42,7 +42,7 @@ fi
 WANT_SAN=0
 if [ -n "${LEAN_SOPLEX_SANITIZE:-}" ] && [ "${LEAN_SOPLEX_SANITIZE}" != "0" ]; then
   WANT_SAN=1
-  CXXFLAGS="${CXXFLAGS:-} -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g"
+  CXXFLAGS="${CXXFLAGS:-} -fsanitize=address -fsanitize=undefined -fno-sanitize=vptr,function -fno-omit-frame-pointer -g"
   export CXXFLAGS
   echo "build-soplex.sh: sanitizer enabled, CXXFLAGS=$CXXFLAGS"
 fi

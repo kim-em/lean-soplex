@@ -57,7 +57,14 @@ def sanitizerEnabled : Bool :=
 
 def sanitizerArgs : Array String :=
   if sanitizerEnabled then
+    -- Disable ubsan's `vptr` / `function` sub-checks: they require
+    -- C++ RTTI runtime support (`__ubsan_vptr_type_cache`,
+    -- `__ubsan_handle_function_type_mismatch`) that is not pulled
+    -- in cleanly when Lean's bundled clang is the linker driver.
+    -- The rest of `-fsanitize=undefined` — integer overflow,
+    -- alignment, bounds, shift, etc. — stays active.
     #["-fsanitize=address", "-fsanitize=undefined",
+      "-fno-sanitize=vptr,function",
       "-fno-omit-frame-pointer", "-g"]
   else
     #[]
