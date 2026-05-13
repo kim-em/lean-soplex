@@ -267,3 +267,7 @@ lean_exe «accessor-goldens» where
 lean_exe «file-io-tests» where
   root := `FileIoTests
   moreLinkArgs := soplexRuntimeLinkArgs
+
+lean_exe «solve-compare-tests» where
+  root := `SolveCompareTests
+  moreLinkArgs := soplexRuntimeLinkArgs

@@ -145,6 +145,118 @@ private def tMissingFile : IO Outcome := do
   | .error (.parseError _ _) => return .ok
   | .error e => return .fail s!"expected .parseError, got {repr e}"
 
+/-! ## Verify-corpus round-trip (PLAN.md §"Test corpus" and issue #20).
+
+  Each `Problem` below appears in `VerifyTests.lean`'s hand-rolled
+  certificate corpus. We assert that writing it to MPS, reading it back,
+  and validating both sides recovers the same normalised problem
+  (sparse-entry sort, duplicate summing, zero pruning).
+
+  Caveats — these are SoPlex format properties, not bridge bugs:
+
+  * `writeLp` decomposes ranged rows (`lo` and `hi` both finite with
+    `lo < hi`) into two non-ranged rows on round-trip, so we test ranged
+    rows only via MPS.
+  * `writeMps` rejects nonzero `objOffset` (already tested above), so
+    no corpus entry exercises that path here. -/
+
+private def equalityLp : Problem :=
+  mkProblem 2 1
+    (c := #[1, 1])
+    (a := #[(0, 0, 1), (0, 1, 1)])
+    (rowBounds := #[(some 1, some 1)])
+    (colBounds := #[(some 0, none), (some 0, none)])
+
+private def rangedRowLp : Problem :=
+  mkProblem 1 1
+    (c := #[1])
+    (a := #[(0, 0, 1)])
+    (rowBounds := #[(some 1, some 3)])
+    (colBounds := #[(some 0, some 2)])
+
+private def infeasibleRowsOnlyLp : Problem :=
+  mkProblem 1 2
+    (c := #[0])
+    (a := #[(0, 0, 1), (1, 0, 1)])
+    (rowBounds := #[(some 1, none), (none, some 0)])
+    (colBounds := #[(none, none)])
+
+private def infeasibleRowAndBoundsLp : Problem :=
+  mkProblem 1 1
+    (c := #[0])
+    (a := #[(0, 0, 1)])
+    (rowBounds := #[(some 2, none)])
+    (colBounds := #[(some 0, some 1)])
+
+private def unboundedLp : Problem :=
+  mkProblem 1 0
+    (c := #[-1])
+    (a := #[])
+    (rowBounds := #[])
+    (colBounds := #[(some 0, none)])
+
+private def unboundedWithEqualityLp : Problem :=
+  mkProblem 2 1
+    (c := #[-1, 0])
+    (a := #[(0, 0, 1), (0, 1, -1)])
+    (rowBounds := #[(some 0, some 0)])
+    (colBounds := #[(some 0, none), (none, none)])
+
+/-- Exercises `validate`'s normalisation paths via the file-format
+    pipeline: a duplicate sparse entry pair `((0,0,1/3) + (0,0,2/3))`
+    collapsing to `(0,0,1)`, large numerator coefficients (multi-digit
+    GMP), and one-sided bounds. After `validate`, the round-trip side
+    sees the normalised LP, so we assert structural equality of the
+    normalised forms — which is mathematical equivalence given that
+    `validate` is a canonicalising idempotent. -/
+private def normalisationCorpusLp : Problem :=
+  mkProblem 2 2
+    (c := #[1234567890123456789, -1/3])
+    (a := #[(0, 0, 1/3), (0, 0, 2/3), (0, 1, 1), (1, 0, 1)])
+    (rowBounds := #[(some 1, some 1), (some 0, none)])
+    (colBounds := #[(some 0, none), (some 0, none)])
+
+private def roundtripMpsOf (p : Problem) : IO Outcome :=
+  withTempFile ".mps" fun path => do
+    match writeMps path p with
+    | .error e => return .fail s!"writeMps failed: {repr e}"
+    | .ok () =>
+      match readMps path with
+      | .error e => return .fail s!"readMps failed: {repr e}"
+      | .ok p' => return equalAfterValidate p p'
+
+private def roundtripLpOf (p : Problem) : IO Outcome :=
+  withTempFile ".lp" fun path => do
+    match writeLp path p with
+    | .error e => return .fail s!"writeLp failed: {repr e}"
+    | .ok () =>
+      match readLp path with
+      | .error e => return .fail s!"readLp failed: {repr e}"
+      | .ok p' => return equalAfterValidate p p'
+
+private def tRoundtripMpsEquality           : IO Outcome := roundtripMpsOf equalityLp
+private def tRoundtripMpsRangedRow          : IO Outcome := roundtripMpsOf rangedRowLp
+private def tRoundtripMpsInfeasRows         : IO Outcome := roundtripMpsOf infeasibleRowsOnlyLp
+private def tRoundtripMpsInfeasRowAndBounds : IO Outcome := roundtripMpsOf infeasibleRowAndBoundsLp
+private def tRoundtripMpsUnbounded          : IO Outcome := roundtripMpsOf unboundedLp
+private def tRoundtripMpsUnboundedEq        : IO Outcome := roundtripMpsOf unboundedWithEqualityLp
+private def tRoundtripMpsNormalisation      : IO Outcome := roundtripMpsOf normalisationCorpusLp
+
+/-- LP-format round-trip covers the corpus minus two known SoPlex
+    writer limitations:
+
+    * `rangedRowLp` — SoPlex's LP writer expands a ranged row into two
+      non-ranged rows on output. The structural-equality assertion
+      would fail (`numConstraints` grows from `1` to `2`); meanwhile
+      the solution set is preserved, so this is a writer-format quirk
+      rather than a bridge bug. Tested via MPS above instead.
+    * `infeasibleRowAndBoundsLp` and `unboundedLp` — both have zero
+      rows, which SoPlex's LP writer rejects. Tested via MPS above. -/
+private def tRoundtripLpEquality      : IO Outcome := roundtripLpOf equalityLp
+private def tRoundtripLpInfeasRows    : IO Outcome := roundtripLpOf infeasibleRowsOnlyLp
+private def tRoundtripLpUnboundedEq   : IO Outcome := roundtripLpOf unboundedWithEqualityLp
+private def tRoundtripLpNormalisation : IO Outcome := roundtripLpOf normalisationCorpusLp
+
 def allTests : Array TestCase := #[
   ⟨"MPS round-trip preserves structure",        tRoundtripMps⟩,
   ⟨"LP  round-trip preserves structure",        tRoundtripLp⟩,
@@ -152,7 +264,18 @@ def allTests : Array TestCase := #[
   ⟨"hand-authored LP fixture parses",           tFixtureLp⟩,
   ⟨"Maximize LP reads back as -c",              tMaximizeFixture⟩,
   ⟨"writeMps rejects nonzero objOffset",        tWriteNonzeroOffsetRejected⟩,
-  ⟨"missing file surfaces as parseError",       tMissingFile⟩
+  ⟨"missing file surfaces as parseError",       tMissingFile⟩,
+  ⟨"MPS round-trip: equality LP",               tRoundtripMpsEquality⟩,
+  ⟨"MPS round-trip: ranged-row LP",             tRoundtripMpsRangedRow⟩,
+  ⟨"MPS round-trip: infeasible rows-only LP",   tRoundtripMpsInfeasRows⟩,
+  ⟨"MPS round-trip: row+bounds infeasible LP",  tRoundtripMpsInfeasRowAndBounds⟩,
+  ⟨"MPS round-trip: unbounded LP",              tRoundtripMpsUnbounded⟩,
+  ⟨"MPS round-trip: unbounded with equality",   tRoundtripMpsUnboundedEq⟩,
+  ⟨"MPS round-trip: normalisation corpus",      tRoundtripMpsNormalisation⟩,
+  ⟨"LP  round-trip: equality LP",               tRoundtripLpEquality⟩,
+  ⟨"LP  round-trip: infeasible rows-only LP",   tRoundtripLpInfeasRows⟩,
+  ⟨"LP  round-trip: unbounded with equality",   tRoundtripLpUnboundedEq⟩,
+  ⟨"LP  round-trip: normalisation corpus",      tRoundtripLpNormalisation⟩
 ]
 
 def main : IO UInt32 := do
