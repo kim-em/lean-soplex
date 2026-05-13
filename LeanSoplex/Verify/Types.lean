@@ -48,12 +48,10 @@ structure Options where
     normalises this representation: duplicate `(row, col)` entries are
     summed, zero values are dropped, entries are sorted by `(row, col)`.
     The verifier always runs against the post-`validate` form. -/
-structure Problem where
-  numVars        : Nat
-  numConstraints : Nat
+structure Problem (numConstraints numVars : Nat) where
   /-- Objective coefficients (length = `numVars`). All zero ⇒ pure
       feasibility. -/
-  c              : Array Rat
+  c              : Vector Rat numVars
   /-- Optional constant added to the objective. -/
   objOffset      : Rat := 0
   /-- Sparse constraint matrix entries: `(row, col, value)`, 0-indexed.
@@ -61,9 +59,9 @@ structure Problem where
   a              : Array (Nat × Nat × Rat)
   /-- Per-row bounds `(lo, hi)`; `none` = ±∞. Covers ≤, =, ≥, and
       ranged constraints uniformly. -/
-  rowBounds      : Array (Option Rat × Option Rat)
+  rowBounds      : Vector (Option Rat × Option Rat) numConstraints
   /-- Per-variable bounds `(lo, hi)`; `none` = ±∞. -/
-  colBounds      : Array (Option Rat × Option Rat)
+  colBounds      : Vector (Option Rat × Option Rat) numVars
   deriving Repr
 
 /-- Tag used by `ProblemError.indexOutOfRange` and `boundInverted`. -/
@@ -152,14 +150,11 @@ structure Certificate (m n : Nat) where
     *caller's original sense* (including `objOffset`), never the
     internal min-canonical value.
 
-    Carries its own `numConstraints` / `numVars` (matching the
-    `Problem` it was produced from) so the embedded `Certificate`
-    can be parameterised by them. The FFI boundary checks that the
-    sizes the C++ side returns match the problem; mismatch becomes
-    `SolveError.bridge`. -/
-structure Solution where
-  numConstraints : Nat
-  numVars        : Nat
+    Parameterised by `(numConstraints numVars : Nat)` so the
+    embedded `Certificate` is dimension-aware at the type level.
+    The dimensions come from the `Problem` the `Solution` was
+    produced from. -/
+structure Solution (numConstraints numVars : Nat) where
   status         : SolveStatus
   /-- Exact for `status = optimal`; a hint otherwise. -/
   objective      : Option Rat
@@ -170,12 +165,15 @@ structure Solution where
 
 /-- Float-mode result. Kept distinct from `Solution` to prevent
     accidental feeding into the verifier: these rationals are exact
-    representations of IEEE-754 doubles, not exact-mode certificates. -/
-structure FloatSolution where
+    representations of IEEE-754 doubles, not exact-mode certificates.
+
+    Parameterised by `(numVars : Nat)` — only the primal vector
+    needs a length tag. -/
+structure FloatSolution (numVars : Nat) where
   status      : SolveStatus
   /-- Primal solution as exact rationals representing the doubles
       SoPlex computed. NOT certificate-grade. -/
-  primalAsRat : Option (Array Rat)
+  primalAsRat : Option (Vector Rat numVars)
   objective   : Option Float
   /-- Captured solver log; `""` when `Options.verbose = false`. -/
   log         : String

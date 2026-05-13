@@ -23,7 +23,7 @@ open LeanSoplex
 
 /-- A proof about a specific `Problem`. The problem index is **always
     the validated / normalised form**, never the user's raw input. -/
-inductive Verified (p : Problem) (sense : ObjSense)
+inductive Verified {m n : Nat} (p : Problem m n) (sense : ObjSense)
   /-- Optimal: a feasible point that achieves the optimum. -/
   | optimal     (x : Array Rat)
                 (h : IsFeasible p x ∧ IsOptimal p sense x)
@@ -36,8 +36,8 @@ inductive Verified (p : Problem) (sense : ObjSense)
 
 /-- Result of `solveVerified`: the normalised problem the checker
     actually ran against, plus the proof carried by `Verified`. -/
-structure VerifiedSolve (sense : ObjSense) where
-  normalized : Problem
+structure VerifiedSolve {m n : Nat} (sense : ObjSense) where
+  normalized : Problem m n
   verified   : Verified normalized sense
 
 /-! ## Sense-canonicalisation is feasibility-invariant.
@@ -48,8 +48,8 @@ structure VerifiedSolve (sense : ObjSense) where
   `checkOptimal_sound`'s feasibility component (which is stated
   about the canonicalised LP) into the `IsFeasible normalized x`
   shape that `Verified.optimal` demands. -/
-private theorem isFeasible_canonicalize_iff
-    {sense : ObjSense} {p : Problem} {x : Array Rat} :
+private theorem isFeasible_canonicalize_iff {m n : Nat}
+    {sense : ObjSense} {p : Problem m n} {x : Array Rat} :
     IsFeasible (canonicalize sense p) x ↔ IsFeasible p x := by
   cases sense <;> exact Iff.rfl
 
@@ -72,8 +72,8 @@ private theorem isFeasible_canonicalize_iff
 
     The downstream `check*` runs against the canonicalised LP, which
     is `negateObjective normalized` for `.maximize`. -/
-def verifyOutcome (opts : Options) (denomBudget : Option Nat)
-    (normalized : Problem) (sol : Solution) :
+def verifyOutcome {m n : Nat} (opts : Options) (denomBudget : Option Nat)
+    (normalized : Problem m n) (sol : Solution m n) :
     Verified normalized opts.sense :=
   let pCanon := canonicalize opts.sense normalized
   let overBudget : Bool :=

@@ -132,20 +132,21 @@ private structure ProblemFlat where
   colHiMask      : ByteArray
   colHi          : Array String
 
-private def problemFlatten (p : Problem) : Except ProblemError ProblemFlat := do
-  let numVars ← checkedU32 "numVars" p.numVars
-  let numConstraints ← checkedU32 "numConstraints" p.numConstraints
+private def problemFlatten {m n : Nat} (p : Problem m n) :
+    Except ProblemError ProblemFlat := do
+  let numVars ← checkedU32 "numVars" n
+  let numConstraints ← checkedU32 "numConstraints" m
   let rows ← p.a.mapM (fun e => checkedU32 "sparse row index" e.1)
   let cols ← p.a.mapM (fun e => checkedU32 "sparse column index" e.2.1)
   let vals  := p.a.map (fun e => e.2.2)
-  let rowLo := p.rowBounds.map Prod.fst
-  let rowHi := p.rowBounds.map Prod.snd
-  let colLo := p.colBounds.map Prod.fst
-  let colHi := p.colBounds.map Prod.snd
+  let rowLo := p.rowBounds.toArray.map Prod.fst
+  let rowHi := p.rowBounds.toArray.map Prod.snd
+  let colLo := p.colBounds.toArray.map Prod.fst
+  let colHi := p.colBounds.toArray.map Prod.snd
   pure {
     numVars        := numVars
     numConstraints := numConstraints
-    c              := ratStrings p.c
+    c              := ratStrings p.c.toArray
     objOffset      := toString p.objOffset
     aRows          := packUInt32Array rows
     aCols          := packUInt32Array cols
@@ -160,7 +161,7 @@ private def problemFlatten (p : Problem) : Except ProblemError ProblemFlat := do
     colHi          := optionRatStrings colHi }
 
 @[extern "lean_soplex_solve_exact"]
-private opaque solveExactFlat
+private opaque solveExactFlat {m n : Nat}
     (numVars numConstraints : UInt32)
     (sense simplex : UInt8)
     (hasTimeLimit : Bool) (timeLimit : Float)
@@ -173,12 +174,13 @@ private opaque solveExactFlat
     (rowHiMask : @& ByteArray) (rowHi : @& Array String)
     (colLoMask : @& ByteArray) (colLo : @& Array String)
     (colHiMask : @& ByteArray) (colHi : @& Array String) :
-    Except String Solution
+    Except String (Solution m n)
 
 private def solveErrorFromBridge (e : String) : SolveError :=
   .bridge e
 
-private def mapObjectiveForSense (sense : ObjSense) (s : Solution) : Solution :=
+private def mapObjectiveForSense {m n : Nat} (sense : ObjSense)
+    (s : Solution m n) : Solution m n :=
   match sense with
   | .minimize => s
   | .maximize => { s with objective := s.objective.map Neg.neg }
@@ -198,7 +200,8 @@ private def simplexTag : Simplex → UInt8
     the C++ ABI. For `.maximize`, the LP sent to SoPlex is the verifier's
     minimization canonicalization; the reported objective is flipped back
     into the caller's original sense. -/
-opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution := do
+opaque solveExact {m n : Nat} (opts : Options) (p : Problem m n) :
+    Except SolveError (Solution m n) := do
   let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
   let iterLimit ← ffiIterLimit opts
   let p ← validate p |>.mapError SolveError.invalidProblem
@@ -219,7 +222,7 @@ opaque solveExact (opts : Options) (p : Problem) : Except SolveError Solution :=
   pure (mapObjectiveForSense opts.sense sol)
 
 @[extern "lean_soplex_solve_float"]
-private opaque solveFloatFlat
+private opaque solveFloatFlat {n : Nat}
     (numVars numConstraints : UInt32)
     (sense simplex : UInt8)
     (hasTimeLimit : Bool) (timeLimit : Float)
@@ -232,9 +235,10 @@ private opaque solveFloatFlat
     (rowHiMask : @& ByteArray) (rowHi : @& Array String)
     (colLoMask : @& ByteArray) (colLo : @& Array String)
     (colHiMask : @& ByteArray) (colHi : @& Array String) :
-    Except String FloatSolution
+    Except String (FloatSolution n)
 
-private def mapFloatObjectiveForSense (sense : ObjSense) (s : FloatSolution) : FloatSolution :=
+private def mapFloatObjectiveForSense {n : Nat} (sense : ObjSense)
+    (s : FloatSolution n) : FloatSolution n :=
   match sense with
   | .minimize => s
   | .maximize => { s with objective := s.objective.map Neg.neg }
@@ -249,7 +253,8 @@ private def mapFloatObjectiveForSense (sense : ObjSense) (s : FloatSolution) : F
     `0.1` round-trips as `7205759403792794 / 2^56`. The distinct
     `FloatSolution` return type — separate from `Solution` — makes
     feeding these into the certificate checker hard to do by accident. -/
-opaque solveFloat (opts : Options) (p : Problem) : Except SolveError FloatSolution := do
+opaque solveFloat {m n : Nat} (opts : Options) (p : Problem m n) :
+    Except SolveError (FloatSolution n) := do
   let opts ← validateOptions opts |>.mapError SolveError.invalidOptions
   let iterLimit ← ffiIterLimit opts
   let p ← validate p |>.mapError SolveError.invalidProblem
@@ -289,10 +294,12 @@ opaque solveFloat (opts : Options) (p : Problem) : Except SolveError FloatSoluti
   rows — are SoPlex format properties, not bridge artefacts. -/
 
 @[extern "lean_soplex_read_mps_ffi"]
-private opaque readMpsImpl (path : @& String) : Except String Problem
+private opaque readMpsImpl (path : @& String) :
+    Except String (Σ m n, Problem m n)
 
 @[extern "lean_soplex_read_lp_ffi"]
-private opaque readLpImpl (path : @& String) : Except String Problem
+private opaque readLpImpl (path : @& String) :
+    Except String (Σ m n, Problem m n)
 
 @[extern "lean_soplex_write_mps_ffi"]
 private opaque writeMpsFlat
@@ -318,13 +325,17 @@ private opaque writeLpFlat
     (colHiMask : @& ByteArray) (colHi : @& Array String) :
     Except String Unit
 
-/-- Parse a `Problem` from an MPS file via SoPlex's rational reader. -/
-opaque readMps (path : System.FilePath) : Except SolveError Problem :=
+/-- Parse a `Problem` from an MPS file via SoPlex's rational reader.
+    The dimensions are determined at runtime from the file, so the
+    result is wrapped in a sigma `Σ m n, Problem m n`. -/
+opaque readMps (path : System.FilePath) :
+    Except SolveError (Σ m n, Problem m n) :=
   (readMpsImpl path.toString).mapError fun e => .parseError path.toString e
 
 /-- Write a `Problem` to an MPS file via SoPlex's rational writer.
     The `Problem` is `validate`d before serialisation. -/
-opaque writeMps (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
+opaque writeMps {m n : Nat} (path : System.FilePath) (p : Problem m n) :
+    Except SolveError Unit := do
   let p ← validate p |>.mapError SolveError.invalidProblem
   let s := path.toString
   let f ← problemFlatten p |>.mapError SolveError.invalidProblem
@@ -334,8 +345,10 @@ opaque writeMps (path : System.FilePath) (p : Problem) : Except SolveError Unit 
     f.colLoMask f.colLo f.colHiMask f.colHi
     |>.mapError fun e => .parseError s e
 
-/-- Parse a `Problem` from an LP-format file via SoPlex's rational reader. -/
-opaque readLp (path : System.FilePath) : Except SolveError Problem :=
+/-- Parse a `Problem` from an LP-format file via SoPlex's rational reader.
+    See `readMps` for the sigma-wrapped return type. -/
+opaque readLp (path : System.FilePath) :
+    Except SolveError (Σ m n, Problem m n) :=
   (readLpImpl path.toString).mapError fun e => .parseError path.toString e
 
 /-- Write a `Problem` to an LP-format file via SoPlex's rational writer.
@@ -343,7 +356,8 @@ opaque readLp (path : System.FilePath) : Except SolveError Problem :=
     LP-format writer expands a ranged row (both `lo` and `hi` finite,
     `lo ≠ hi`) into two separate non-ranged rows. Use MPS for ranged
     rows if you need structural round-trip. -/
-opaque writeLp (path : System.FilePath) (p : Problem) : Except SolveError Unit := do
+opaque writeLp {m n : Nat} (path : System.FilePath) (p : Problem m n) :
+    Except SolveError Unit := do
   let p ← validate p |>.mapError SolveError.invalidProblem
   let s := path.toString
   let f ← problemFlatten p |>.mapError SolveError.invalidProblem
@@ -410,9 +424,9 @@ def defaultDenomBudget : Option Nat := some 10000
     `Verified.unchecked _`; the three positive constructors are only
     populated from `checkOptimal_sound` / `checkInfeasible_sound` /
     `checkUnbounded_sound`. -/
-def solveVerified (opts : Options) (p : Problem)
+def solveVerified {m n : Nat} (opts : Options) (p : Problem m n)
     (denomBudget : Option Nat := defaultDenomBudget) :
-    Except SolveError (VerifiedSolve opts.sense) := do
+    Except SolveError (VerifiedSolve (m := m) (n := n) opts.sense) := do
   let _ ← validateOptions opts |>.mapError SolveError.invalidOptions
   let normalized ← validate p |>.mapError SolveError.invalidProblem
   let opts' := { opts with presolve := false }

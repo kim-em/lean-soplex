@@ -424,23 +424,19 @@ static lean_object *mk_certificate(
 }
 
 static lean_object *mk_solution(
-    uint32_t numConstraints, uint32_t numVars,
     uint8_t status, lean_object *objectiveOpt, lean_object *cert,
     const std::string &log) {
-  // Solution layout (Lean packs scalars at the end):
-  //   boxed 0 = numConstraints : Nat
-  //   boxed 1 = numVars        : Nat
-  //   boxed 2 = objective      : Option Rat
-  //   boxed 3 = certificate    : Certificate numConstraints numVars
-  //   boxed 4 = log            : String
+  // Solution m n layout (m, n are type-level parameters, erased at
+  // runtime). Lean packs scalars at the end:
+  //   boxed 0 = objective      : Option Rat
+  //   boxed 1 = certificate    : Certificate m n
+  //   boxed 2 = log            : String
   //   scalar  = status         : SolveStatus (uint8)
-  lean_object *s = lean_alloc_ctor(0, 5, sizeof(uint8_t));
-  lean_ctor_set(s, 0, lean_unsigned_to_nat(numConstraints));
-  lean_ctor_set(s, 1, lean_unsigned_to_nat(numVars));
-  lean_ctor_set(s, 2, objectiveOpt);
-  lean_ctor_set(s, 3, cert);
-  lean_ctor_set(s, 4, lean_mk_string(log.c_str()));
-  lean_ctor_set_uint8(s, sizeof(void *) * 5, status);
+  lean_object *s = lean_alloc_ctor(0, 3, sizeof(uint8_t));
+  lean_ctor_set(s, 0, objectiveOpt);
+  lean_ctor_set(s, 1, cert);
+  lean_ctor_set(s, 2, lean_mk_string(log.c_str()));
+  lean_ctor_set_uint8(s, sizeof(void *) * 3, status);
   return s;
 }
 
@@ -531,6 +527,7 @@ extern "C" LEAN_EXPORT uint32_t lean_soplex_exception_check_ffi(void) {
 }
 
 extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
+    b_lean_obj_arg /*m*/, b_lean_obj_arg /*n*/,
     uint32_t numVars_u, uint32_t numConstraints_u,
     uint8_t /*sense*/, uint8_t simplex,
     uint8_t hasTimeLimit, double timeLimit,
@@ -675,10 +672,7 @@ extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_exact(
     }
 
     lean_object *cert = mk_certificate(primal, dual, ray);
-    lean_object *sol = mk_solution(
-        static_cast<uint32_t>(input.numConstraints),
-        static_cast<uint32_t>(input.numVars),
-        status, objective, cert, logCap.str());
+    lean_object *sol = mk_solution(status, objective, cert, logCap.str());
     return mk_except_ok(sol);
   } catch (const std::exception &e) {
     return mk_except_error(e.what());
@@ -734,6 +728,7 @@ static lean_object *mk_float_solution(
  * `byte_array_*`) are shared with `lean_soplex_solve_exact` above.
  */
 extern "C" LEAN_EXPORT lean_obj_res lean_soplex_solve_float(
+    b_lean_obj_arg /*n*/,
     uint32_t numVars_u, uint32_t numConstraints_u,
     uint8_t /*sense*/, uint8_t simplex,
     uint8_t hasTimeLimit, double timeLimit,
@@ -950,29 +945,25 @@ static lean_object *mk_opt_rat(const std::string &s, bool present) {
 
 // Construct a `LeanSoplex.Problem` Lean object.
 //
-// `Problem` is a structure with the following fields in declaration order;
-// Lean lays out a structure as a single anonymous constructor with one
-// argument slot per field:
+// `Problem m n` is a structure with the following fields in
+// declaration order; Lean lays out a structure as a single anonymous
+// constructor with one argument slot per field. `m` and `n` are
+// type-level naturals, erased at runtime:
 //
-//   numVars        : Nat
-//   numConstraints : Nat
-//   c              : Array Rat
+//   c              : Vector Rat n         (runtime: Array Rat)
 //   objOffset      : Rat
 //   a              : Array (Nat × Nat × Rat)
-//   rowBounds      : Array (Option Rat × Option Rat)
-//   colBounds      : Array (Option Rat × Option Rat)
+//   rowBounds      : Vector (Option Rat × Option Rat) m   (Array layout)
+//   colBounds      : Vector (Option Rat × Option Rat) n   (Array layout)
 static lean_object *mk_problem(
-    lean_object *numVars, lean_object *numConstraints,
     lean_object *c, lean_object *objOffset,
     lean_object *a, lean_object *rowBounds, lean_object *colBounds) {
-  lean_object *p = lean_alloc_ctor(0, 7, 0);
-  lean_ctor_set(p, 0, numVars);
-  lean_ctor_set(p, 1, numConstraints);
-  lean_ctor_set(p, 2, c);
-  lean_ctor_set(p, 3, objOffset);
-  lean_ctor_set(p, 4, a);
-  lean_ctor_set(p, 5, rowBounds);
-  lean_ctor_set(p, 6, colBounds);
+  lean_object *p = lean_alloc_ctor(0, 5, 0);
+  lean_ctor_set(p, 0, c);
+  lean_ctor_set(p, 1, objOffset);
+  lean_ctor_set(p, 2, a);
+  lean_ctor_set(p, 3, rowBounds);
+  lean_ctor_set(p, 4, colBounds);
   return p;
 }
 
@@ -1071,10 +1062,21 @@ static lean_object *problem_from_lp(SPxLPRat &lp) {
     lean_array_cptr(aArr)[k] = triple;
   }
 
-  return mk_problem(
-      mk_nat_from_int(nVars), mk_nat_from_int(nCons),
+  lean_object *prob = mk_problem(
       cArr, mk_rat_from_string(offsetStr),
       aArr, rowB, colB);
+  // Wrap in `Σ m, Σ n, Problem m n` so `readMpsImpl` / `readLpImpl`
+  // can return the dimensions as type-level witnesses.
+  //   inner = Sigma.mk nVars prob   (n is the outer Nat in the type
+  //                                  `Σ n, Problem m n`)
+  //   outer = Sigma.mk nCons inner
+  lean_object *inner = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(inner, 0, mk_nat_from_int(nVars));
+  lean_ctor_set(inner, 1, prob);
+  lean_object *outer = lean_alloc_ctor(0, 2, 0);
+  lean_ctor_set(outer, 0, mk_nat_from_int(nCons));
+  lean_ctor_set(outer, 1, inner);
+  return outer;
 }
 
 enum class LpFormat { LP, MPS };

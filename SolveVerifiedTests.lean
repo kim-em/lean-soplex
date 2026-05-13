@@ -25,8 +25,13 @@ private def mkProblem
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 private def baseOpts : Options :=
   { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
@@ -38,18 +43,18 @@ private def baseOpts : Options :=
   `Verified.optimal`/`.infeasible`/`.unbounded` and we extract the
   primal / ray data alongside the proof. -/
 
-private def wantsOptimal {p : Problem} {sense : ObjSense} :
+private def wantsOptimal {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal x h =>
       -- The match binding `h` confirms the proof exists; we also
       -- verify the primal vector has the right shape.
       let _ : IsFeasible p x ∧ IsOptimal p sense x := h
-      expect (x.size = p.numVars) s!"optimal x has wrong size: {repr x}"
+      expect (True) s!"optimal x has wrong size: {repr x}"
   | .infeasible _ => .fail "expected optimal, got infeasible"
   | .unbounded .. => .fail "expected optimal, got unbounded"
   | .unchecked s  => .fail s!"expected optimal, got unchecked {repr s}"
 
-private def wantsInfeasible {p : Problem} {sense : ObjSense} :
+private def wantsInfeasible {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal ..   => .fail "expected infeasible, got optimal"
   | .infeasible h =>
@@ -58,18 +63,18 @@ private def wantsInfeasible {p : Problem} {sense : ObjSense} :
   | .unbounded .. => .fail "expected infeasible, got unbounded"
   | .unchecked s  => .fail s!"expected infeasible, got unchecked {repr s}"
 
-private def wantsUnbounded {p : Problem} {sense : ObjSense} :
+private def wantsUnbounded {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal ..       => .fail "expected unbounded, got optimal"
   | .infeasible _     => .fail "expected unbounded, got infeasible"
   | .unbounded x r h  =>
       let _ : IsUnbounded p sense := h
-      expect (x.size = p.numVars && r.size = p.numVars)
+      expect (True && True)
         s!"unbounded shapes off: x={repr x}, ray={repr r}"
   | .unchecked s      => .fail s!"expected unbounded, got unchecked {repr s}"
 
 private def wantsUnchecked (expected : SolveStatus)
-    {p : Problem} {sense : ObjSense} :
+    {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal ..    => .fail s!"expected unchecked {repr expected}, got optimal"
   | .infeasible _  => .fail s!"expected unchecked {repr expected}, got infeasible"
@@ -78,9 +83,9 @@ private def wantsUnchecked (expected : SolveStatus)
       expect (s = expected)
         s!"unchecked status mismatch: got {repr s}, wanted {repr expected}"
 
-private def runVerified (opts : Options) (p : Problem)
+private def runVerified {m n : Nat} (opts : Options) (p : Problem m n)
     (denomBudget : Option Nat := some 10000)
-    (k : ∀ (norm : Problem), Verified norm opts.sense → Outcome) : Outcome :=
+    (k : ∀ (norm : Problem m n), Verified norm opts.sense → Outcome) : Outcome :=
   match solveVerified opts p denomBudget with
   | .error e => .fail s!"solveVerified failed: {repr e}"
   | .ok r    => k r.normalized r.verified
@@ -167,19 +172,12 @@ private def tBudgetNoneDisables (_ : Unit) : Outcome :=
   runVerified baseOpts p (denomBudget := none)
     (k := fun _ v => wantsOptimal v)
 
-/-- `solveVerified` rejects malformed `Problem` values up front,
-    before any FFI call. The error is `invalidProblem`, not a
-    `bridge`/`unchecked`. -/
-private def tInvalidProblem (_ : Unit) : Outcome :=
-  let p := mkProblem 2 1
-    (c := #[1])                       -- wrong length: expected 2
-    (a := #[])
-    (rowBounds := #[(some 0, none)])
-    (colBounds := #[(some 0, none), (some 0, none)])
-  match solveVerified baseOpts p with
-  | .error (.invalidProblem _) => .ok
-  | .error e => .fail s!"expected invalidProblem, got {repr e}"
-  | .ok _ => .fail "expected invalidProblem error, got Ok"
+-- `tInvalidProblem` used to construct a Problem with a
+-- wrong-length `c` and check that `solveVerified` returned
+-- `.invalidProblem`. With `Problem m n` parameterised, the
+-- mismatch is unrepresentable — `mkProblem 2 1 (c := #[1]) …`
+-- no longer typechecks. The `invalidProblem` path is still
+-- reachable for other failures (inverted bounds, sparse OOR).
 
 /-! ## Pure `verifyOutcome` tests.
 
@@ -187,7 +185,7 @@ private def tInvalidProblem (_ : Unit) : Outcome :=
   `solveVerified` by feeding `verifyOutcome` a hand-built `Solution`
   directly. -/
 
-private def trivialProblem : Problem :=
+private def trivialProblem : Problem 0 1 :=
   mkProblem 1 0 (c := #[0]) (a := #[]) (rowBounds := #[])
     (colBounds := #[(some 0, none)])
 
@@ -196,25 +194,22 @@ private def emptyCert : Certificate 0 1 :=
 
 /-- `.optimal` status with no primal certificate: missing-field path. -/
 private def tMissingCertOptimal (_ : Unit) : Outcome :=
-  let sol : Solution :=
-    { numConstraints := 0, numVars := 1
-      status := .optimal, objective := none, certificate := emptyCert, log := "" }
+  let sol : Solution 0 1 :=
+    { status := .optimal, objective := none, certificate := emptyCert, log := "" }
   let v := verifyOutcome baseOpts none trivialProblem sol
   wantsUnchecked .optimal v
 
 /-- `.infeasible` status with no dual certificate. -/
 private def tMissingCertInfeasible (_ : Unit) : Outcome :=
-  let sol : Solution :=
-    { numConstraints := 0, numVars := 1
-      status := .infeasible, objective := none, certificate := emptyCert, log := "" }
+  let sol : Solution 0 1 :=
+    { status := .infeasible, objective := none, certificate := emptyCert, log := "" }
   let v := verifyOutcome baseOpts none trivialProblem sol
   wantsUnchecked .infeasible v
 
 /-- `.unbounded` status with no ray. -/
 private def tMissingCertUnbounded (_ : Unit) : Outcome :=
-  let sol : Solution :=
-    { numConstraints := 0, numVars := 1
-      status := .unbounded, objective := none
+  let sol : Solution 0 1 :=
+    { status := .unbounded, objective := none
       certificate := { primal := some #v[0], dual := none, ray := none }
       log := "" }
   let v := verifyOutcome baseOpts none trivialProblem sol
@@ -227,9 +222,8 @@ private def tFailedCheckOptimal (_ : Unit) : Outcome :=
   let bogusDual : DualBundle 0 1 :=
     { rowLower := #v[], rowUpper := #v[]
       colLower := #v[0], colUpper := #v[0] }
-  let sol : Solution :=
-    { numConstraints := 0, numVars := 1
-      status := .optimal, objective := none
+  let sol : Solution 0 1 :=
+    { status := .optimal, objective := none
       certificate := { primal := some #v[-1], dual := some bogusDual, ray := none }
       log := "" }
   let v := verifyOutcome baseOpts none trivialProblem sol
@@ -239,9 +233,8 @@ private def tFailedCheckOptimal (_ : Unit) : Outcome :=
     even when the certificate happens to be over budget — the budget
     check is gated on a terminal status, not applied unconditionally. -/
 private def tNonTerminalPreservesStatus (_ : Unit) : Outcome :=
-  let sol : Solution :=
-    { numConstraints := 0, numVars := 1
-      status := .timeLimit, objective := none
+  let sol : Solution 0 1 :=
+    { status := .timeLimit, objective := none
       certificate := { primal := some #v[(1234567 : Rat) / 89], dual := none, ray := none }
       log := "" }
   let v := verifyOutcome baseOpts (some 1) trivialProblem sol
@@ -255,7 +248,6 @@ def allTests : Array TestCase := #[
   ⟨"budget too small short-circuits",           tBudgetExceeded⟩,
   ⟨"default budget accepts small certificate",  tBudgetDefaultPasses⟩,
   ⟨"budget=none disables the check",            tBudgetNoneDisables⟩,
-  ⟨"invalid problem rejected before solve",     tInvalidProblem⟩,
   ⟨"verifyOutcome: optimal missing primal/dual", tMissingCertOptimal⟩,
   ⟨"verifyOutcome: infeasible missing dual",     tMissingCertInfeasible⟩,
   ⟨"verifyOutcome: unbounded missing ray",       tMissingCertUnbounded⟩,

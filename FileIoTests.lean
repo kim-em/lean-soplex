@@ -19,38 +19,52 @@ private def mkProblem
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 /-- Validate both problems and compare them field-by-field. The
     contract for our file-I/O round trip: writer + reader preserves
     structure modulo `validate`'s normalisation (sparse-entry sort,
-    duplicate summing, zero pruning). -/
-private def equalAfterValidate (p q : Problem) : Outcome :=
-  match validate p, validate q with
-  | .ok p', .ok q' =>
-    if p'.numVars ≠ q'.numVars then
-      .fail s!"numVars: {p'.numVars} ≠ {q'.numVars}"
-    else if p'.numConstraints ≠ q'.numConstraints then
-      .fail s!"numConstraints: {p'.numConstraints} ≠ {q'.numConstraints}"
-    else if p'.c ≠ q'.c then
-      .fail s!"c: {repr p'.c} ≠ {repr q'.c}"
-    else if p'.objOffset ≠ q'.objOffset then
-      .fail s!"objOffset: {p'.objOffset} ≠ {q'.objOffset}"
-    else if p'.a ≠ q'.a then
-      .fail s!"a: {repr p'.a} ≠ {repr q'.a}"
-    else if p'.rowBounds ≠ q'.rowBounds then
-      .fail s!"rowBounds: {repr p'.rowBounds} ≠ {repr q'.rowBounds}"
-    else if p'.colBounds ≠ q'.colBounds then
-      .fail s!"colBounds: {repr p'.colBounds} ≠ {repr q'.colBounds}"
-    else .ok
-  | .error e, _ => .fail s!"validate(p) failed: {repr e}"
-  | _, .error e => .fail s!"validate(q) failed: {repr e}"
+    duplicate summing, zero pruning). Both inputs are sigma-wrapped
+    because `readMps` / `readLp` return `Σ m n, Problem m n`. -/
+private def equalAfterValidate
+    (p q : Σ m n, Problem m n) : Outcome :=
+  let ⟨pm, pn, pProb⟩ := p
+  let ⟨qm, qn, qProb⟩ := q
+  if pm ≠ qm then .fail s!"numConstraints: {pm} ≠ {qm}"
+  else if pn ≠ qn then .fail s!"numVars: {pn} ≠ {qn}"
+  else
+    match validate pProb, validate qProb with
+    | .ok p', .ok q' =>
+      if p'.c.toArray ≠ q'.c.toArray then
+        .fail s!"c: {repr p'.c.toArray} ≠ {repr q'.c.toArray}"
+      else if p'.objOffset ≠ q'.objOffset then
+        .fail s!"objOffset: {p'.objOffset} ≠ {q'.objOffset}"
+      else if p'.a ≠ q'.a then
+        .fail s!"a: {repr p'.a} ≠ {repr q'.a}"
+      else if p'.rowBounds.toArray ≠ q'.rowBounds.toArray then
+        .fail s!"rowBounds: {repr p'.rowBounds.toArray} ≠ {repr q'.rowBounds.toArray}"
+      else if p'.colBounds.toArray ≠ q'.colBounds.toArray then
+        .fail s!"colBounds: {repr p'.colBounds.toArray} ≠ {repr q'.colBounds.toArray}"
+      else .ok
+    | .error e, _ => .fail s!"validate(p) failed: {repr e}"
+    | _, .error e => .fail s!"validate(q) failed: {repr e}"
+
+/-- Helper: wrap an explicitly-typed `Problem m n` as the
+    sigma-typed value `Σ m n, Problem m n` that `readMps` /
+    `readLp` return and that the round-trip helpers consume. -/
+@[inline] private def asSigma {m n : Nat} (p : Problem m n) :
+    Σ m n, Problem m n := ⟨m, n, p⟩
 
 /-- The reference Problem corresponding to `tests/fixtures/tiny.mps`
     and `tests/fixtures/tiny.lp`: minimise `x1 + x2` subject to
     `x1 + x2 = 1`, `x1, x2 ≥ 0`. -/
-private def tinyProblem : Problem :=
+private def tinyProblem : Σ m n, Problem m n := asSigma <|
   mkProblem 2 1
     (c := #[1, 1])
     (a := #[(0, 0, 1), (0, 1, 1)])
@@ -59,7 +73,7 @@ private def tinyProblem : Problem :=
 
 /-- A slightly richer Problem used for round-trip tests: includes a
     pure inequality row (`≤`) and a one-sided column lower bound. -/
-private def richProblem : Problem :=
+private def richProblem : Σ m n, Problem m n := asSigma <|
   mkProblem 2 2
     (c := #[3, -2])
     (a := #[(0, 0, 1), (0, 1, 1), (1, 0, 2), (1, 1, -1)])
@@ -68,47 +82,47 @@ private def richProblem : Problem :=
 
 private structure ProblemCase where
   name : String
-  problem : Problem
+  problem : Σ m n, Problem m n
 
 private def exactCorpus : Array ProblemCase := #[
   ⟨"optimal equality",
-    mkProblem 2 1
+    asSigma <| mkProblem 2 1
       (c := #[1, 1])
       (a := #[(0, 0, 1), (0, 1, 1)])
       (rowBounds := #[(some 1, some 1)])
       (colBounds := #[(some 0, none), (some 0, none)])⟩,
   ⟨"ranged row",
-    mkProblem 1 1
+    asSigma <| mkProblem 1 1
       (c := #[1])
       (a := #[(0, 0, 1)])
       (rowBounds := #[(some 1, some 3)])
       (colBounds := #[(some 0, some 2)])⟩,
   ⟨"infeasible rows only",
-    mkProblem 1 2
+    asSigma <| mkProblem 1 2
       (c := #[0])
       (a := #[(0, 0, 1), (1, 0, 1)])
       (rowBounds := #[(some 1, none), (none, some 0)])
       (colBounds := #[(none, none)])⟩,
   ⟨"infeasible row and bounds",
-    mkProblem 1 1
+    asSigma <| mkProblem 1 1
       (c := #[0])
       (a := #[(0, 0, 1)])
       (rowBounds := #[(some 2, none)])
       (colBounds := #[(some 0, some 1)])⟩,
   ⟨"unbounded",
-    mkProblem 1 0
+    asSigma <| mkProblem 1 0
       (c := #[-1])
       (a := #[])
       (rowBounds := #[])
       (colBounds := #[(some 0, none)])⟩,
   ⟨"duplicate sparse entries and big rationals",
-    mkProblem 1 1
+    asSigma <| mkProblem 1 1
       (c := #[1234567890123456789])
       (a := #[(0, 0, 1/3), (0, 0, 2/3)])
       (rowBounds := #[(some 1, some 1)])
       (colBounds := #[(some 0, none)])⟩,
   ⟨"max canonical form",
-    mkProblem 1 1
+    asSigma <| mkProblem 1 1
       (c := #[-1])
       (a := #[(0, 0, 1)])
       (rowBounds := #[(none, some 1)])
@@ -132,7 +146,8 @@ private def withTempFile (suffix : String) (k : System.FilePath → IO Outcome) 
 
 private def tRoundtripMps : IO Outcome :=
   withTempFile ".mps" fun path => do
-    match writeMps path richProblem with
+    let ⟨_, _, prob⟩ := richProblem
+    match writeMps path prob with
     | .error e => return .fail s!"writeMps failed: {repr e}"
     | .ok () =>
       match readMps path with
@@ -141,7 +156,8 @@ private def tRoundtripMps : IO Outcome :=
 
 private def tRoundtripLp : IO Outcome :=
   withTempFile ".lp" fun path => do
-    match writeLp path richProblem with
+    let ⟨_, _, prob⟩ := richProblem
+    match writeLp path prob with
     | .error e => return .fail s!"writeLp failed: {repr e}"
     | .ok () =>
       match readLp path with
@@ -149,7 +165,8 @@ private def tRoundtripLp : IO Outcome :=
       | .ok p' => return equalAfterValidate richProblem p'
 
 private def checkRoundtripMps (path : System.FilePath) (c : ProblemCase) : IO Outcome := do
-  match writeMps path c.problem with
+  let ⟨_, _, prob⟩ := c.problem
+  match writeMps path prob with
   | .error e => return .fail s!"{c.name}: writeMps failed: {repr e}"
   | .ok () =>
     match readMps path with
@@ -160,7 +177,8 @@ private def checkRoundtripMps (path : System.FilePath) (c : ProblemCase) : IO Ou
       | .fail msg => return .fail s!"{c.name}: {msg}"
 
 private def checkRoundtripLp (path : System.FilePath) (c : ProblemCase) : IO Outcome := do
-  match writeLp path c.problem with
+  let ⟨_, _, prob⟩ := c.problem
+  match writeLp path prob with
   | .error e => return .fail s!"{c.name}: writeLp failed: {repr e}"
   | .ok () =>
     match readLp path with
@@ -204,7 +222,7 @@ private def tFixtureLp : IO Outcome := do
     cancelled out and returned `+c` instead of `-c`. -/
 private def tMaximizeFixture : IO Outcome := do
   let path : System.FilePath := "tests" / "fixtures" / "maximize.lp"
-  let expected : Problem :=
+  let expected : Σ m n, Problem m n := asSigma <|
     mkProblem 2 1
       (c := #[-2, -3])
       (a := #[(0, 0, 1), (0, 1, 1)])
@@ -219,7 +237,7 @@ private def tMaximizeFixture : IO Outcome := do
     offset on the floor, so we reject it at the bridge boundary. -/
 private def tWriteNonzeroOffsetRejected : IO Outcome :=
   withTempFile ".mps" fun path => do
-    let p : Problem :=
+    let p : Problem 1 2 :=
       { mkProblem 2 1
           (c := #[1, 1])
           (a := #[(0, 0, 1), (0, 1, 1)])

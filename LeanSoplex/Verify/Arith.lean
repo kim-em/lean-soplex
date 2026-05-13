@@ -20,6 +20,20 @@ namespace LeanSoplex.Verify
 
 open LeanSoplex
 
+/-- Bridge: `v.toArray[i]!` (Array `get!` on the underlying array)
+    equals `v[i]!` (Vector `get!`). Stated with the Array form on
+    the LHS so `@[simp]` *removes* `.toArray` insertions, normalising
+    everything to Vector form. Without this bridge, soundness proofs
+    that mix `Vector`-typed structure fields with `.toArray`-converted
+    intermediates leave `simp`/`rw` looking at `match decidableGetElem?
+    …` vs `Array.get!Internal …` mismatches that block destructuring. -/
+@[simp] theorem _root_.Vector.toArray_getElem! {α} [Inhabited α] {n : Nat}
+    (v : Vector α n) (i : Nat) : v.toArray[i]! = v[i]! := by
+  by_cases h : i < n
+  · rw [getElem!_pos v i h, getElem!_pos v.toArray i (by rw [Vector.size_toArray]; exact h)]
+    rfl
+  · rw [getElem!_neg v i h, getElem!_neg v.toArray i (by rw [Vector.size_toArray]; exact h)]
+
 /-! ## Derived `Rat` arithmetic.
 
   Lean 4 core (4.29.1) already provides `mul_nonneg`,
@@ -85,32 +99,42 @@ theorem arrayEq_true_imp_eq
 
 /-! ## `problemShapeOk` bridge. -/
 
-/-- Bundled Prop-level shape predicate. `problemShapeOk p = true ↔`
-    this, but only the forward direction is needed for soundness
-    (we extract shape facts from a Bool hypothesis we already have).
-    `validate` callers can also extract these facts from successful
-    validation, but the bridge is more useful for direct extraction. -/
-structure ProblemShapeOk (p : Problem) : Prop where
-  c_size : p.c.size = p.numVars
-  colBounds_size : p.colBounds.size = p.numVars
-  rowBounds_size : p.rowBounds.size = p.numConstraints
+/-- Bundled Prop-level shape predicate. With `Problem.c`,
+    `Problem.colBounds`, and `Problem.rowBounds` now `Vector`-typed,
+    the only remaining check is that every sparse `(row, col)` is
+    in range. Size facts are exposed below as `theorem`-form
+    accessors so existing `hShape.c_size` / `hShape.colBounds_size`
+    / `hShape.rowBounds_size` call sites keep working. -/
+structure ProblemShapeOk {m n : Nat} (p : Problem m n) : Prop where
   sparse_in_range : ∀ k (hk : k < p.a.size),
-    (p.a[k]).1 < p.numConstraints ∧ (p.a[k]).2.1 < p.numVars
+    (p.a[k]).1 < m ∧ (p.a[k]).2.1 < n
+
+namespace ProblemShapeOk
+
+variable {m n : Nat} {p : Problem m n}
+
+/-- Legacy accessor: `p.c.toArray.size = n`. Was a structure
+    field before `Problem.c` became `Vector`; now derived from
+    `Vector.size_toArray`. The hypothesis is unused. -/
+theorem c_size (_ : ProblemShapeOk p) :
+    p.c.toArray.size = n := p.c.size_toArray
+
+theorem colBounds_size (_ : ProblemShapeOk p) :
+    p.colBounds.toArray.size = n := p.colBounds.size_toArray
+
+theorem rowBounds_size (_ : ProblemShapeOk p) :
+    p.rowBounds.toArray.size = m := p.rowBounds.size_toArray
+
+end ProblemShapeOk
 
 theorem problemShapeOk_imp
-    {p : Problem} (h : problemShapeOk p = true) :
+    {m n : Nat} {p : Problem m n} (h : problemShapeOk p = true) :
     ProblemShapeOk p := by
   unfold problemShapeOk at h
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true] at h
-  obtain ⟨⟨⟨hC, hCol⟩, hRow⟩, hAll⟩ := h
-  refine
-    { c_size := of_decide_eq_true hC
-      colBounds_size := of_decide_eq_true hCol
-      rowBounds_size := of_decide_eq_true hRow
-      sparse_in_range := ?_ }
+  refine { sparse_in_range := ?_ }
   intro k hk
-  rw [Array.all_eq_true] at hAll
-  have := hAll k hk
+  rw [Array.all_eq_true] at h
+  have := h k hk
   rw [Bool.and_eq_true] at this
   exact ⟨of_decide_eq_true this.1, of_decide_eq_true this.2⟩
 
@@ -120,7 +144,7 @@ theorem problemShapeOk_imp
   Prop targets live in `LeanSoplex.Verify.Prop`; the soundness proofs
   in `LeanSoplex.Verify.Sound` consume these bridges. -/
 
-theorem boundCombinationPos_imp {m n : Nat} {p : Problem} {d : DualBundle m n}
+theorem boundCombinationPos_imp {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : boundCombinationPos p d = true) :
     0 < dualBoundCombination p d := by
   unfold boundCombinationPos at h
@@ -139,37 +163,34 @@ private theorem or_not_isNone_decide_eq_true {α} {o : Option α} {P : Prop}
   · exact of_decide_eq_true hP
 
 theorem dualNonnegAndZeroWhereAbsent_imp
-    {m n : Nat} {p : Problem} {d : DualBundle m n}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : dualNonnegAndZeroWhereAbsent p d = true) :
     DualNonnegZeroWhereAbsent p d := by
   unfold dualNonnegAndZeroWhereAbsent at h
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true,
-      Bool.and_eq_true] at h
-  obtain ⟨⟨⟨⟨_, hM⟩, hN⟩, hRow⟩, hCol⟩ := h
+  rw [Bool.and_eq_true, Bool.and_eq_true] at h
+  obtain ⟨⟨_, hRow⟩, hCol⟩ := h
   rw [Array.all_eq_true] at hRow hCol
   refine
-    { numConstraints_eq := of_decide_eq_true hM
-      numVars_eq       := of_decide_eq_true hN
-      row_nonneg := ?_
+    { row_nonneg := ?_
       col_nonneg := ?_
       row_zero_absent := ?_
       col_zero_absent := ?_ }
   · intro i hi
-    have hRange : i < (Array.range p.numConstraints).size := by
+    have hRange : i < (Array.range m).size := by
       simpa [Array.size_range] using hi
     have hi' := hRow i hRange
     rw [Array.getElem_range] at hi'
     simp only [Bool.and_eq_true] at hi'
     exact ⟨of_decide_eq_true hi'.1.1.1, of_decide_eq_true hi'.1.1.2⟩
   · intro j hj
-    have hRange : j < (Array.range p.numVars).size := by
+    have hRange : j < (Array.range n).size := by
       simpa [Array.size_range] using hj
     have hj' := hCol j hRange
     rw [Array.getElem_range] at hj'
     simp only [Bool.and_eq_true] at hj'
     exact ⟨of_decide_eq_true hj'.1.1.1, of_decide_eq_true hj'.1.1.2⟩
   · intro i hi
-    have hRange : i < (Array.range p.numConstraints).size := by
+    have hRange : i < (Array.range m).size := by
       simpa [Array.size_range] using hi
     have hi' := hRow i hRange
     rw [Array.getElem_range] at hi'
@@ -177,7 +198,7 @@ theorem dualNonnegAndZeroWhereAbsent_imp
     exact ⟨or_not_isNone_decide_eq_true hi'.1.2,
            or_not_isNone_decide_eq_true hi'.2⟩
   · intro j hj
-    have hRange : j < (Array.range p.numVars).size := by
+    have hRange : j < (Array.range n).size := by
       simpa [Array.size_range] using hj
     have hj' := hCol j hRange
     rw [Array.getElem_range] at hj'
@@ -212,22 +233,22 @@ theorem applyATy_size (y : Array Rat) (out : Array Rat)
   · simp [h, Array.size_set]
   · simp [h]
 
-theorem evalAx_size (p : Problem) (x : Array Rat) :
-    (evalAx p x).size = p.numConstraints := by
+theorem evalAx_size {m n : Nat} (p : Problem m n) (x : Array Rat) :
+    (evalAx p x).size = m := by
   unfold evalAx
   refine Array.foldl_induction
-    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = p.numConstraints)
+    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = m)
     ?_ ?_
   · simp
   · intro i acc hAcc
     rw [applyAx_size]
     exact hAcc
 
-theorem evalATy_size (p : Problem) (y : Array Rat) :
-    (evalATy p y).size = p.numVars := by
+theorem evalATy_size {m n : Nat} (p : Problem m n) (y : Array Rat) :
+    (evalATy p y).size = n := by
   unfold evalATy
   refine Array.foldl_induction
-    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = p.numVars)
+    (motive := fun (_ : Nat) (acc : Array Rat) => acc.size = n)
     ?_ ?_
   · simp
   · intro i acc hAcc
@@ -279,19 +300,19 @@ theorem vDot_eq_dot {n : Nat} (a b : Vector Rat n) :
   rw [if_pos (by rw [a.size_toArray, b.size_toArray])]
   rw [Vector.toArray_zipWith]
 
-/-- `Aᵀy` as a `Vector Rat p.numVars`. Wraps `evalATy` together with
+/-- `Aᵀy` as a `Vector Rat n`. Wraps `evalATy` together with
     its `_size` lemma so callers never re-derive the output size. -/
-def vEvalATy (p : Problem) {k : Nat} (y : Vector Rat k) : Vector Rat p.numVars :=
+def vEvalATy {m n : Nat} (p : Problem m n) {k : Nat} (y : Vector Rat k) : Vector Rat n :=
   ⟨evalATy p y.toArray, evalATy_size p y.toArray⟩
 
-/-- `Ax` as a `Vector Rat p.numConstraints`, dual to `vEvalATy`. -/
-def vEvalAx (p : Problem) {k : Nat} (x : Vector Rat k) : Vector Rat p.numConstraints :=
+/-- `Ax` as a `Vector Rat m`, dual to `vEvalATy`. -/
+def vEvalAx {m n : Nat} (p : Problem m n) {k : Nat} (x : Vector Rat k) : Vector Rat m :=
   ⟨evalAx p x.toArray, evalAx_size p x.toArray⟩
 
-@[simp] theorem vEvalAx_toArray (p : Problem) {k : Nat} (x : Vector Rat k) :
+@[simp] theorem vEvalAx_toArray {m n : Nat} (p : Problem m n) {k : Nat} (x : Vector Rat k) :
     (vEvalAx p x).toArray = evalAx p x.toArray := rfl
 
-@[simp] theorem vEvalATy_toArray (p : Problem) {k : Nat} (y : Vector Rat k) :
+@[simp] theorem vEvalATy_toArray {m n : Nat} (p : Problem m n) {k : Nat} (y : Vector Rat k) :
     (vEvalATy p y).toArray = evalATy p y.toArray := rfl
 
 /-! ## Sparse bilinear identity.
@@ -311,7 +332,7 @@ private def sparsePrefix (entries : Array (Nat × Nat × Rat))
       let e := entries[n]!
       sparsePrefix entries y x n + e.2.2 * y[e.1]! * x[e.2.1]!
 
-private def sparseBilinear (p : Problem) (y x : Array Rat) : Rat :=
+private def sparseBilinear {m n : Nat} (p : Problem m n) (y x : Array Rat) : Rat :=
   p.a.foldl (fun acc e => acc + e.2.2 * y[e.1]! * x[e.2.1]!) 0
 
 private theorem dot_eq_dotPrefix
@@ -709,12 +730,12 @@ private theorem dot_unitVector_left
   rw [unitVector_get! n i j hj]
 
 theorem primalObj_addSmul
-    (p : Problem) (x r : Array Rat) (lam : Rat)
-    (hcx : p.c.size = x.size) (hxr : x.size = r.size) :
+    {m n : Nat} (p : Problem m n) (x r : Array Rat) (lam : Rat)
+    (hcx : p.c.toArray.size = x.size) (hxr : x.size = r.size) :
     primalObj p (Array.addSmul x lam r) =
-      primalObj p x + lam * dot p.c r := by
+      primalObj p x + lam * dot p.c.toArray r := by
   unfold primalObj
-  rw [dot_addSmul_right p.c x r lam hcx hxr]
+  rw [dot_addSmul_right p.c.toArray x r lam hcx hxr]
   grind [Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]
 
 theorem dot_replicate_left_zero'
@@ -728,7 +749,7 @@ theorem dot_replicate_right_zero'
   dot_replicate_right_zero y n h
 
 private theorem sparseBilinear_eq_sparsePrefix
-    (p : Problem) (y x : Array Rat) :
+    {m n : Nat} (p : Problem m n) (y x : Array Rat) :
     sparseBilinear p y x = sparsePrefix p.a y x p.a.size := by
   unfold sparseBilinear
   refine Array.foldl_induction
@@ -742,23 +763,23 @@ private theorem sparseBilinear_eq_sparsePrefix
     rfl
 
 private theorem dot_evalAx_eq_sparseBilinear
-    (p : Problem) (y x : Array Rat)
+    {m n : Nat} (p : Problem m n) (y x : Array Rat)
     (hShape : ProblemShapeOk p)
-    (hY : y.size = p.numConstraints)
-    (hX : x.size = p.numVars) :
+    (hY : y.size = m)
+    (hX : x.size = n) :
     dot y (evalAx p x) = sparseBilinear p y x := by
   unfold evalAx
   rw [sparseBilinear_eq_sparsePrefix]
   have hFold := Array.foldl_induction
     (as := p.a)
-    (init := Array.replicate p.numConstraints 0)
+    (init := Array.replicate m 0)
     (f := applyAx x)
     (motive := fun i out =>
-      out.size = p.numConstraints ∧ dot y out = sparsePrefix p.a y x i)
+      out.size = m ∧ dot y out = sparsePrefix p.a y x i)
     (by
       constructor
       · simp
-      · rw [dot_replicate_right_zero y p.numConstraints hY]
+      · rw [dot_replicate_right_zero y m hY]
         rfl)
     (by
       intro i out hAcc
@@ -786,23 +807,23 @@ private theorem dot_evalAx_eq_sparseBilinear
   exact hFold.2
 
 private theorem dot_evalATy_eq_sparseBilinear
-    (p : Problem) (y x : Array Rat)
+    {m n : Nat} (p : Problem m n) (y x : Array Rat)
     (hShape : ProblemShapeOk p)
-    (hY : y.size = p.numConstraints)
-    (hX : x.size = p.numVars) :
+    (hY : y.size = m)
+    (hX : x.size = n) :
     dot (evalATy p y) x = sparseBilinear p y x := by
   unfold evalATy
   rw [sparseBilinear_eq_sparsePrefix]
   have hFold := Array.foldl_induction
     (as := p.a)
-    (init := Array.replicate p.numVars 0)
+    (init := Array.replicate n 0)
     (f := applyATy y)
     (motive := fun i out =>
-      out.size = p.numVars ∧ dot out x = sparsePrefix p.a y x i)
+      out.size = n ∧ dot out x = sparsePrefix p.a y x i)
     (by
       constructor
       · simp
-      · rw [dot_replicate_left_zero x p.numVars hX]
+      · rw [dot_replicate_left_zero x n hX]
         rfl)
     (by
       intro i out hAcc
@@ -829,24 +850,24 @@ private theorem dot_evalATy_eq_sparseBilinear
   exact hFold.2
 
 theorem dot_y_evalAx_eq_dot_evalATy_x
-    (p : Problem) (y x : Array Rat)
+    {m n : Nat} (p : Problem m n) (y x : Array Rat)
     (hShape : ProblemShapeOk p)
-    (hY : y.size = p.numConstraints)
-    (hX : x.size = p.numVars) :
+    (hY : y.size = m)
+    (hX : x.size = n) :
     dot y (evalAx p x) = dot (evalATy p y) x := by
   rw [dot_evalAx_eq_sparseBilinear p y x hShape hY hX,
       dot_evalATy_eq_sparseBilinear p y x hShape hY hX]
 
 theorem evalAx_addSmul_get!
-    (p : Problem) (x r : Array Rat) (lam : Rat)
+    {m n : Nat} (p : Problem m n) (x r : Array Rat) (lam : Rat)
     (hShape : ProblemShapeOk p)
-    (hx : x.size = p.numVars) (hr : r.size = p.numVars)
-    (i : Nat) (hi : i < p.numConstraints) :
+    (hx : x.size = n) (hr : r.size = n)
+    (i : Nat) (hi : i < m) :
     (evalAx p (Array.addSmul x lam r))[i]! =
       (evalAx p x)[i]! + lam * (evalAx p r)[i]! := by
-  let e := unitVector p.numConstraints i
-  have heSize : e.size = p.numConstraints := unitVector_size p.numConstraints i
-  have hySize : (Array.addSmul x lam r).size = p.numVars := by
+  let e := unitVector m i
+  have heSize : e.size = m := unitVector_size m i
+  have hySize : (Array.addSmul x lam r).size = n := by
     have h := Array.addSmul_size_of_eq x r lam (by rw [hx, hr])
     rw [hx] at h
     exact h
@@ -854,13 +875,13 @@ theorem evalAx_addSmul_get!
       dot e (evalAx p (Array.addSmul x lam r)) =
         (evalAx p (Array.addSmul x lam r))[i]! := by
     exact dot_unitVector_left (evalAx p (Array.addSmul x lam r))
-      p.numConstraints i (evalAx_size ..) hi
+      m i (evalAx_size ..) hi
   have hX :
       dot e (evalAx p x) = (evalAx p x)[i]! := by
-    exact dot_unitVector_left (evalAx p x) p.numConstraints i (evalAx_size ..) hi
+    exact dot_unitVector_left (evalAx p x) m i (evalAx_size ..) hi
   have hR :
       dot e (evalAx p r) = (evalAx p r)[i]! := by
-    exact dot_unitVector_left (evalAx p r) p.numConstraints i (evalAx_size ..) hi
+    exact dot_unitVector_left (evalAx p r) m i (evalAx_size ..) hi
   rw [← hLeft, dot_y_evalAx_eq_dot_evalATy_x p e (Array.addSmul x lam r)
         hShape heSize hySize]
   rw [dot_addSmul_right (evalATy p e) x r lam (by rw [evalATy_size, hx]) (by rw [hx, hr])]
@@ -875,11 +896,11 @@ theorem evalAx_addSmul_get!
   get a per-index equality, then uses `getElem_zipWith` and
   `arraySub_get!_of_eq` to rewrite both sides into `[i]!` form. -/
 theorem isStationary_imp
-    {m n : Nat} {p : Problem} {d : DualBundle m n}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (hShape : ProblemShapeOk p)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (h : isStationary p d = true) :
-    StationarityAgainst p d p.c := by
+    StationarityAgainst p d p.c.toArray := by
   unfold isStationary at h
   -- Translate Vector ops back to their Array forms so the existing
   -- size lemmas apply unchanged.
@@ -889,15 +910,15 @@ theorem isStationary_imp
     hDual.rowLower_size.trans hDual.rowUpper_size.symm
   have hColEq : d.colLower.toArray.size = d.colUpper.toArray.size :=
     hDual.colLower_size.trans hDual.colUpper_size.symm
-  have hRowSub : (arraySub d.rowLower.toArray d.rowUpper.toArray).size = p.numConstraints := by
+  have hRowSub : (arraySub d.rowLower.toArray d.rowUpper.toArray).size = m := by
     rw [arraySub_size_of_eq _ _ hRowEq]; exact hDual.rowLower_size
-  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = p.numVars :=
+  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = n :=
     evalATy_size ..
-  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = p.numVars := by
+  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = n := by
     rw [arraySub_size_of_eq _ _ hColEq]; exact hDual.colLower_size
   have hZipSize : (Array.zipWith (fun x y => x + y)
       (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))
-      (arraySub d.colLower.toArray d.colUpper.toArray)).size = p.numVars := by
+      (arraySub d.colLower.toArray d.colUpper.toArray)).size = n := by
     rw [Array.size_zipWith, hAty, hZdiff, Nat.min_self]
   intro j hj
   have hjZip : j < (Array.zipWith (fun x y => x + y)
@@ -910,12 +931,15 @@ theorem isStationary_imp
     rw [hAty]; exact hj
   have hjZdiff : j < (arraySub d.colLower.toArray d.colUpper.toArray).size := by
     rw [hZdiff]; exact hj
-  have hjC : j < p.c.size := by rw [hShape.c_size]; exact hj
+  have hjC : j < p.c.toArray.size := by rw [hShape.c_size]; exact hj
   rw [← getElem!_pos _ j hjAty, ← getElem!_pos _ j hjZdiff,
       ← getElem!_pos _ j hjC] at hEqj
   -- Substitute arraySub at index j.
   rw [arraySub_get!_of_eq _ _ hColEq j (by rw [hDual.colLower_size]; exact hj)]
     at hEqj
+  -- Normalise `_.toArray[j]!` to `_[j]!` on both sides so the
+  -- forms agree.
+  simp only [Vector.toArray_getElem!] at hEqj ⊢
   exact hEqj
 
 /-- `(!o.isSome || decide P) = true ↔ (o = some _ → P)`. The Bool
@@ -947,34 +971,34 @@ private theorem leUB_imp {x : Rat} {hi : Option Rat} (h : leUB x hi = true) :
   exact of_decide_eq_true h
 
 theorem isPrimalFeasible_imp
-    {p : Problem} {x : Array Rat}
+    {m n : Nat} {p : Problem m n} {x : Array Rat}
     (h : isPrimalFeasible p x = true) :
     ProblemShapeOk p ∧ IsFeasible p x := by
   unfold isPrimalFeasible at h
   rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true] at h
   obtain ⟨⟨⟨hShape, hxSize⟩, hCol⟩, hRow⟩ := h
   have hShape' := problemShapeOk_imp hShape
-  have hxSize' : x.size = p.numVars := of_decide_eq_true hxSize
+  have hxSize' : x.size = n := of_decide_eq_true hxSize
   rw [Array.all_eq_true] at hCol hRow
   refine ⟨hShape', ?_, ?_⟩
   · -- ColBoundsSatisfied
     refine ⟨hxSize', ?_⟩
     intro j
-    have hRange : j.val < (Array.range p.numVars).size := by
+    have hRange : j.val < (Array.range n).size := by
       simp [Array.size_range, j.isLt]
     have hj' := hCol j.val hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hj'
     exact ⟨geLB_imp hj'.1, leUB_imp hj'.2⟩
   · -- RowBoundsSatisfied
     intro i
-    have hRange : i.val < (Array.range p.numConstraints).size := by
+    have hRange : i.val < (Array.range m).size := by
       simp [Array.size_range, i.isLt]
     have hi' := hRow i.val hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hi'
     exact ⟨geLB_imp hi'.1, leUB_imp hi'.2⟩
 
 theorem isRecessionRay_imp
-    {p : Problem} {r : Array Rat}
+    {m n : Nat} {p : Problem m n} {r : Array Rat}
     (h : isRecessionRay p r = true) :
     IsRecessionRay p r := by
   unfold isRecessionRay at h
@@ -988,25 +1012,25 @@ theorem isRecessionRay_imp
       row_lo_nonneg := ?_
       row_hi_nonpos := ?_ }
   · intro j hj hLo
-    have hRange : j < (Array.range p.numVars).size := by
+    have hRange : j < (Array.range n).size := by
       simpa [Array.size_range] using hj
     have hj' := hCol j hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hj'
     exact or_not_isSome_decide_eq_true hj'.1 hLo
   · intro j hj hHi
-    have hRange : j < (Array.range p.numVars).size := by
+    have hRange : j < (Array.range n).size := by
       simpa [Array.size_range] using hj
     have hj' := hCol j hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hj'
     exact or_not_isSome_decide_eq_true hj'.2 hHi
   · intro i hi hLo
-    have hRange : i < (Array.range p.numConstraints).size := by
+    have hRange : i < (Array.range m).size := by
       simpa [Array.size_range] using hi
     have hi' := hRow i hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hi'
     exact or_not_isSome_decide_eq_true hi'.1 hLo
   · intro i hi hHi
-    have hRange : i < (Array.range p.numConstraints).size := by
+    have hRange : i < (Array.range m).size := by
       simpa [Array.size_range] using hi
     have hi' := hRow i hRange
     rw [Array.getElem_range, Bool.and_eq_true] at hi'
@@ -1018,7 +1042,7 @@ theorem isRecessionRay_imp
     soundness layer can consume `IsFarkasDualFeasible p d` in one
     step. -/
 theorem isFarkasFeasible_imp
-    {m n : Nat} {p : Problem} {d : DualBundle m n}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : isFarkasFeasible p d = true) :
     IsFarkasDualFeasible p d := by
   unfold isFarkasFeasible at h
@@ -1031,13 +1055,13 @@ theorem isFarkasFeasible_imp
     hDual.rowLower_size.trans hDual.rowUpper_size.symm
   have hColEq : d.colLower.toArray.size = d.colUpper.toArray.size :=
     hDual.colLower_size.trans hDual.colUpper_size.symm
-  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = p.numVars :=
+  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = n :=
     evalATy_size ..
-  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = p.numVars := by
+  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = n := by
     rw [arraySub_size_of_eq _ _ hColEq]; exact hDual.colLower_size
   have hZipSize : (Array.zipWith (fun x y => x + y)
       (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))
-      (arraySub d.colLower.toArray d.colUpper.toArray)).size = p.numVars := by
+      (arraySub d.colLower.toArray d.colUpper.toArray)).size = n := by
     rw [Array.size_zipWith, hAty, hZdiff, Nat.min_self]
   rw [Array.all_eq_true] at hZero
   refine
@@ -1059,6 +1083,7 @@ theorem isFarkasFeasible_imp
   rw [← getElem!_pos _ j hjAty, ← getElem!_pos _ j hjZdiff] at hjZ
   rw [arraySub_get!_of_eq _ _ hColEq j (by rw [hDual.colLower_size]; exact hj)]
     at hjZ
+  simp only [Vector.toArray_getElem!] at hjZ
   exact hjZ
 
 end LeanSoplex.Verify

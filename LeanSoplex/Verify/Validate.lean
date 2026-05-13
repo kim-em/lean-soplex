@@ -83,33 +83,31 @@ private def normaliseSparse (a : Array (Nat × Nat × Rat)) :
     input *except* that `a` has been sorted, deduplicated, and pruned of
     zero entries. Field-level checks live here so the FFI and the
     checker can both assume well-formed inputs without re-validating. -/
-def validate (p : Problem) : Except ProblemError Problem := do
-  -- Length checks.
-  if p.c.size ≠ p.numVars then
-    throw (.wrongLength "c" p.numVars p.c.size)
-  if p.colBounds.size ≠ p.numVars then
-    throw (.wrongLength "colBounds" p.numVars p.colBounds.size)
-  if p.rowBounds.size ≠ p.numConstraints then
-    throw (.wrongLength "rowBounds" p.numConstraints p.rowBounds.size)
+def validate {numConstraints numVars : Nat} (p : Problem numConstraints numVars) :
+    Except ProblemError (Problem numConstraints numVars) := do
+  -- Length checks for `c`, `colBounds`, `rowBounds` are no longer
+  -- needed: `Problem`'s `Vector` fields make wrong-length values
+  -- unconstructible. `ProblemError.wrongLength` is retained in the
+  -- error type for source compatibility but never thrown.
   -- Bound inversions for columns.
-  for i in [0:p.colBounds.size] do
-    match p.colBounds[i]! with
+  for i in [0:p.colBounds.toArray.size] do
+    match p.colBounds.toArray[i]! with
     | (some lo, some hi) =>
       if lo > hi then throw (.boundInverted .col i lo hi)
     | _ => pure ()
   -- Bound inversions for rows.
-  for i in [0:p.rowBounds.size] do
-    match p.rowBounds[i]! with
+  for i in [0:p.rowBounds.toArray.size] do
+    match p.rowBounds.toArray[i]! with
     | (some lo, some hi) =>
       if lo > hi then throw (.boundInverted .row i lo hi)
     | _ => pure ()
   -- Sparse-entry range checks.
   for k in [0:p.a.size] do
     let (r, c, _) := p.a[k]!
-    if r ≥ p.numConstraints then
-      throw (.indexOutOfRange .row r p.numConstraints)
-    if c ≥ p.numVars then
-      throw (.indexOutOfRange .col c p.numVars)
+    if r ≥ numConstraints then
+      throw (.indexOutOfRange .row r numConstraints)
+    if c ≥ numVars then
+      throw (.indexOutOfRange .col c numVars)
   let a' := normaliseSparse p.a
   pure { p with a := a' }
 

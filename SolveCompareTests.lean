@@ -19,8 +19,13 @@ private def mkProblem
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 private def noPresolve : Options :=
   { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
@@ -33,7 +38,7 @@ private def exactRhs : Rat := (bigBase : Rat) + 1
     this scale is much larger than one. Float-mode therefore solves the
     equality with a rounded RHS, while exact-mode verifies the original
     rational value. -/
-private def roundedRhsProblem : Problem :=
+private def roundedRhsProblem : Problem 1 1 :=
   mkProblem 1 1
     (c := #[1])
     (a := #[(0, 0, 1)])

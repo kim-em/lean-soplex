@@ -73,13 +73,14 @@ private def runOne (case : CoreCase) (sense : ObjSense) : Outcome :=
     match sense with
     | .minimize => case.expectedObjCanon
     | .maximize => -case.expectedObjCanon
-  let p : Problem :=
-    { numVars := case.numVars
-    , numConstraints := case.numConstraints
-    , c := cUser
+  if hC : cUser.size = case.numVars then
+  if hRB : case.rowBounds.size = case.numConstraints then
+  if hCB : case.colBounds.size = case.numVars then
+  let p : Problem case.numConstraints case.numVars :=
+    { c := ⟨cUser, hC⟩
     , a := case.a
-    , rowBounds := case.rowBounds
-    , colBounds := case.colBounds
+    , rowBounds := ⟨case.rowBounds, hRB⟩
+    , colBounds := ⟨case.colBounds, hCB⟩
     , objOffset := 0 }
   match validate p with
   | .error e => .fail s!"validate failed: {repr e}"
@@ -106,6 +107,9 @@ private def runOne (case : CoreCase) (sense : ObjSense) : Outcome :=
         else .fail (String.intercalate "; " parts.toList)
       | st, _, _, _ =>
         .fail s!"expected .optimal, got {repr st}: solution = {repr sol}"
+  else .fail s!"colBounds size: {case.colBounds.size} ≠ {case.numVars}"
+  else .fail s!"rowBounds size: {case.rowBounds.size} ≠ {case.numConstraints}"
+  else .fail s!"c size: {cUser.size} ≠ {case.numVars}"
 
 /-! ## Case definitions.
 

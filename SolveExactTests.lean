@@ -19,14 +19,19 @@ private def mkProblem
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 private def noPresolve : Options :=
   { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
 
-private def solveChecked (opts : Options) (p : Problem)
-    (k : Problem → Solution → Outcome) : Outcome :=
+private def solveChecked {m n : Nat} (opts : Options) (p : Problem m n)
+    (k : Problem m n → Solution m n → Outcome) : Outcome :=
   match validate p with
   | .error e => .fail s!"validate failed: {repr e}"
   | .ok p' =>

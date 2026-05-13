@@ -8,8 +8,8 @@
   `q` satisfying `Aᵀ(yL − yU) + (zL − zU) = q`, the dual bound
   combination lower-bounds `dot q x`. Specialised:
 
-  * `weak_duality` at `q := p.c` discharges `checkOptimal_sound`.
-  * `q := Array.replicate p.numVars 0` discharges `checkInfeasible_sound`.
+  * `weak_duality` at `q := p.c.toArray` discharges `checkOptimal_sound`.
+  * `q := Array.replicate n 0` discharges `checkInfeasible_sound`.
 
   `checkUnbounded_sound` does not use the bound-combination lemma; it
   builds `y := x + λ · ray` and uses `IsRecessionRay`'s sign
@@ -25,31 +25,25 @@ namespace LeanSoplex.Verify
 
 open LeanSoplex
 
-private theorem problemShapeOk_of_prop {p : Problem}
+private theorem problemShapeOk_of_prop {m n : Nat} {p : Problem m n}
     (h : ProblemShapeOk p) : problemShapeOk p = true := by
   unfold problemShapeOk
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true]
-  refine ⟨⟨⟨?_, ?_⟩, ?_⟩, ?_⟩
-  · exact decide_eq_true h.c_size
-  · exact decide_eq_true h.colBounds_size
-  · exact decide_eq_true h.rowBounds_size
-  · rw [Array.all_eq_true]
-    intro k hk
-    have hrange := h.sparse_in_range k hk
-    rw [Bool.and_eq_true]
-    exact ⟨decide_eq_true hrange.1, decide_eq_true hrange.2⟩
+  rw [Array.all_eq_true]
+  intro k hk
+  have hrange := h.sparse_in_range k hk
+  rw [Bool.and_eq_true]
+  exact ⟨decide_eq_true hrange.1, decide_eq_true hrange.2⟩
 
 private theorem dualNonnegAndZeroWhereAbsent_imp_shape
-    {m n : Nat} {p : Problem} {d : DualBundle m n}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : dualNonnegAndZeroWhereAbsent p d = true) :
     ProblemShapeOk p := by
   unfold dualNonnegAndZeroWhereAbsent at h
-  rw [Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true,
-      Bool.and_eq_true] at h
-  exact problemShapeOk_imp h.1.1.1.1
+  rw [Bool.and_eq_true, Bool.and_eq_true] at h
+  exact problemShapeOk_imp h.1.1
 
 private theorem isDualFeasible_imp
-    {m n : Nat} {p : Problem} {d : DualBundle m n}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : isDualFeasible p d = true) :
     ProblemShapeOk p ∧ IsDualFeasible p d := by
   unfold isDualFeasible at h
@@ -162,19 +156,19 @@ private theorem bound_term_le
   grind [Rat.sub_eq_add_neg, Rat.mul_add, Rat.mul_neg]
 
 private theorem dot_of_stationarity
-    {m n : Nat} {p : Problem} {d : DualBundle m n} {x q : Array Rat}
-    (hXSize : x.size = p.numVars)
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n} {x q : Array Rat}
+    (hXSize : x.size = n)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (hStat : StationarityAgainst p d q)
-    (hQ : q.size = p.numVars) :
+    (hQ : q.size = n) :
     dot q x =
       dot (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)) x +
         dot (arraySub d.colLower.toArray d.colUpper.toArray) x := by
   have hColEq : d.colLower.toArray.size = d.colUpper.toArray.size :=
     hDual.colLower_size.trans hDual.colUpper_size.symm
-  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = p.numVars :=
+  have hAty : (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size = n :=
     evalATy_size ..
-  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = p.numVars := by
+  have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = n := by
     rw [arraySub_size_of_eq _ _ hColEq]; exact hDual.colLower_size
   rw [dot_eq_range_fold q x (by rw [hQ, hXSize])]
   rw [dot_eq_range_fold (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)) x
@@ -182,7 +176,7 @@ private theorem dot_of_stationarity
   rw [dot_eq_range_fold (arraySub d.colLower.toArray d.colUpper.toArray) x
     (by rw [hZdiff, hXSize])]
   rw [hQ, hAty, hZdiff]
-  rw [← range_fold_add p.numVars
+  rw [← range_fold_add n
     (fun j => (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))[j]! * x[j]!)
     (fun j => (arraySub d.colLower.toArray d.colUpper.toArray)[j]! * x[j]!)]
   apply range_fold_congr
@@ -200,35 +194,35 @@ private theorem dot_of_stationarity
   grind [Rat.mul_add]
 
 private theorem bound_combination_le_dot_q
-    {m n : Nat} {p : Problem} {d : DualBundle m n} {x q : Array Rat}
+    {m n : Nat} {p : Problem m n} {d : DualBundle m n} {x q : Array Rat}
     (hShape : ProblemShapeOk p)
     (hX : IsFeasible p x)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (hStat : StationarityAgainst p d q)
-    (hQ : q.size = p.numVars) :
+    (hQ : q.size = n) :
     dualBoundCombination p d ≤ dot q x := by
-  have hXSize : x.size = p.numVars := hX.1.1
-  have hAxSize : (evalAx p x).size = p.numConstraints := evalAx_size ..
+  have hXSize : x.size = n := hX.1.1
+  have hAxSize : (evalAx p x).size = m := evalAx_size ..
   have hRowEq : d.rowLower.toArray.size = d.rowUpper.toArray.size :=
     hDual.rowLower_size.trans hDual.rowUpper_size.symm
   have hColEq : d.colLower.toArray.size = d.colUpper.toArray.size :=
     hDual.colLower_size.trans hDual.colUpper_size.symm
-  have hRowSub : (arraySub d.rowLower.toArray d.rowUpper.toArray).size = p.numConstraints := by
+  have hRowSub : (arraySub d.rowLower.toArray d.rowUpper.toArray).size = m := by
     rw [arraySub_size_of_eq _ _ hRowEq]; exact hDual.rowLower_size
-  have hColSub : (arraySub d.colLower.toArray d.colUpper.toArray).size = p.numVars := by
+  have hColSub : (arraySub d.colLower.toArray d.colUpper.toArray).size = n := by
     rw [arraySub_size_of_eq _ _ hColEq]; exact hDual.colLower_size
   have hRowLe :
-      (Array.range p.numConstraints).foldl (fun (acc : Rat) i =>
+      (Array.range m).foldl (fun (acc : Rat) i =>
         let (lo, hi) := p.rowBounds[i]!
-        acc + lo.elim 0 (d.rowLower.toArray[i]! * ·) -
-          hi.elim 0 (d.rowUpper.toArray[i]! * ·)) 0 ≤
+        acc + lo.elim 0 (d.rowLower[i]! * ·) -
+          hi.elim 0 (d.rowUpper[i]! * ·)) 0 ≤
         dot (arraySub d.rowLower.toArray d.rowUpper.toArray) (evalAx p x) := by
     rw [dot_eq_range_fold (arraySub d.rowLower.toArray d.rowUpper.toArray) (evalAx p x)
       (by rw [hRowSub, hAxSize])]
     rw [hRowSub]
-    exact range_fold_mono_sub p.numConstraints
-      (fun i => (p.rowBounds[i]!).1.elim 0 (d.rowLower.toArray[i]! * ·))
-      (fun i => (p.rowBounds[i]!).2.elim 0 (d.rowUpper.toArray[i]! * ·))
+    exact range_fold_mono_sub m
+      (fun i => (p.rowBounds[i]!).1.elim 0 (d.rowLower[i]! * ·))
+      (fun i => (p.rowBounds[i]!).2.elim 0 (d.rowUpper[i]! * ·))
       (fun i => (arraySub d.rowLower.toArray d.rowUpper.toArray)[i]! * (evalAx p x)[i]!)
       (by
         intro i hi
@@ -240,24 +234,24 @@ private theorem bound_combination_le_dot_q
         calc
           (match p.rowBounds[i]! with
             | (lo, hi) =>
-              (lo.elim 0 fun x => d.rowLower.toArray[i]! * x) -
-                hi.elim 0 fun x => d.rowUpper.toArray[i]! * x)
-              ≤ (d.rowLower.toArray[i]! - d.rowUpper.toArray[i]!) * (evalAx p x)[i]! := by
+              (lo.elim 0 fun x => d.rowLower[i]! * x) -
+                hi.elim 0 fun x => d.rowUpper[i]! * x)
+              ≤ (d.rowLower[i]! - d.rowUpper[i]!) * (evalAx p x)[i]! := by
                 exact bound_term_le hNon.1 hNon.2 hBounds.1 hBounds.2 hZero.1 hZero.2
           _ = (arraySub d.rowLower.toArray d.rowUpper.toArray)[i]! * (evalAx p x)[i]! := by
-                rw [hSub])
+                rw [hSub]; simp)
   have hColLe :
-      (Array.range p.numVars).foldl (fun (acc : Rat) j =>
+      (Array.range n).foldl (fun (acc : Rat) j =>
         let (lo, hi) := p.colBounds[j]!
-        acc + lo.elim 0 (d.colLower.toArray[j]! * ·) -
-          hi.elim 0 (d.colUpper.toArray[j]! * ·)) 0 ≤
+        acc + lo.elim 0 (d.colLower[j]! * ·) -
+          hi.elim 0 (d.colUpper[j]! * ·)) 0 ≤
         dot (arraySub d.colLower.toArray d.colUpper.toArray) x := by
     rw [dot_eq_range_fold (arraySub d.colLower.toArray d.colUpper.toArray) x
       (by rw [hColSub, hXSize])]
     rw [hColSub]
-    exact range_fold_mono_sub p.numVars
-      (fun j => (p.colBounds[j]!).1.elim 0 (d.colLower.toArray[j]! * ·))
-      (fun j => (p.colBounds[j]!).2.elim 0 (d.colUpper.toArray[j]! * ·))
+    exact range_fold_mono_sub n
+      (fun j => (p.colBounds[j]!).1.elim 0 (d.colLower[j]! * ·))
+      (fun j => (p.colBounds[j]!).2.elim 0 (d.colUpper[j]! * ·))
       (fun j => (arraySub d.colLower.toArray d.colUpper.toArray)[j]! * x[j]!)
       (by
         intro j hj
@@ -269,18 +263,18 @@ private theorem bound_combination_le_dot_q
         calc
           (match p.colBounds[j]! with
             | (lo, hi) =>
-              (lo.elim 0 fun x => d.colLower.toArray[j]! * x) -
-                hi.elim 0 fun x => d.colUpper.toArray[j]! * x)
-              ≤ (d.colLower.toArray[j]! - d.colUpper.toArray[j]!) * x[j]! := by
+              (lo.elim 0 fun x => d.colLower[j]! * x) -
+                hi.elim 0 fun x => d.colUpper[j]! * x)
+              ≤ (d.colLower[j]! - d.colUpper[j]!) * x[j]! := by
                 exact bound_term_le hNon.1 hNon.2 hBounds.1 hBounds.2 hZero.1 hZero.2
           _ = (arraySub d.colLower.toArray d.colUpper.toArray)[j]! * x[j]! := by
-                rw [hSub])
+                rw [hSub]; simp)
   have hBoundLe :
       dualBoundCombination p d ≤
         dot (arraySub d.rowLower.toArray d.rowUpper.toArray) (evalAx p x) +
           dot (arraySub d.colLower.toArray d.colUpper.toArray) x := by
     unfold dualBoundCombination
-    simp [problemShapeOk_of_prop hShape, hDual.numConstraints_eq, hDual.numVars_eq]
+    simp [problemShapeOk_of_prop hShape]
     have hAdd := RatAux.add_le_add hRowLe hColLe
     simpa [Rat.sub_eq_add_neg] using hAdd
   have hBilin :
@@ -307,7 +301,7 @@ private theorem bound_combination_le_dot_q
        symmetric variants) to lower-bound each term by its dual-obj
        contribution.
     4. The remaining shifted sum is exactly `dualObj p d`. -/
-theorem weak_duality {m n : Nat} {p : Problem} {x : Array Rat} {d : DualBundle m n}
+theorem weak_duality {m n : Nat} {p : Problem m n} {x : Array Rat} {d : DualBundle m n}
     (hx : isPrimalFeasible p x = true)
     (hd : isDualFeasible    p d = true) :
     dualObj p d ≤ primalObj p x := by
@@ -320,7 +314,7 @@ theorem weak_duality {m n : Nat} {p : Problem} {x : Array Rat} {d : DualBundle m
 
 /-- Optimality certificate is sound: a Boolean-accepted certificate
     really witnesses feasibility and min-optimality. -/
-theorem checkOptimal_sound {m n : Nat} {p : Problem} {x : Array Rat} {d : DualBundle m n}
+theorem checkOptimal_sound {m n : Nat} {p : Problem m n} {x : Array Rat} {d : DualBundle m n}
     (h : checkOptimal p x d = true) :
     IsFeasible p x ∧ IsOptimalMin p x := by
   unfold checkOptimal at h
@@ -341,7 +335,7 @@ theorem checkOptimal_sound {m n : Nat} {p : Problem} {x : Array Rat} {d : DualBu
   exact hWeakY
 
 /-- Infeasibility (Farkas) certificate is sound. -/
-theorem checkInfeasible_sound {m n : Nat} {p : Problem} {d : DualBundle m n}
+theorem checkInfeasible_sound {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : checkInfeasible p d = true) :
     IsInfeasible p := by
   unfold checkInfeasible at h
@@ -358,19 +352,19 @@ theorem checkInfeasible_sound {m n : Nat} {p : Problem} {d : DualBundle m n}
   have hPos := boundCombinationPos_imp hPosBool
   intro hExists
   obtain ⟨x, hFeasX⟩ := hExists
-  have hStatZero : StationarityAgainst p d (Array.replicate p.numVars 0) := by
+  have hStatZero : StationarityAgainst p d (Array.replicate n 0) := by
     intro j hj
-    simpa [getElem!_pos (Array.replicate p.numVars (0 : Rat)) j (by simpa using hj),
+    simpa [getElem!_pos (Array.replicate n (0 : Rat)) j (by simpa using hj),
       Array.getElem_replicate] using hFarkas.stationarity_zero j hj
   have hLe := bound_combination_le_dot_q hShape hFeasX
     hFarkas.nonneg_zero_absent hStatZero (by simp)
-  have hXSize : x.size = p.numVars := hFeasX.1.1
-  rw [dot_replicate_left_zero' x p.numVars hXSize] at hLe
+  have hXSize : x.size = n := hFeasX.1.1
+  rw [dot_replicate_left_zero' x n hXSize] at hLe
   have : False := by grind
   exact this.elim
 
 private theorem feasible_addSmul_of_recession
-    {p : Problem} {x ray : Array Rat} {lam : Rat}
+    {m n : Nat} {p : Problem m n} {x ray : Array Rat} {lam : Rat}
     (hShape : ProblemShapeOk p)
     (hFeas : IsFeasible p x)
     (hRay : IsRecessionRay p ray)
@@ -392,20 +386,19 @@ private theorem feasible_addSmul_of_recession
             x[j.val]! + lam * ray[j.val]! :=
         Array.addSmul_get!_of_eq x ray lam (by rw [hFeas.1.1, hRay.size]) j.val hjx
       have hxBounds := hFeas.1.2 j
-      cases hBoundsEq : p.colBounds[j.val]! with
-      | mk lo hi =>
-      simp [hBoundsEq] at hxBounds
       constructor
       · intro l hLo
-        have hrNonneg : 0 ≤ ray[j.val]! := by
-          exact hRay.col_lo_nonneg j.val j.isLt (by simp [hBoundsEq, hLo])
+        change p.colBounds[j.val]!.fst = some l at hLo
+        have hrNonneg : 0 ≤ ray[j.val]! :=
+          hRay.col_lo_nonneg j.val j.isLt (by rw [hLo]; rfl)
         have hStep : 0 ≤ lam * ray[j.val]! := Rat.mul_nonneg hLam hrNonneg
         rw [hy]
         have hxLo := hxBounds.1 l hLo
         grind
       · intro u hHi
-        have hrNonpos : ray[j.val]! ≤ 0 := by
-          exact hRay.col_hi_nonpos j.val j.isLt (by simp [hBoundsEq, hHi])
+        change p.colBounds[j.val]!.snd = some u at hHi
+        have hrNonpos : ray[j.val]! ≤ 0 :=
+          hRay.col_hi_nonpos j.val j.isLt (by rw [hHi]; rfl)
         have hStep : lam * ray[j.val]! ≤ 0 := by
           have := Rat.mul_le_mul_of_nonneg_left hrNonpos hLam
           simpa using this
@@ -418,20 +411,19 @@ private theorem feasible_addSmul_of_recession
           (evalAx p x)[i.val]! + lam * (evalAx p ray)[i.val]! :=
       evalAx_addSmul_get! p x ray lam hShape hFeas.1.1 hRay.size i.val i.isLt
     have hxBounds := hFeas.2 i
-    cases hBoundsEq : p.rowBounds[i.val]! with
-    | mk lo hi =>
-    simp [hBoundsEq] at hxBounds
     constructor
     · intro l hLo
-      have hrNonneg : 0 ≤ (evalAx p ray)[i.val]! := by
-        exact hRay.row_lo_nonneg i.val i.isLt (by simp [hBoundsEq, hLo])
+      change p.rowBounds[i.val]!.fst = some l at hLo
+      have hrNonneg : 0 ≤ (evalAx p ray)[i.val]! :=
+        hRay.row_lo_nonneg i.val i.isLt (by rw [hLo]; rfl)
       have hStep : 0 ≤ lam * (evalAx p ray)[i.val]! := Rat.mul_nonneg hLam hrNonneg
       rw [hAx]
       have hxLo := hxBounds.1 l hLo
       grind
     · intro u hHi
-      have hrNonpos : (evalAx p ray)[i.val]! ≤ 0 := by
-        exact hRay.row_hi_nonpos i.val i.isLt (by simp [hBoundsEq, hHi])
+      change p.rowBounds[i.val]!.snd = some u at hHi
+      have hrNonpos : (evalAx p ray)[i.val]! ≤ 0 :=
+        hRay.row_hi_nonpos i.val i.isLt (by rw [hHi]; rfl)
       have hStep : lam * (evalAx p ray)[i.val]! ≤ 0 := by
         have := Rat.mul_le_mul_of_nonneg_left hrNonpos hLam
         simpa using this
@@ -440,7 +432,7 @@ private theorem feasible_addSmul_of_recession
       grind
 
 /-- Unbounded certificate is sound. -/
-theorem checkUnbounded_sound {p : Problem} {x ray : Array Rat}
+theorem checkUnbounded_sound {m n : Nat} {p : Problem m n} {x ray : Array Rat}
     (h : checkUnbounded p x ray = true) :
     IsUnboundedMin p := by
   unfold checkUnbounded at h
@@ -448,13 +440,13 @@ theorem checkUnbounded_sound {p : Problem} {x ray : Array Rat}
   obtain ⟨⟨hPrimal, hRayBool⟩, hNegBool⟩ := h
   obtain ⟨hShape, hFeasX⟩ := isPrimalFeasible_imp hPrimal
   have hRay := isRecessionRay_imp hRayBool
-  have hNeg : dot p.c ray < 0 := by
+  have hNeg : dot p.c.toArray ray < 0 := by
     simpa using hNegBool
   refine ⟨⟨x, hFeasX⟩, ?_⟩
   intro M
   by_cases hAlready : primalObj p x < M
   · exact ⟨x, hFeasX, hAlready⟩
-  · let denom := -dot p.c ray
+  · let denom := -dot p.c.toArray ray
     let lam := (primalObj p x - M) / denom + 1
     have hDenomPos : 0 < denom := by
       unfold denom
@@ -476,21 +468,21 @@ theorem checkUnbounded_sound {p : Problem} {x ray : Array Rat}
       feasible_addSmul_of_recession hShape hFeasX hRay hLamNonneg, ?_⟩
     have hObj :
         primalObj p (Array.addSmul x lam ray) =
-          primalObj p x + lam * dot p.c ray := by
+          primalObj p x + lam * dot p.c.toArray ray := by
       exact primalObj_addSmul p x ray lam (by rw [hShape.c_size, hFeasX.1.1])
         (by rw [hFeasX.1.1, hRay.size])
     rw [hObj]
     unfold lam denom
     have hDrop :
         primalObj p x +
-            (((primalObj p x - M) / (-dot p.c ray) + 1) * dot p.c ray) =
-          M + dot p.c ray := by
-      have hDenomNe : -dot p.c ray ≠ 0 := by grind
+            (((primalObj p x - M) / (-dot p.c.toArray ray) + 1) * dot p.c.toArray ray) =
+          M + dot p.c.toArray ray := by
+      have hDenomNe : -dot p.c.toArray ray ≠ 0 := by grind
       have hcancel :
-          (primalObj p x - M) / (-dot p.c ray) * (-dot p.c ray) =
+          (primalObj p x - M) / (-dot p.c.toArray ray) * (-dot p.c.toArray ray) =
             primalObj p x - M := Rat.div_mul_cancel hDenomNe
       have hpart :
-          (primalObj p x - M) / (-dot p.c ray) * dot p.c ray =
+          (primalObj p x - M) / (-dot p.c.toArray ray) * dot p.c.toArray ray =
             -(primalObj p x - M) := by
         grind [Rat.mul_neg, Rat.neg_neg]
       grind [Rat.mul_add, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm,
