@@ -44,15 +44,26 @@ structure TestCase where
 /-! ## `validate` happy paths. -/
 
 /-- A small `Problem` constructor that does *not* run `validate`. Used
-    so test cases can probe both validated and unvalidated inputs. -/
+    so test cases can probe both validated and unvalidated inputs.
+
+    With `Problem` now parameterised by `(numConstraints numVars : Nat)`
+    at the type level, the size proofs on `c`/`rowBounds`/`colBounds`
+    must be discharged at construction; defaulting them to `by decide`
+    handles well-formed array literals whose lengths match the
+    declared `numVars` / `numConstraints`. -/
 private def mkProblem
     (numVars numConstraints : Nat)
     (c : Array Rat)
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 /-- `validate` collapses duplicate `(row, col)` entries and drops the
     resulting zeros. -/
@@ -95,29 +106,15 @@ def tValidateIdempotent : Outcome :=
     | .error e => .fail s!"second validate rejected: {repr e}"
   | .error e => .fail s!"first validate rejected: {repr e}"
 
-/-! ## `validate` rejection paths. -/
+/-! ## `validate` rejection paths.
 
-def tRejectWrongLengthC : Outcome :=
-  let p := mkProblem 2 0
-    (c := #[1])                              -- wrong length
-    (a := #[])
-    (rowBounds := #[])
-    (colBounds := #[(none, none), (none, none)])
-  match validate p with
-  | .error (.wrongLength "c" 2 1) => .ok
-  | .error e => .fail s!"wrong error: {repr e}"
-  | .ok _ => .fail "expected error"
-
-def tRejectWrongLengthRowBounds : Outcome :=
-  let p := mkProblem 1 2
-    (c := #[1])
-    (a := #[])
-    (rowBounds := #[(none, none)])           -- wrong length
-    (colBounds := #[(none, none)])
-  match validate p with
-  | .error (.wrongLength "rowBounds" 2 1) => .ok
-  | .error e => .fail s!"wrong error: {repr e}"
-  | .ok _ => .fail "expected error"
+  Wrong-length cases (`wrongLength "c"`, `wrongLength "colBounds"`,
+  `wrongLength "rowBounds"`) used to live here but have become
+  unrepresentable now that `Problem` is parameterised by its
+  dimensions at the type level: there is no way to construct a
+  `Problem m n` whose `c` field is the wrong length. The
+  corresponding `ProblemError.wrongLength` constructor is retained
+  for source compatibility but is never thrown. -/
 
 def tRejectSparseRowOOR : Outcome :=
   let p := mkProblem 1 1
@@ -163,10 +160,10 @@ def tOptimalEquality : Outcome :=
     (a := #[(0, 0, 1), (0, 1, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
-  let x : Array Rat := #[0, 1]
-  let d : DualBundle :=
-    { rowLower := #[1], rowUpper := #[0]
-    , colLower := #[0, 0], colUpper := #[0, 0] }
+  let x : Vector Rat 2 := #v[0, 1]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[1], rowUpper := #v[0]
+    , colLower := #v[0, 0], colUpper := #v[0, 0] }
   expectTrue (checkOptimal p x d)
 
 /-- `min x  s.t.  1 ≤ x ≤ 3, 0 ≤ x ≤ 2`. Ranged row + boxed column.
@@ -178,10 +175,10 @@ def tOptimalRangedRow : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 1, some 3)])
     (colBounds := #[(some 0, some 2)])
-  let x : Array Rat := #[1]
-  let d : DualBundle :=
-    { rowLower := #[1], rowUpper := #[0]
-    , colLower := #[0], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[1]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[1], rowUpper := #v[0]
+    , colLower := #v[0], colUpper := #v[0] }
   expectTrue (checkOptimal p x d)
 
 /-- `max x + y  s.t.  x + y ≤ 1, x, y ≥ 0`, canonicalised to
@@ -195,10 +192,10 @@ def tOptimalMaxCanonicalized : Outcome :=
     (rowBounds := #[(none, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
   let p := canonicalize .maximize pMax        -- negates `c` and `objOffset`
-  let x : Array Rat := #[1/2, 1/2]
-  let d : DualBundle :=
-    { rowLower := #[0], rowUpper := #[1]
-    , colLower := #[0, 0], colUpper := #[0, 0] }
+  let x : Vector Rat 2 := #v[1/2, 1/2]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[0], rowUpper := #v[1]
+    , colLower := #v[0, 0], colUpper := #v[0, 0] }
   expectTrue (checkOptimal p x d)
 
 /-! ## `checkInfeasible` — positive cases. -/
@@ -213,9 +210,9 @@ def tInfeasibleRowsOnly : Outcome :=
     (a := #[(0, 0, 1), (1, 0, 1)])
     (rowBounds := #[(some 1, none), (none, some 0)])
     (colBounds := #[(none, none)])
-  let d : DualBundle :=
-    { rowLower := #[1, 0], rowUpper := #[0, 1]
-    , colLower := #[0], colUpper := #[0] }
+  let d : DualBundle _ _ :=
+    { rowLower := #v[1, 0], rowUpper := #v[0, 1]
+    , colLower := #v[0], colUpper := #v[0] }
   expectTrue (checkInfeasible p d)
 
 /-- Raw Bool-checker stress test (the LP itself fails `validate` —
@@ -230,14 +227,13 @@ def tInfeasibleRowsOnly : Outcome :=
     zU = [1]`. Stationarity `zL − zU = 0`, bound combination
     `1·0 - 1·(-1) = 1 > 0`. -/
 def tInfeasibleColBoundsOnly : Outcome :=
-  let p : Problem :=
-    { numVars := 1, numConstraints := 0
-    , c := #[0], objOffset := 0
-    , a := #[], rowBounds := #[]
-    , colBounds := #[(some 0, some (-1))] }
-  let d : DualBundle :=
-    { rowLower := #[], rowUpper := #[]
-    , colLower := #[1], colUpper := #[1] }
+  let p : Problem 0 1 :=
+    { c := #v[0], objOffset := 0
+    , a := #[], rowBounds := #v[]
+    , colBounds := #v[(some 0, some (-1))] }
+  let d : DualBundle _ _ :=
+    { rowLower := #v[], rowUpper := #v[]
+    , colLower := #v[1], colUpper := #v[1] }
   expectTrue (checkInfeasible p d)
 
 /-- `min 0  s.t.  x ≥ 2, 0 ≤ x ≤ 1`. Row + bounds infeasibility.
@@ -250,9 +246,9 @@ def tInfeasibleRowAndBounds : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 2, none)])
     (colBounds := #[(some 0, some 1)])
-  let d : DualBundle :=
-    { rowLower := #[1], rowUpper := #[0]
-    , colLower := #[0], colUpper := #[1] }
+  let d : DualBundle _ _ :=
+    { rowLower := #v[1], rowUpper := #v[0]
+    , colLower := #v[0], colUpper := #v[1] }
   expectTrue (checkInfeasible p d)
 
 /-! ## `checkUnbounded` — positive cases. -/
@@ -264,8 +260,8 @@ def tUnboundedSimple : Outcome :=
     (a := #[])
     (rowBounds := #[])
     (colBounds := #[(some 0, none)])
-  let x : Array Rat := #[0]
-  let r : Array Rat := #[1]
+  let x : Vector Rat 1 := #v[0]
+  let r : Vector Rat 1 := #v[1]
   expectTrue (checkUnbounded p x r)
 
 /-- `min -x  s.t.  x - y = 0, x ≥ 0` (y free). Base `(0,0)`, ray
@@ -276,8 +272,8 @@ def tUnboundedWithEquality : Outcome :=
     (a := #[(0, 0, 1), (0, 1, -1)])
     (rowBounds := #[(some 0, some 0)])
     (colBounds := #[(some 0, none), (none, none)])
-  let x : Array Rat := #[0, 0]
-  let r : Array Rat := #[1, 1]
+  let x : Vector Rat 2 := #v[0, 0]
+  let r : Vector Rat 2 := #v[1, 1]
   expectTrue (checkUnbounded p x r)
 
 /-! ## Negative cases — `check*` correctly rejects bad certificates. -/
@@ -289,10 +285,10 @@ def tRejectInfeasiblePrimal : Outcome :=
     (a := #[])
     (rowBounds := #[])
     (colBounds := #[(some 0, none)])
-  let x : Array Rat := #[-1]                  -- below lower bound
-  let d : DualBundle :=
-    { rowLower := #[], rowUpper := #[]
-    , colLower := #[1], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[-1]              -- below lower bound
+  let d : DualBundle _ _ :=
+    { rowLower := #v[], rowUpper := #v[]
+    , colLower := #v[1], colUpper := #v[0] }
   expectFalse (checkOptimal p x d)
 
 /-- Stationarity off by sign: pick a `d` that satisfies everything else
@@ -303,10 +299,10 @@ def tRejectBadStationarity : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none)])
-  let x : Array Rat := #[1]
-  let d : DualBundle :=                       -- yL=0,yU=1 gives -1
-    { rowLower := #[0], rowUpper := #[1]
-    , colLower := #[0], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[1]
+  let d : DualBundle _ _ :=                       -- yL=0,yU=1 gives -1
+    { rowLower := #v[0], rowUpper := #v[1]
+    , colLower := #v[0], colUpper := #v[0] }
   expectFalse (checkOptimal p x d)
 
 /-- Pins the four-vector ranged-row decomposition: same primal as
@@ -322,10 +318,10 @@ def tRejectRangedRowDecomposition : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 1, some 3)])
     (colBounds := #[(some 0, some 2)])
-  let x : Array Rat := #[1]
-  let d : DualBundle :=
-    { rowLower := #[2], rowUpper := #[1]
-    , colLower := #[0], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[1]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[2], rowUpper := #v[1]
+    , colLower := #v[0], colUpper := #v[0] }
   expectFalse (checkOptimal p x d)
 
 /-- `primalObj ≠ dualObj`: take a feasible primal and a feasible dual
@@ -339,10 +335,10 @@ def tRejectObjectiveMismatch : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none)])
-  let x : Array Rat := #[1]
-  let d : DualBundle :=
-    { rowLower := #[0], rowUpper := #[0]
-    , colLower := #[1], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[1]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[0], rowUpper := #v[0]
+    , colLower := #v[1], colUpper := #v[0] }
   expectFalse (checkOptimal p x d)
 
 /-- Farkas with bound combination = 0 (not strict): correctly rejected. -/
@@ -354,9 +350,9 @@ def tRejectFarkasNotStrict : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(some 0, some 1)])
     (colBounds := #[(some 0, none)])
-  let d : DualBundle :=
-    { rowLower := #[0], rowUpper := #[0]
-    , colLower := #[0], colUpper := #[0] }
+  let d : DualBundle _ _ :=
+    { rowLower := #v[0], rowUpper := #v[0]
+    , colLower := #v[0], colUpper := #v[0] }
   expectFalse (checkInfeasible p d)
 
 /-- Recession ray with `c·r = 0` does not certify unboundedness. -/
@@ -366,37 +362,15 @@ def tRejectUnboundedNonStrict : Outcome :=
     (a := #[])
     (rowBounds := #[])
     (colBounds := #[(some 0, none)])
-  let x : Array Rat := #[0]
-  let r : Array Rat := #[1]
+  let x : Vector Rat 1 := #v[0]
+  let r : Vector Rat 1 := #v[1]
   expectFalse (checkUnbounded p x r)
 
-/-- Totality on malformed `Problem`: `colBounds.size ≠ numVars`.
-    Without the `problemShapeOk` guard the loop body would index
-    `p.colBounds[1]!` and panic. -/
-def tTotalityMalformedColBounds : Outcome :=
-  let p := mkProblem 2 0
-    (c := #[1, 1])
-    (a := #[])
-    (rowBounds := #[])
-    (colBounds := #[(none, none)])              -- size 1, numVars = 2
-  let x : Array Rat := #[0, 0]
-  let d : DualBundle :=
-    { rowLower := #[], rowUpper := #[]
-    , colLower := #[0, 0], colUpper := #[0, 0] }
-  expectFalse (checkOptimal p x d)
-
-/-- Totality on malformed `Problem`: `rowBounds.size ≠ numConstraints`. -/
-def tTotalityMalformedRowBounds : Outcome :=
-  let p := mkProblem 1 2
-    (c := #[1])
-    (a := #[])
-    (rowBounds := #[(none, none)])              -- size 1, numConstraints = 2
-    (colBounds := #[(none, none)])
-  let x : Array Rat := #[0]
-  let d : DualBundle :=
-    { rowLower := #[0, 0], rowUpper := #[0, 0]
-    , colLower := #[0], colUpper := #[0] }
-  expectFalse (checkOptimal p x d)
+-- `tTotalityMalformedColBounds` and `tTotalityMalformedRowBounds`
+-- used to live here, testing that the Bool checker rejects a
+-- `Problem` whose `colBounds` / `rowBounds` array length disagreed
+-- with `numVars` / `numConstraints`. Both scenarios are now
+-- unrepresentable: `Problem m n` carries the lengths in the type.
 
 /-- Totality on out-of-range sparse entry. Without the guard
     `evalAx` / `evalATy` would silently drop the entry and verify a
@@ -407,73 +381,41 @@ def tTotalitySparseOutOfRange : Outcome :=
     (a := #[(0, 5, 1)])                          -- col 5 ≥ numVars
     (rowBounds := #[(some 0, some 0)])
     (colBounds := #[(none, none)])
-  let x : Array Rat := #[0]
-  let d : DualBundle :=
-    { rowLower := #[0], rowUpper := #[0]
-    , colLower := #[0], colUpper := #[0] }
+  let x : Vector Rat 1 := #v[0]
+  let d : DualBundle _ _ :=
+    { rowLower := #v[0], rowUpper := #v[0]
+    , colLower := #v[0], colUpper := #v[0] }
   expectFalse (checkOptimal p x d)
 
-/-- Totality on `checkInfeasible` with malformed problem. -/
-def tTotalityInfeasibleMalformed : Outcome :=
-  let p := mkProblem 1 1
-    (c := #[1])
-    (a := #[])
-    (rowBounds := #[(none, none)])
-    (colBounds := #[])                          -- size 0, numVars = 1
-  let d : DualBundle :=
-    { rowLower := #[1], rowUpper := #[0]
-    , colLower := #[0], colUpper := #[0] }
-  expectFalse (checkInfeasible p d)
+-- `tTotalityInfeasibleMalformed` and `tTotalityUnboundedMalformed`
+-- used to live here, testing that the Bool checker rejects a
+-- malformed `Problem` (size-mismatched `colBounds` /  `rowBounds`).
+-- Same story: `Problem m n` makes the mismatch unrepresentable.
 
-/-- Totality on `checkUnbounded` with malformed problem. -/
-def tTotalityUnboundedMalformed : Outcome :=
-  let p := mkProblem 1 0
-    (c := #[1])
-    (a := #[])
-    (rowBounds := #[])
-    (colBounds := #[])                          -- size 0, numVars = 1
-  let x : Array Rat := #[0]
-  let r : Array Rat := #[1]
-  expectFalse (checkUnbounded p x r)
+-- `tTotalityPrimalSizeMismatch` and `tTotalityDualSizeMismatch` used
+-- to live here: they built checker inputs with dimensions that
+-- disagreed with the `Problem`. Now `checkOptimal` takes a
+-- `Vector Rat n` and `DualBundle m n`, so both mismatches are
+-- unrepresentable at the checker boundary.
 
-/-- Totality: a size-mismatched primal is rejected by `checkOptimal`. -/
-def tTotalityPrimalSizeMismatch : Outcome :=
-  let p := mkProblem 2 0
-    (c := #[1, 1])
-    (a := #[])
-    (rowBounds := #[])
-    (colBounds := #[(none, none), (none, none)])
-  let x : Array Rat := #[0]                    -- size 1 ≠ numVars 2
-  let d : DualBundle :=
-    { rowLower := #[], rowUpper := #[]
-    , colLower := #[0, 0], colUpper := #[0, 0] }
-  expectFalse (checkOptimal p x d)
-
-/-- Totality: a size-mismatched DualBundle is rejected. -/
-def tTotalityDualSizeMismatch : Outcome :=
-  let p := mkProblem 2 0
-    (c := #[1, 1])
-    (a := #[])
-    (rowBounds := #[])
-    (colBounds := #[(none, none), (none, none)])
-  let x : Array Rat := #[0, 0]
-  let d : DualBundle :=                        -- colLower size 1 ≠ numVars 2
-    { rowLower := #[], rowUpper := #[]
-    , colLower := #[0], colUpper := #[0, 0] }
-  expectFalse (checkOptimal p x d)
+/-- The checker boundary now carries the primal dimension in the
+    witness type: there is no runtime length guard left to exercise. -/
+def tPrimalVectorShapeByConstruction : Outcome :=
+  let x : Vector Rat 2 := #v[0, 0]
+  expect (x.toArray.size == 2) s!"bad Vector-backed primal size: {repr x}"
 
 /-! ## Denominator-budget check. -/
 
 /-- A representative small certificate: single-digit numerators and
     denominators throughout. `Rat.bitLen` is at most a handful of bits
     on every coordinate, so a budget of `10000` is wildly generous. -/
-private def smallCertificate : Certificate :=
-  { primal := some #[(1 : Rat) / 2, 3, -7 / 4]
+private def smallCertificate : Certificate 2 3 :=
+  { primal := some #v[(1 : Rat) / 2, 3, -7 / 4]
     dual := some
-      { rowLower := #[0, 1]
-        rowUpper := #[0, 0]
-        colLower := #[(2 : Rat) / 3, 0, 0]
-        colUpper := #[0, 0, 0] }
+      { rowLower := #v[0, 1]
+        rowUpper := #v[0, 0]
+        colLower := #v[(2 : Rat) / 3, 0, 0]
+        colUpper := #v[0, 0, 0] }
     ray := none }
 
 def tBudgetSmallPasses : Outcome :=
@@ -487,8 +429,8 @@ def tBudgetNoneAlwaysPasses : Outcome :=
     21 + 7 = 28, well over the budget of 5. -/
 def tBudgetLargeRejected : Outcome :=
   let big : Rat := (1234567 : Rat) / 89
-  let cert : Certificate :=
-    { primal := some #[big], dual := none, ray := none }
+  let cert : Certificate 0 1 :=
+    { primal := some #v[big], dual := none, ray := none }
   expectFalse (certificateWithinBudget (some 5) cert)
 
 /-- Pin the `Rat.bitLen` convention: zero has `num = 0` and `den = 1`,
@@ -508,8 +450,6 @@ def allTests : Array TestCase := #[
   ⟨"validate normalises duplicate / zero entries",  fun _ => tValidateNormalise⟩,
   ⟨"validate sorts sparse entries",                 fun _ => tValidateSort⟩,
   ⟨"validate is idempotent",                        fun _ => tValidateIdempotent⟩,
-  ⟨"validate rejects wrong-length c",               fun _ => tRejectWrongLengthC⟩,
-  ⟨"validate rejects wrong-length rowBounds",       fun _ => tRejectWrongLengthRowBounds⟩,
   ⟨"validate rejects sparse row out of range",      fun _ => tRejectSparseRowOOR⟩,
   ⟨"validate rejects sparse col out of range",      fun _ => tRejectSparseColOOR⟩,
   ⟨"validate rejects inverted column bound",        fun _ => tRejectInvertedColBound⟩,
@@ -527,13 +467,8 @@ def allTests : Array TestCase := #[
   ⟨"checkOptimal rejects objective mismatch",       fun _ => tRejectObjectiveMismatch⟩,
   ⟨"checkInfeasible rejects non-strict bound sum",  fun _ => tRejectFarkasNotStrict⟩,
   ⟨"checkUnbounded rejects c·r = 0",                fun _ => tRejectUnboundedNonStrict⟩,
-  ⟨"totality: primal size mismatch → false",        fun _ => tTotalityPrimalSizeMismatch⟩,
-  ⟨"totality: dual size mismatch → false",          fun _ => tTotalityDualSizeMismatch⟩,
-  ⟨"totality: malformed colBounds → false",         fun _ => tTotalityMalformedColBounds⟩,
-  ⟨"totality: malformed rowBounds → false",         fun _ => tTotalityMalformedRowBounds⟩,
+  ⟨"shape: primal Vector length by construction",   fun _ => tPrimalVectorShapeByConstruction⟩,
   ⟨"totality: sparse OOR → false",                  fun _ => tTotalitySparseOutOfRange⟩,
-  ⟨"totality: checkInfeasible malformed → false",   fun _ => tTotalityInfeasibleMalformed⟩,
-  ⟨"totality: checkUnbounded malformed → false",    fun _ => tTotalityUnboundedMalformed⟩,
   ⟨"budget: small certificate within 10000",        fun _ => tBudgetSmallPasses⟩,
   ⟨"budget: none disables the check",               fun _ => tBudgetNoneAlwaysPasses⟩,
   ⟨"budget: large rationals rejected at 5",         fun _ => tBudgetLargeRejected⟩,

@@ -277,6 +277,8 @@ lean_lib LeanSoplexVerify where
     `sanitizerArgs` already pull in the static asan runtime. -/
 @[default_target]
 lean_lib LeanSoplex where
+  roots := #[]
+  globs := #[`LeanSoplex, `LeanSoplex.Basic]
   precompileModules := !sanitizerEnabled
   moreLinkArgs := soplexRuntimeLinkArgs
 
@@ -308,6 +310,10 @@ lean_exe «solve-float-tests» where
   root := `SolveFloatTests
   moreLinkArgs := soplexRuntimeLinkArgs
 
+lean_exe «solve-compare-tests» where
+  root := `SolveCompareTests
+  moreLinkArgs := soplexRuntimeLinkArgs
+
 lean_exe «solve-verified-tests» where
   root := `SolveVerifiedTests
   moreLinkArgs := soplexRuntimeLinkArgs
@@ -321,8 +327,4 @@ lean_exe «accessor-goldens» where
 
 lean_exe «file-io-tests» where
   root := `FileIoTests
-  moreLinkArgs := soplexRuntimeLinkArgs
-
-lean_exe «solve-compare-tests» where
-  root := `SolveCompareTests
   moreLinkArgs := soplexRuntimeLinkArgs

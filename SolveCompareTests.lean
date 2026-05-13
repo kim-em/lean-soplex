@@ -1,16 +1,3 @@
-/-
-  End-to-end tests that pit `solveFloat` against `solveExact` on
-  ill-conditioned LPs. The point is to demonstrate that the two solvers
-  produce materially different objectives on inputs where double
-  precision loses information, even though both report `.optimal` —
-  exact mode's iterative refinement reaches an answer the pure-float
-  pivot cannot.
-
-  See PLAN.md §"Test corpus" item: "An ill-conditioned LP where the
-  float solve disagrees with the exact solve, confirming exact mode
-  produces the expected verified answer."
--/
-
 import LeanSoplex
 
 open LeanSoplex LeanSoplex.Verify
@@ -32,135 +19,69 @@ private def mkProblem
     (a : Array (Nat × Nat × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0) : Problem :=
-  { numVars, numConstraints, c, a, rowBounds, colBounds, objOffset }
+    (objOffset : Rat := 0)
+    (hc : c.size = numVars := by decide)
+    (hRB : rowBounds.size = numConstraints := by decide)
+    (hCB : colBounds.size = numVars := by decide) :
+    Problem numConstraints numVars :=
+  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
+    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 private def noPresolve : Options :=
   { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
 
-/-- Lossy `Rat → Float` for objective-comparison purposes only.
-    `(q.num : Float) / (q.den : Float)` is single-rounding; adequate for
-    a `1e-10` divergence check. -/
-private def ratToFloat (q : Rat) : Float :=
-  let sign : Float := if q.num < 0 then -1.0 else 1.0
-  sign * (Float.ofScientific q.num.natAbs false 0 / Float.ofScientific q.den false 0)
+private def bigBase : Nat := 2 ^ 60
 
-/-- Absolute value of a `Float`. -/
-private def fAbs (x : Float) : Float := if x < 0 then -x else x
+private def exactRhs : Rat := (bigBase : Rat) + 1
 
-/-! ## (1) Ill-conditioned LP: float-mode vs exact-mode divergence.
+/-- `2^60 + 1` is not representable as an IEEE-754 double: spacing at
+    this scale is much larger than one. Float-mode therefore solves the
+    equality with a rounded RHS, while exact-mode verifies the original
+    rational value. -/
+private def roundedRhsProblem : Problem 1 1 :=
+  mkProblem 1 1
+    (c := #[1])
+    (a := #[(0, 0, 1)])
+    (rowBounds := #[(some exactRhs, some exactRhs)])
+    (colBounds := #[(none, none)])
 
-  The constraints `7 x₁ = 1, 10⁷ x₁ − x₂ = 0` force `x₁ = 1/7` and
-  `x₂ = 10⁷/7`. With `c = (0, 10⁷)` the mathematically-true objective
-  is `c·x = 10¹⁴/7 ≈ 14285714285714.285714…`.
+private def absRat (q : Rat) : Rat :=
+  if q < 0 then -q else q
 
-  Float mode does the multiplication in `double` and accumulates a few
-  ULPs of error at this magnitude. ULP near `10¹³` is about `2⁻³⁹ ≈
-  1.8e-12`, but two chained multiplications (`x₁ = 1/7` rounded once,
-  `x₂ = 10⁷ · x₁` rounded again, `obj = 10⁷ · x₂` rounded a third
-  time) compound into a milli-scale discrepancy. Exact mode's
-  iterative-refinement loop drives the objective to a much closer
-  rational, and the two `double` objectives end up disagreeing by
-  about `2e-3` — well beyond the `1e-10` floor the issue asks for. -/
-private def illConditionedLp : Problem :=
-  mkProblem 2 2
-    (c := #[0, (10:Rat)^7])
-    (a := #[(0, 0, 7), (1, 0, (10:Rat)^7), (1, 1, -1)])
-    (rowBounds := #[(some 1, some 1), (some 0, some 0)])
-    (colBounds := #[(some 0, none), (some 0, none)])
-
-/-- Both solvers report `.optimal`, but `objective`s disagree by more
-    than `1e-10` and exact-mode's value is meaningfully closer to the
-    rational truth `10¹⁴/7`.
-
-    Three assertions, not one, so a regression where exact stops
-    drifting from float at the float-only answer fails the test:
-
-    * `|objE − objF| > 1e-10` — the documented divergence floor.
-    * `errExact ≤ errFloat` — exact is at least as close to the truth.
-    * `errExact < 1e-4` — exact is strictly close. A regression where
-      exact stalls at float precision pushes `errExact ≈ errFloat ≈
-      2e-3` and trips this bound. -/
-private def tIllConditionedDiverges (_ : Unit) : Outcome :=
-  let p := illConditionedLp
-  match solveExact noPresolve p, solveFloat noPresolve p with
-  | .error e, _ => .fail s!"solveExact failed: {repr e}"
-  | _, .error e => .fail s!"solveFloat failed: {repr e}"
-  | .ok se, .ok sf =>
-    match se.status, sf.status, se.objective, sf.objective with
-    | .optimal, .optimal, some objE, some objF =>
-      let objEf   := ratToFloat objE
-      let diff    := fAbs (objEf - objF)
-      let truth   : Float := ratToFloat ((10:Rat)^14 / 7)
-      let errExact := fAbs (objEf - truth)
-      let errFloat := fAbs (objF - truth)
-      let diverges    := diff > 1e-10
-      let exactCloser := errExact ≤ errFloat
-      let exactTight  := errExact < 1e-4
-      expect (diverges && exactCloser && exactTight)
-        (s!"divergence check failed: |Δobj|={diff}, " ++
-         s!"errExact={errExact}, errFloat={errFloat}, " ++
-         s!"objE={objEf}, objF={objF}, truth={truth}")
-    | _, _, _, _ =>
-      .fail s!"unexpected solver outcomes: exact={repr se}, float={repr sf}"
-
-/-! ## Verified end-to-end on an LP whose optimum is float-representable.
-
-  PLAN.md §"What this catches" notes that `solveVerified` only returns
-  a real soundness proof when SoPlex's certificate passes the pure-Lean
-  checker. On `illConditionedLp` above, the rational primal coordinates
-  (`1/7`, `10⁷/7`) are not finite-binary, and the `feastol > 0`
-  iterative-refinement loop in this Boost/GMP-only build halts before
-  the certificate satisfies `Ax = b` exactly — so `solveVerified`
-  returns `.unchecked .optimal` there.
-
-  This test pairs the divergence demonstration above with a
-  Klee–Minty-style integer-vertex companion LP where exact mode *does*
-  hand back a verifiable certificate and `solveVerified` returns
-  `Verified.optimal` carrying the soundness proof. Together the two
-  tests pin both directions of the float-vs-exact comparison:
-  exact-mode reaches answers float cannot (the divergence test) and
-  the verified driver actually verifies them when SoPlex's refinement
-  converges (this test). -/
-private def kleeMintyN3 : Problem :=
-  -- max  100 x₁ + 10 x₂ + x₃
-  -- s.t. x₁ ≤ 1
-  --      20 x₁ + x₂ ≤ 100
-  --      200 x₁ + 20 x₂ + x₃ ≤ 10000
-  --      0 ≤ xⱼ
-  -- Sent as a minimization by negating the objective; optimum is at
-  -- `(0, 0, 10000)` with canonical-form obj `-10000`.
-  mkProblem 3 3
-    (c := #[-100, -10, -1])
-    (a := #[(0, 0, 1),
-            (1, 0, 20), (1, 1, 1),
-            (2, 0, 200), (2, 1, 20), (2, 2, 1)])
-    (rowBounds := #[(none, some 1), (none, some 100), (none, some 10000)])
-    (colBounds := #[(some 0, none), (some 0, none), (some 0, none)])
-
-private def tIllConditionedVerified (_ : Unit) : Outcome :=
-  match solveVerified noPresolve kleeMintyN3 with
-  | .error e => .fail s!"solveVerified failed: {repr e}"
-  | .ok r =>
-    match r.verified with
-    | .optimal x h =>
-      -- The match binding `h` proves `IsFeasible ∧ IsOptimal`; we
-      -- additionally pin the primal vertex so a wrong-vertex regression
-      -- (which would still satisfy the proof shape) fails.
-      let _ : IsFeasible r.normalized x ∧ IsOptimal r.normalized .minimize x := h
-      expect (x = #[0, 0, 10000])
-        s!"unexpected verified optimum: {repr x}"
-    | .infeasible _  => .fail "expected .optimal, got .infeasible"
-    | .unbounded ..  => .fail "expected .optimal, got .unbounded"
-    | .unchecked s   => .fail s!"expected .optimal, got .unchecked {repr s}"
-
-/-! ## Driver. -/
+private def tFloatRoundsButExactVerifies (_ : Unit) : Outcome :=
+  let p := roundedRhsProblem
+  match solveFloat noPresolve p, solveExact noPresolve p, solveVerified noPresolve p with
+  | .ok fs, .ok es, .ok vs =>
+    match fs.status, fs.primalAsRat, es.status, es.objective, es.certificate.primal,
+        es.certificate.dual, vs.verified with
+    | .optimal, some fx, .optimal, some exactObj, some ex, some d, .optimal vx h =>
+      if hfx : fx.size = 1 then
+        if hex : ex.size = 1 then
+          let fx0 := fx[0]'(by simp)
+          let ex0 := ex[0]'(by simp)
+          let gap := absRat (exactObj - fx0)
+          let _ : IsFeasible vs.normalized vx.toArray ∧
+              IsOptimal vs.normalized noPresolve.sense vx.toArray := h
+          expect
+            (exactObj = exactRhs &&
+             ex0 = exactRhs &&
+             vx.toArray = #[exactRhs] &&
+             checkOptimal (canonicalize noPresolve.sense vs.normalized) ex d &&
+             gap > (1 : Rat) / 10)
+            (s!"expected exact RHS and float gap > 0.1; " ++
+             s!"float={fx0}, exactObj={exactObj}, exactPrimal={ex0}, gap={gap}")
+        else
+          .fail s!"exact primal has wrong length: {ex.size}"
+      else
+        .fail s!"float primal has wrong length: {fx.size}"
+    | _, _, _, _, _, _, _ =>
+      .fail s!"unexpected results:\nfloat={repr fs}\nexact={repr es}"
+  | .error e, _, _ => .fail s!"solveFloat failed: {repr e}"
+  | _, .error e, _ => .fail s!"solveExact failed: {repr e}"
+  | _, _, .error e => .fail s!"solveVerified failed: {repr e}"
 
 def allTests : Array TestCase := #[
-  ⟨"ill-conditioned LP: float vs exact diverge by > 1e-10",
-    tIllConditionedDiverges⟩,
-  ⟨"verified end-to-end on Klee–Minty n=3",
-    tIllConditionedVerified⟩
+  ⟨"float rounding diverges from exact verified solve", tFloatRoundsButExactVerifies⟩
 ]
 
 def main : IO UInt32 := do
@@ -172,8 +93,8 @@ def main : IO UInt32 := do
       failed := failed + 1
       IO.println s!"[FAIL] {t.name}: {msg}"
   if failed = 0 then
-    IO.println s!"All {allTests.size} solveCompare tests passed."
+    IO.println s!"All {allTests.size} solve-compare tests passed."
     return 0
   else
-    IO.eprintln s!"{failed} of {allTests.size} solveCompare tests FAILED."
+    IO.eprintln s!"{failed} of {allTests.size} solve-compare tests FAILED."
     return 1

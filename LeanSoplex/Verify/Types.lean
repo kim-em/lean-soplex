@@ -12,6 +12,10 @@
 
 namespace LeanSoplex
 
+/-- Largest natural value this package passes through SoPlex APIs that
+    take C++ `int` parameters. -/
+def ffiMaxInt : Nat := 2147483647
+
 /-- Objective sense. The verifier internally canonicalises everything
     to `.minimize`; `.maximize` is reduced by negating the objective. -/
 inductive ObjSense | minimize | maximize
@@ -44,12 +48,10 @@ structure Options where
     normalises this representation: duplicate `(row, col)` entries are
     summed, zero values are dropped, entries are sorted by `(row, col)`.
     The verifier always runs against the post-`validate` form. -/
-structure Problem where
-  numVars        : Nat
-  numConstraints : Nat
+structure Problem (numConstraints numVars : Nat) where
   /-- Objective coefficients (length = `numVars`). All zero ⇒ pure
       feasibility. -/
-  c              : Array Rat
+  c              : Vector Rat numVars
   /-- Optional constant added to the objective. -/
   objOffset      : Rat := 0
   /-- Sparse constraint matrix entries: `(row, col, value)`, 0-indexed.
@@ -57,9 +59,9 @@ structure Problem where
   a              : Array (Nat × Nat × Rat)
   /-- Per-row bounds `(lo, hi)`; `none` = ±∞. Covers ≤, =, ≥, and
       ranged constraints uniformly. -/
-  rowBounds      : Array (Option Rat × Option Rat)
+  rowBounds      : Vector (Option Rat × Option Rat) numConstraints
   /-- Per-variable bounds `(lo, hi)`; `none` = ±∞. -/
-  colBounds      : Array (Option Rat × Option Rat)
+  colBounds      : Vector (Option Rat × Option Rat) numVars
   deriving Repr
 
 /-- Tag used by `ProblemError.indexOutOfRange` and `boundInverted`. -/
@@ -71,6 +73,8 @@ inductive ProblemError
   /-- An array field had the wrong length for the declared `numVars` /
       `numConstraints`. -/
   | wrongLength      (field : String) (expected got : Nat)
+  /-- A field is too large for the FFI representation used by SoPlex. -/
+  | tooLarge         (field : String) (max got : Nat)
   /-- A sparse-entry coordinate or bound array index pointed outside
       the declared dimensions. -/
   | indexOutOfRange  (kind : IndexKind) (index bound : Nat)
@@ -83,25 +87,27 @@ inductive OptionError
   | nanTimeLimit
   | negativeTimeLimit (value : Float)
   | zeroIterLimit
+  | iterLimitTooLarge (max got : Nat)
   deriving Repr
 
 /-- Canonical lower / upper split for dual multipliers.
 
-    All four arrays are nonnegative and length-matched to the problem;
-    a coordinate is zero whenever the matching bound is `none`. The
-    *signed* dual would be `rowLower − rowUpper` (and similarly for
-    columns), but storing the split is strictly more expressive for
-    ranged constraints, where the dual objective genuinely depends on
-    the decomposition. See `PLAN.md` §"Dual feasibility, concretely". -/
-structure DualBundle where
+    All four vectors are nonnegative and length-matched to the problem
+    (`m` rows, `n` cols); a coordinate is zero whenever the matching
+    bound is `none`. The *signed* dual would be `rowLower − rowUpper`
+    (and similarly for columns), but storing the split is strictly more
+    expressive for ranged constraints, where the dual objective genuinely
+    depends on the decomposition. See `PLAN.md` §"Dual feasibility,
+    concretely". -/
+structure DualBundle (m n : Nat) where
   /-- Multipliers for `rowLoᵢ ≤ (Ax)ᵢ` (one per row). -/
-  rowLower : Array Rat
+  rowLower : Vector Rat m
   /-- Multipliers for `(Ax)ᵢ ≤ rowHiᵢ` (one per row). -/
-  rowUpper : Array Rat
+  rowUpper : Vector Rat m
   /-- Multipliers for `colLoⱼ ≤ xⱼ` (one per column). -/
-  colLower : Array Rat
+  colLower : Vector Rat n
   /-- Multipliers for `xⱼ ≤ colHiⱼ` (one per column). -/
-  colUpper : Array Rat
+  colUpper : Vector Rat n
   deriving Repr, Inhabited
 
 /-- Outcome bucket reported by `solveExact` / `solveVerified`. -/
@@ -129,52 +135,57 @@ inductive SolveStatus
     * anything else — none required
 
     The verifier checks the appropriate combination and accepts /
-    rejects accordingly. See `PLAN.md` §"The three certificates". -/
-structure Certificate where
-  primal : Option (Array Rat)
-  dual   : Option DualBundle
-  ray    : Option (Array Rat)
+    rejects accordingly. See `PLAN.md` §"The three certificates".
+
+    Parameterised by `(m n : Nat)` — the constraint and variable
+    counts — so the primal / ray vectors and the dual bundle all
+    carry their expected lengths in the type. -/
+structure Certificate (m n : Nat) where
+  primal : Option (Vector Rat n)
+  dual   : Option (DualBundle m n)
+  ray    : Option (Vector Rat n)
   deriving Repr, Inhabited
 
 /-- Exact-mode result. `Solution.objective` is always in the
     *caller's original sense* (including `objOffset`), never the
-    internal min-canonical value. -/
-structure Solution where
-  status      : SolveStatus
+    internal min-canonical value.
+
+    Parameterised by `(numConstraints numVars : Nat)` so the
+    embedded `Certificate` is dimension-aware at the type level.
+    The dimensions come from the `Problem` the `Solution` was
+    produced from. -/
+structure Solution (numConstraints numVars : Nat) where
+  status         : SolveStatus
   /-- Exact for `status = optimal`; a hint otherwise. -/
-  objective   : Option Rat
-  certificate : Certificate
+  objective      : Option Rat
+  certificate    : Certificate numConstraints numVars
   /-- Captured solver log; `""` when `Options.verbose = false`. -/
-  log         : String
+  log            : String
   deriving Repr, Inhabited
 
 /-- Float-mode result. Kept distinct from `Solution` to prevent
     accidental feeding into the verifier: these rationals are exact
-    representations of IEEE-754 doubles, not exact-mode certificates. -/
-structure FloatSolution where
+    representations of IEEE-754 doubles, not exact-mode certificates.
+
+    Parameterised by `(numVars : Nat)` — only the primal vector
+    needs a length tag. -/
+structure FloatSolution (numVars : Nat) where
   status      : SolveStatus
   /-- Primal solution as exact rationals representing the doubles
       SoPlex computed. NOT certificate-grade. -/
-  primalAsRat : Option (Array Rat)
+  primalAsRat : Option (Vector Rat numVars)
   objective   : Option Float
   /-- Captured solver log; `""` when `Options.verbose = false`. -/
   log         : String
   deriving Repr, Inhabited
 
-/-- Errors surfaced by the FFI layer. User-input or known-solver-
-    -limitation issues live here; impossible states `panic` instead.
-    See `PLAN.md` §"`Except` vs `panic`". -/
+/-- Errors surfaced by the FFI layer. Invalid Lean-side inputs are
+    reported structurally; all unclassified C++ / SoPlex failures remain
+    bridge errors. Impossible states `panic`; see `PLAN.md`
+    §"`Except` vs `panic`". -/
 inductive SolveError
   | invalidProblem (e : ProblemError)
   | invalidOptions (e : OptionError)
-  /-- A known SoPlex limitation hit (e.g. requested feature not in
-      the linked release). -/
-  | unsupported    (feature : String)
-  /-- SoPlex rejected an `Options` field at runtime. -/
-  | parameter      (msg : String)
-  /-- The linked SoPlex lacks a required accessor (e.g. an
-      exact-mode getter introduced in a newer release). -/
-  | missingApi     (feature : String)
   /-- File parse error from `readMps` / `readLp`. -/
   | parseError     (path : String) (msg : String)
   /-- FFI-level failure that didn't `panic`. -/
