@@ -11,6 +11,8 @@
                                     `Certificate`, `Solution`, errors.
   * `LeanSoplex.Verify.Validate`  — `validate`, `validateOptions`.
   * `LeanSoplex.Verify.Bool`      — decidable `is*` / `check*` checks.
+  * `LeanSoplex.Verify.Budget`    — `certificateWithinBudget`: ceiling
+                                    on rational coordinate bit lengths.
   * `LeanSoplex.Verify.Arith`     — Rat / Array toolkit and Bool→Prop
                                     bridge lemmas used by the soundness
                                     layer.
@@ -24,6 +26,7 @@
 import LeanSoplex.Verify.Types
 import LeanSoplex.Verify.Validate
 import LeanSoplex.Verify.Bool
+import LeanSoplex.Verify.Budget
 import LeanSoplex.Verify.Arith
 import LeanSoplex.Verify.Prop
 import LeanSoplex.Verify.Sound
