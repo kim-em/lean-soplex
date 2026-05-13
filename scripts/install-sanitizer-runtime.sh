@@ -125,5 +125,9 @@ if [ -f "$preinit" ]; then
   ln -sfn "$preinit" "$DEST/libclang_rt.asan_static.a"
 fi
 
-echo "Planted $(ls "$DEST" | wc -l | tr -d ' ') files into $DEST:"
-ls -la "$DEST" | head -30
+N="$(ls "$DEST" | wc -l | tr -d ' ')"
+echo "Planted $N files into $DEST."
+# `set -o pipefail` would turn `ls | head` into a SIGPIPE failure on a
+# large directory, so emit a fixed-size sample without piping.
+ls -la "$DEST" >/tmp/sanitizer-runtime-listing.txt
+head -30 /tmp/sanitizer-runtime-listing.txt
