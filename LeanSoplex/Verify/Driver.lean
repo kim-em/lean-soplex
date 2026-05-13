@@ -75,12 +75,13 @@ private theorem isFeasible_canonicalize_iff
 def verifyOutcome (opts : Options) (denomBudget : Option Nat)
     (normalized : Problem) (sol : Solution) :
     Verified normalized opts.sense :=
-  if denomBudget.isSome && !certificateWithinBudget denomBudget sol.certificate then
-    .unchecked .budgetExceeded
-  else
-    let pCanon := canonicalize opts.sense normalized
-    match sol.status with
-    | .optimal =>
+  let pCanon := canonicalize opts.sense normalized
+  let overBudget : Bool :=
+    denomBudget.isSome && !certificateWithinBudget denomBudget sol.certificate
+  match sol.status with
+  | .optimal =>
+      if overBudget then .unchecked .budgetExceeded
+      else
         match sol.certificate.primal, sol.certificate.dual with
         | some x, some d =>
             if hChk : checkOptimal pCanon x d = true then
@@ -89,7 +90,9 @@ def verifyOutcome (opts : Options) (denomBudget : Option Nat)
             else
               .unchecked .optimal
         | _, _ => .unchecked .optimal
-    | .infeasible =>
+  | .infeasible =>
+      if overBudget then .unchecked .budgetExceeded
+      else
         match sol.certificate.dual with
         | some d =>
             if hChk : checkInfeasible normalized d = true then
@@ -97,7 +100,9 @@ def verifyOutcome (opts : Options) (denomBudget : Option Nat)
             else
               .unchecked .infeasible
         | none => .unchecked .infeasible
-    | .unbounded =>
+  | .unbounded =>
+      if overBudget then .unchecked .budgetExceeded
+      else
         match sol.certificate.primal, sol.certificate.ray with
         | some x, some r =>
             if hChk : checkUnbounded pCanon x r = true then
@@ -105,6 +110,6 @@ def verifyOutcome (opts : Options) (denomBudget : Option Nat)
             else
               .unchecked .unbounded
         | _, _ => .unchecked .unbounded
-    | s => .unchecked s
+  | s => .unchecked s
 
 end LeanSoplex.Verify

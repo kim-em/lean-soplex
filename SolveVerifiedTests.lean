@@ -169,6 +169,67 @@ private def tInvalidProblem (_ : Unit) : Outcome :=
   | .error e => .fail s!"expected invalidProblem, got {repr e}"
   | .ok _ => .fail "expected invalidProblem error, got Ok"
 
+/-! ## Pure `verifyOutcome` tests.
+
+  Exercise failure paths that are hard to drive end-to-end through
+  `solveVerified` by feeding `verifyOutcome` a hand-built `Solution`
+  directly. -/
+
+private def trivialProblem : Problem :=
+  mkProblem 1 0 (c := #[0]) (a := #[]) (rowBounds := #[])
+    (colBounds := #[(some 0, none)])
+
+private def emptyCert : Certificate :=
+  { primal := none, dual := none, ray := none }
+
+/-- `.optimal` status with no primal certificate: missing-field path. -/
+private def tMissingCertOptimal (_ : Unit) : Outcome :=
+  let sol : Solution :=
+    { status := .optimal, objective := none, certificate := emptyCert, log := "" }
+  let v := verifyOutcome baseOpts none trivialProblem sol
+  wantsUnchecked .optimal v
+
+/-- `.infeasible` status with no dual certificate. -/
+private def tMissingCertInfeasible (_ : Unit) : Outcome :=
+  let sol : Solution :=
+    { status := .infeasible, objective := none, certificate := emptyCert, log := "" }
+  let v := verifyOutcome baseOpts none trivialProblem sol
+  wantsUnchecked .infeasible v
+
+/-- `.unbounded` status with no ray. -/
+private def tMissingCertUnbounded (_ : Unit) : Outcome :=
+  let sol : Solution :=
+    { status := .unbounded, objective := none
+      certificate := { primal := some #[0], dual := none, ray := none }
+      log := "" }
+  let v := verifyOutcome baseOpts none trivialProblem sol
+  wantsUnchecked .unbounded v
+
+/-- Primal infeasible for `trivialProblem`'s `0 ≤ x` bound, so
+    `checkOptimal` rejects. The driver returns `.unchecked .optimal`
+    rather than fabricating a proof. -/
+private def tFailedCheckOptimal (_ : Unit) : Outcome :=
+  let bogusDual : DualBundle :=
+    { rowLower := #[], rowUpper := #[]
+      colLower := #[0], colUpper := #[0] }
+  let sol : Solution :=
+    { status := .optimal, objective := none
+      certificate := { primal := some #[-1], dual := some bogusDual, ray := none }
+      log := "" }
+  let v := verifyOutcome baseOpts none trivialProblem sol
+  wantsUnchecked .optimal v
+
+/-- Non-terminal statuses pass straight through to `.unchecked status`,
+    even when the certificate happens to be over budget — the budget
+    check is gated on a terminal status, not applied unconditionally. -/
+private def tNonTerminalPreservesStatus (_ : Unit) : Outcome :=
+  let sol : Solution :=
+    { status := .timeLimit, objective := none
+      certificate := { primal := some #[(1234567 : Rat) / 89], dual := none, ray := none }
+      log := "" }
+  let v := verifyOutcome baseOpts (some 1) trivialProblem sol
+  wantsUnchecked .timeLimit v
+
 def allTests : Array TestCase := #[
   ⟨"optimal: feasibility + min proof carried",  tOptimal⟩,
   ⟨"infeasible: Farkas proof carried",          tInfeasible⟩,
@@ -176,7 +237,12 @@ def allTests : Array TestCase := #[
   ⟨"maximize: IsOptimal _ .maximize transport", tMaximize⟩,
   ⟨"budget too small short-circuits",           tBudgetExceeded⟩,
   ⟨"budget=none disables the check",            tBudgetNoneDisables⟩,
-  ⟨"invalid problem rejected before solve",     tInvalidProblem⟩
+  ⟨"invalid problem rejected before solve",     tInvalidProblem⟩,
+  ⟨"verifyOutcome: optimal missing primal/dual", tMissingCertOptimal⟩,
+  ⟨"verifyOutcome: infeasible missing dual",     tMissingCertInfeasible⟩,
+  ⟨"verifyOutcome: unbounded missing ray",       tMissingCertUnbounded⟩,
+  ⟨"verifyOutcome: failed checkOptimal",         tFailedCheckOptimal⟩,
+  ⟨"verifyOutcome: non-terminal preserves status", tNonTerminalPreservesStatus⟩
 ]
 
 def main : IO UInt32 := do

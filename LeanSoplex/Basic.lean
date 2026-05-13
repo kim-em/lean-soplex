@@ -246,6 +246,12 @@ def smokeSolve
   §"User-facing driver".
 -/
 
+/-- Default `denomBudget` for `solveVerified`: combined numerator +
+    denominator bit length per rational coordinate. `10000` is comfortable
+    headroom over what well-behaved LPs produce while still ruling out
+    refinement runaway. -/
+def defaultDenomBudget : Option Nat := some 10000
+
 /-- Drive `validate`, `solveExact`, then the checker, packaged as a
     `VerifiedSolve` carrying a real soundness-lemma proof.
 
@@ -268,7 +274,7 @@ def smokeSolve
     populated from `checkOptimal_sound` / `checkInfeasible_sound` /
     `checkUnbounded_sound`. -/
 def solveVerified (opts : Options) (p : Problem)
-    (denomBudget : Option Nat := some 10000) :
+    (denomBudget : Option Nat := defaultDenomBudget) :
     Except SolveError (VerifiedSolve opts.sense) := do
   let _ ← validateOptions opts |>.mapError SolveError.invalidOptions
   let normalized ← validate p |>.mapError SolveError.invalidProblem
