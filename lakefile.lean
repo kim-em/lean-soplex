@@ -256,3 +256,10 @@ lean_exe «solve-float-tests» where
 lean_exe «solve-verified-tests» where
   root := `SolveVerifiedTests
   moreLinkArgs := soplexRuntimeLinkArgs
+
+/-- One LP per row-sense × column-status × objective-sense cell;
+    pins down the SoPlex accessor → `DualBundle` translation for the
+    pinned SoPlex release. See `docs/accessors.md`. -/
+lean_exe «accessor-goldens» where
+  root := `AccessorGoldens
+  moreLinkArgs := soplexRuntimeLinkArgs

@@ -71,6 +71,11 @@ jobs:
       - name: Run solve-verified-tests
         run: ./.lake/build/bin/solve-verified-tests
 
+      - name: Build and run accessor-goldens
+        run: |
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens
+
   macos:
     name: macOS
     runs-on: macos-latest
@@ -138,6 +143,11 @@ jobs:
 
       - name: Run solve-verified-tests
         run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Build and run accessor-goldens
+        run: |
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens
 
   windows:
     name: Windows (MSYS2 / mingw-w64)
@@ -227,3 +237,10 @@ jobs:
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
           ./.lake/build/bin/solve-verified-tests.exe
+
+      - name: Build and run accessor-goldens
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          lake build accessor-goldens
+          ./.lake/build/bin/accessor-goldens.exe
