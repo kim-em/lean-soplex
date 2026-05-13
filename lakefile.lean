@@ -1,5 +1,5 @@
 import Lake
-open Lake DSL
+open System Lake DSL
 
 /-! # `lean-soplex` build configuration
 
@@ -9,7 +9,42 @@ open Lake DSL
 
 require soplexFfi from "./soplex-ffi"
 
-package leanSoplex
+def sanitizerEnabled : Bool :=
+  match get_config? sanitize with
+  | some s => s != "0" && s != "false"
+  | none => false
+
+def sanitizerArgs : Array String :=
+  if sanitizerEnabled then
+    #["-fsanitize=address", "-fsanitize=undefined",
+      "-fno-sanitize=vptr,function",
+      "-fno-omit-frame-pointer", "-g"]
+  else
+    #[]
+
+def soplexFfiRoot : FilePath := __dir__ / "soplex-ffi"
+
+def soplexFfiRuntimeLinkArgs : Array String :=
+  if System.Platform.isOSX then
+    #[]
+  else if System.Platform.isWindows then
+    let mingwLibDir := soplexFfiRoot / "vendor" / "mingw-libs"
+    #["-Wl,--allow-multiple-definition",
+      (mingwLibDir / "libstdc++.a").toString,
+      (mingwLibDir / "libgmpxx.a").toString,
+      (mingwLibDir / "libgmp.a").toString,
+      s!"-L{mingwLibDir}",
+      "-lgcc_s",
+      "-lmingwex",
+      "-lmsvcrt"]
+  else
+    #["-L/usr/lib/x86_64-linux-gnu",
+      "-L/usr/lib/aarch64-linux-gnu",
+      "-L/usr/lib64",
+      "-L/usr/lib"] ++ sanitizerArgs
+
+package leanSoplex where
+  moreLinkArgs := soplexFfiRuntimeLinkArgs
 
 @[default_target]
 lean_lib Soplex where

@@ -10,6 +10,8 @@ open System Lake DSL
 def macSdkPath : String :=
   "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
 
+def packageRoot : FilePath := __dir__
+
 /-! ## Sanitizer (ASan/UBSan) opt-in.
 
     Pass `-Ksanitize=1` to `lake build` and set
@@ -37,11 +39,12 @@ def soplexRuntimeLinkArgs : Array String :=
       "-lgmpxx", "-lgmp",
       "-lc++"]
   else if System.Platform.isWindows then
+    let mingwLibDir := packageRoot / "vendor" / "mingw-libs"
     #["-Wl,--allow-multiple-definition",
-      "vendor/mingw-libs/libstdc++.a",
-      "vendor/mingw-libs/libgmpxx.a",
-      "vendor/mingw-libs/libgmp.a",
-      "-Lvendor/mingw-libs",
+      (mingwLibDir / "libstdc++.a").toString,
+      (mingwLibDir / "libgmpxx.a").toString,
+      (mingwLibDir / "libgmp.a").toString,
+      s!"-L{mingwLibDir}",
       "-lgcc_s",
       "-lmingwex",
       "-lmsvcrt"]

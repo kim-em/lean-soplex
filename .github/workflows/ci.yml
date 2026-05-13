@@ -135,6 +135,18 @@ jobs:
       - name: Plant compiler-rt sanitizer archives into Lean's clang
         run: ./scripts/install-sanitizer-runtime.sh
 
+      - name: Preload ASan runtime for Lean
+        run: |
+          asan_so="$(find "$(lean --print-prefix)/lib/clang" \
+            -path '*/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so' \
+            | sort -V | tail -1)"
+          if [ -z "$asan_so" ]; then
+            echo "Could not find libclang_rt.asan.so under Lean's clang resource directory" >&2
+            exit 1
+          fi
+          echo "LD_PRELOAD=$asan_so" >> "$GITHUB_ENV"
+          echo "Using ASan runtime: $asan_so"
+
       - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
         run: |
           echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
