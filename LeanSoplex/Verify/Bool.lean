@@ -7,9 +7,8 @@
   Callers that have not run `validate` get a benign `false` instead
   of undefined behaviour.
 
-  Soundness lemmas live in `LeanSoplex.Verify.Sound`; they bridge from
-  these `Bool` checks to the `Prop` predicates in
-  `LeanSoplex.Verify.Prop`.
+  Soundness lemmas live in `LeanSoplex.Verify.Sound`; they lift these
+  `Bool` checks to the `Prop` predicates in `LeanSoplex.Verify.Prop`.
 -/
 
 import LeanSoplex.Verify.Types
@@ -285,9 +284,9 @@ def dualBoundCombination {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Ra
 
     Returns `objOffset` on any structural mismatch — `dualBoundCombination`
     short-circuits to `0` on a malformed problem, so the only term that
-    survives is the offset. `checkOptimal` always gates on
-    `isDualFeasible` before consulting this value, so the mismatch case
-    is unreachable for accepted certificates. -/
+    survives is the offset. `checkOptimal` always requires
+    `isDualFeasible` to hold before consulting this value, so the
+    mismatch case is unreachable for accepted certificates. -/
 def dualObj {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Rat :=
   dualBoundCombination p d + p.objOffset
 

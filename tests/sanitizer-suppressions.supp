@@ -1,0 +1,24 @@
+# UndefinedBehaviorSanitizer suppressions for the ASan/UBSan CI job.
+#
+# Format reference:
+#   https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html#runtime-suppressions
+#
+# This file is wired into CI as `UBSAN_OPTIONS=suppressions=...`.
+# Add entries here for findings inside GMP / libstdc++ / libc++ that
+# are documented as benign — anything inside SoPlex or our own bridge
+# is treated as a real bug and not suppressed.
+#
+# Known GMP idioms that occasionally show up under ubsan:
+#   - shifts by exactly the limb width inside mpn/mpz internal loops
+#   - one-past-the-end pointer arithmetic inside mpz_t storage
+#
+# Suppressions are conservative wildcards on the affected symbol; we
+# would rather miss a real-but-rare GMP bug than chase a known
+# false positive across every CI run.
+
+shift-base:__gmpn_*
+shift-base:__gmpz_*
+shift-base:__gmp_*
+pointer-overflow:__gmpn_*
+pointer-overflow:__gmpz_*
+pointer-overflow:__gmp_*

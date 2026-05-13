@@ -35,6 +35,35 @@ if [ "$(uname -s)" = "Linux" ]; then
   export CC CXX CXXFLAGS
 fi
 
+# Opt-in ASan/UBSan instrumentation of SoPlex's own .o files. The CI job
+# `linux-asan` exports LEAN_SOPLEX_SANITIZE=1 and pairs this with
+# `lake build -Ksanitize=1` so the bridge .o and final exe link see
+# matching -fsanitize=... flags.
+WANT_SAN=0
+if [ -n "${LEAN_SOPLEX_SANITIZE:-}" ] && [ "${LEAN_SOPLEX_SANITIZE}" != "0" ]; then
+  WANT_SAN=1
+  CXXFLAGS="${CXXFLAGS:-} -fsanitize=address -fsanitize=undefined -fno-sanitize=vptr,function -fno-omit-frame-pointer -g"
+  export CXXFLAGS
+  echo "build-soplex.sh: sanitizer enabled, CXXFLAGS=$CXXFLAGS"
+fi
+
+# CMake reads CXXFLAGS only at first configure, so toggling sanitize on
+# a pre-configured `build-soplex/` would silently reuse the stale cache.
+# Detect that here so a local dev does not get a half-instrumented build.
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+  if grep -q 'fsanitize=address' "$BUILD_DIR/CMakeCache.txt"; then
+    HAVE_SAN=1
+  else
+    HAVE_SAN=0
+  fi
+  if [ "$WANT_SAN" != "$HAVE_SAN" ]; then
+    echo "ERROR: $BUILD_DIR/CMakeCache.txt was configured with sanitizer=$HAVE_SAN" >&2
+    echo "       but LEAN_SOPLEX_SANITIZE asks for sanitizer=$WANT_SAN." >&2
+    echo "       Remove $BUILD_DIR and re-run." >&2
+    exit 1
+  fi
+fi
+
 # CMake configure. Exact-mode flags are pinned here. PAPILO (a separate
 # presolver dependency) and MPFR are disabled for the v0 bring-up; ZLIB
 # is disabled because nothing in our FFI surface reads compressed files.

@@ -1,18 +1,25 @@
 /-
-  Smoke-test executable for `lean-soplex`.
+  End-to-end FFI runtime check for `lean-soplex`.
 
-  Runs the toy LP
+  Steps:
 
-      minimise   x + y
-      subject to x + y = 1
-                 0 ≤ x, 0 ≤ y
+  1. Prints `SOPLEX_VERSION` via `LeanSoplex.version`, confirming the
+     FFI is linked and the SoPlex headers used at build time match the
+     runtime library actually loaded.
+  2. On non-macOS platforms, runs `LeanSoplex.exceptionCheck`, a
+     cross-stdlib C++ exception throw / catch / `what()` round trip.
+     Catches libstdc++ vs libc++ mismatches that would otherwise corrupt
+     exception handling silently.
+  3. Solves the toy LP
 
-  whose optimum is `(x, y) = (0, 1)` (or any convex combination on the
-  segment) with objective value `1`. Used by CI to confirm:
+         minimise   x + y
+         subject to x + y = 1
+                    0 ≤ x, 0 ≤ y
 
-  * the FFI links against SoPlex,
-  * SoPlex's runtime is loaded successfully,
-  * a non-trivial LP solve completes and returns a sane result.
+     whose optimum is `(x, y) = (0, 1)` (or any convex combination on
+     the segment) with objective value `1`. Exercises SoPlex's
+     constructors, parameter system, column / row builders, the solver
+     loop, and result extraction in a single call.
 
   Exits with status 0 on success; non-zero on any unexpected output.
 -/
@@ -24,11 +31,11 @@ open LeanSoplex
 def main : IO UInt32 := do
   IO.println s!"SoPlex version: {LeanSoplex.version}"
 
-  -- Cross-stdlib ABI canary. SoPlex + bridge compile against libstdc++
-  -- on Linux and Windows but Lean's clang has its own opinions about
-  -- the C++ runtime; if those ever desynchronise, throws stop matching
-  -- catch handlers and silently terminate the process. Skipped on
-  -- macOS where the whole toolchain uses libc++.
+  -- Cross-stdlib ABI check. SoPlex + the FFI layer compile against
+  -- libstdc++ on Linux and Windows but Lean's clang has its own
+  -- opinions about the C++ runtime; if those ever desynchronise,
+  -- throws stop matching catch handlers and silently terminate the
+  -- process. Skipped on macOS where the whole toolchain uses libc++.
   unless System.Platform.isOSX do
     let exnRc := LeanSoplex.exceptionCheck ()
     IO.println s!"exception check = {exnRc}"
@@ -36,7 +43,7 @@ def main : IO UInt32 := do
       IO.eprintln s!"std::exception throw/catch broken (rc={exnRc}); cross-stdlib ABI mismatch"
       return 3
 
-  let result := smokeSolve
+  let result := ffiCheckSolve
     (c    := #[1.0, 1.0])
     (b    := #[1.0])
     (rows := #[0, 0])

@@ -27,6 +27,48 @@ open System Lake DSL
     been extracted; the lakefile reads that directory at build time.
 -/
 
+/-! ## Sanitizer (ASan/UBSan) opt-in.
+
+    Pass `-Ksanitize=1` (any value, even empty) on the `lake` command
+    line — i.e. `lake build -Ksanitize=1 …` — to compile the bridge
+    `.o` files and link the executables under
+    `-fsanitize=address,undefined`.  The companion
+    `scripts/build-soplex.sh` reads `LEAN_SOPLEX_SANITIZE` from the
+    environment to instrument SoPlex's own object files; the CI job
+    `linux-asan` sets both consistently.
+
+    Lean's bundled clang ships without compiler-rt's sanitizer
+    runtime archives, so the final link will fail with
+    `cannot open libclang_rt.asan_static.a` until you run
+    `./scripts/install-sanitizer-runtime.sh` once. That helper
+    detects which clang version Lean bundles, installs a matching
+    upstream LLVM toolchain from apt.llvm.org, and symlinks the
+    runtime archives into the path Lean's clang searches.
+
+    Linux/clang only — macOS and Windows runners do not exercise this
+    path, and the flag list below assumes clang's sanitizer drivers. -/
+/-- Treats `-Ksanitize=0` / `-Ksanitize=false` as off so the flag matches
+    the `LEAN_SOPLEX_SANITIZE` env var's semantics. Any other value
+    (including the bare `-Ksanitize`) enables sanitizers. -/
+def sanitizerEnabled : Bool :=
+  match get_config? sanitize with
+  | some s => s != "0" && s != "false"
+  | none => false
+
+def sanitizerArgs : Array String :=
+  if sanitizerEnabled then
+    -- Disable ubsan's `vptr` / `function` sub-checks: they require
+    -- C++ RTTI runtime support (`__ubsan_vptr_type_cache`,
+    -- `__ubsan_handle_function_type_mismatch`) that is not pulled
+    -- in cleanly when Lean's bundled clang is the linker driver.
+    -- The rest of `-fsanitize=undefined` — integer overflow,
+    -- alignment, bounds, shift, etc. — stays active.
+    #["-fsanitize=address", "-fsanitize=undefined",
+      "-fno-sanitize=vptr,function",
+      "-fno-omit-frame-pointer", "-g"]
+  else
+    #[]
+
 /-! ## Platform-specific link arguments. -/
 
 /-- Path to the macOS Command Line Tools SDK. Hard-coded for the same
@@ -92,7 +134,7 @@ def soplexRuntimeLinkArgs : Array String :=
     -- libraries so libc++ wins, exception throw/catch will break at
     -- runtime. `Main.lean` calls `LeanSoplex.exceptionCheck` (which
     -- throws `std::runtime_error`, catches via `std::exception &`,
-    -- and validates `what()`) before the smoke LP solve, so a wrong
+    -- and validates `what()`) before the toy LP solve, so a wrong
     -- C++ ABI shows up as a CI failure rather than a silently
     -- corrupted DLL.
     --
@@ -117,7 +159,7 @@ def soplexRuntimeLinkArgs : Array String :=
       "-L/usr/lib64",
       "-L/usr/lib",
       "-lgmpxx", "-lgmp",
-      "-lm"]
+      "-lm"] ++ sanitizerArgs
 
 package leanSoplex where
   moreLinkArgs := soplexRuntimeLinkArgs
@@ -201,7 +243,7 @@ private def bridgeOTarget (pkg : Package) (src : String) :
       "-I", ffiInc,
       "-I", soplexSrcInc,
       "-I", soplexBuildInc
-    ] ++ bridgeStdlibArgs ++ systemIncludeArgs) bridgeCxxDriver
+    ] ++ bridgeStdlibArgs ++ systemIncludeArgs ++ sanitizerArgs) bridgeCxxDriver
 
 /-! ## Combined static library. -/
 
@@ -224,21 +266,38 @@ lean_lib LeanSoplexVerify where
   roots := #[`LeanSoplex.Verify]
 
 /-- FFI binding. The `extern_lib leansoplex` produced above is linked
-    automatically. -/
+    automatically.
+
+    `precompileModules` is disabled under `-Ksanitize=1` because the
+    asan-instrumented `libleansoplex.so` would be `dlopen`-ed by an
+    *un*-instrumented `lean` host process during compilation, which
+    fails with `undefined symbol: __asan_init`.  With precompile off,
+    modules compile to `.olean` only and the bridge `.o` files get
+    linked directly into each `lean_exe` at exe-link time — where
+    `sanitizerArgs` already pull in the static asan runtime. -/
 @[default_target]
 lean_lib LeanSoplex where
   roots := #[]
   globs := #[`LeanSoplex, `LeanSoplex.Basic]
-  precompileModules := true
+  precompileModules := !sanitizerEnabled
   moreLinkArgs := soplexRuntimeLinkArgs
 
-lean_exe «soplex-smoke» where
+/-- End-to-end FFI runtime check: prints the SoPlex version, runs the
+    cross-stdlib ABI throw/catch test, and solves a toy LP. Used by CI
+    to confirm the binding links, loads, and computes on every platform. -/
+lean_exe «ffi-check» where
   root := `Main
   moreLinkArgs := soplexRuntimeLinkArgs
 
 /-- Hand-rolled tests for the pure-Lean certificate checker.
-    `VerifyTests.lean` imports only `LeanSoplex.Verify`, so this target
-    stays independent of the SoPlex FFI library. -/
+    `VerifyTests.lean` only imports `LeanSoplex.Verify`, but Lake
+    auto-links the package-level `extern_lib leansoplex` against every
+    exe in the package, so building `verify-tests` still transitively
+    triggers the SoPlex build + the bridge `.o` compile + the DLL
+    link. Lake concatenates the package's `moreLinkArgs` with the exe's,
+    so the package-level GMP / C++ runtime args (and the
+    `-Ksanitize=1`-controlled sanitizer args appended to them on Linux)
+    apply to this exe too; the empty array here adds nothing further. -/
 lean_exe «verify-tests» where
   root := `VerifyTests
   moreLinkArgs := #[]

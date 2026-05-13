@@ -52,14 +52,14 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
+        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
-      - name: Run smoke executable
+      - name: Run ffi-check executable
         run: |
           set +e
-          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests
@@ -71,6 +71,9 @@ jobs:
       - name: Run solve-verified-tests
         run: ./.lake/build/bin/solve-verified-tests
 
+      - name: Run solve-compare-tests
+        run: ./.lake/build/bin/solve-compare-tests
+
       - name: Build and run accessor-goldens
         run: |
           lake build accessor-goldens
@@ -80,6 +83,98 @@ jobs:
         run: |
           lake build file-io-tests
           ./.lake/build/bin/file-io-tests
+
+  linux-asan:
+    name: Linux ASan/UBSan
+    runs-on: ubuntu-latest
+    # Lands `true` while the job stabilises (per issue #21: "can land as
+    # `true` initially while flakes are shaken out"). Flip to `false` to
+    # make findings block merge once the job has been green for a while.
+    continue-on-error: true
+    env:
+      # `scripts/build-soplex.sh` reads this to instrument SoPlex's own
+      # .o files; the lakefile's `get_config?` opt-in handles the bridge
+      # and exe link. Both must be set for a consistent sanitized build.
+      LEAN_SOPLEX_SANITIZE: "1"
+      # LSan would otherwise report Lean-runtime allocations that
+      # legitimately survive process exit. ASan's UAF / OOB checks are
+      # the value we want here.
+      ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:print_stacktrace=1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install GMP / Boost / CMake / build tools
+        run: |
+          sudo apt-get update
+          # Same package set as the plain Linux job. `llvm-symbolizer`
+          # (from `llvm`) gives ASan/UBSan readable stack traces;
+          # `scripts/install-sanitizer-runtime.sh` will pull a
+          # version-matched clang + compiler-rt from apt.llvm.org once
+          # the Lean toolchain is installed and we know which clang
+          # major version it ships.
+          sudo apt-get install -y \
+            cmake build-essential ninja-build clang llvm \
+            libgmp-dev libgmpxx4ldbl libboost-dev \
+            libc++-dev libc++abi-dev \
+            zstd
+
+      - name: Install elan and Lean toolchain
+        shell: bash
+        run: |
+          set -e
+          if ! command -v elan >/dev/null 2>&1; then
+            curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+            sh elan-init.sh -y --default-toolchain none
+          fi
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.elan/bin:$PATH"
+          ./scripts/install-toolchain.sh
+
+      - name: Plant compiler-rt sanitizer archives into Lean's clang
+        run: ./scripts/install-sanitizer-runtime.sh
+
+      - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
+        run: |
+          echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
+
+      - name: Build SoPlex (sanitized)
+        run: ./scripts/build-soplex.sh
+
+      - name: Build and run verify-tests (sanitized)
+        run: |
+          lake build -Ksanitize=1 verify-tests
+          ./.lake/build/bin/verify-tests
+
+      - name: Build sanitized Lean targets
+        run: |
+          lake build -Ksanitize=1 LeanSoplex ffi-check \
+            solve-exact-tests solve-float-tests solve-verified-tests \
+            accessor-goldens file-io-tests
+
+      - name: Run ffi-check under ASan/UBSan
+        run: |
+          set +e
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
+          rc=$?
+          tail -40 /tmp/ffi-check.out
+          exit $rc
+
+      - name: Run solve-exact-tests under ASan/UBSan
+        run: ./.lake/build/bin/solve-exact-tests
+
+      - name: Run solve-float-tests under ASan/UBSan
+        run: ./.lake/build/bin/solve-float-tests
+
+      - name: Run solve-verified-tests under ASan/UBSan
+        run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Run accessor-goldens under ASan/UBSan
+        run: ./.lake/build/bin/accessor-goldens
+
+      - name: Run file-io-tests under ASan/UBSan
+        run: ./.lake/build/bin/file-io-tests
 
   macos:
     name: macOS
@@ -130,14 +225,14 @@ jobs:
           ./.lake/build/bin/verify-tests
 
       - name: Build Lean targets
-        run: lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
+        run: lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
-      - name: Run smoke executable
+      - name: Run ffi-check executable
         run: |
           set +e
-          ./.lake/build/bin/soplex-smoke > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests
@@ -148,6 +243,9 @@ jobs:
 
       - name: Run solve-verified-tests
         run: ./.lake/build/bin/solve-verified-tests
+
+      - name: Run solve-compare-tests
+        run: ./.lake/build/bin/solve-compare-tests
 
       - name: Build and run accessor-goldens
         run: |
@@ -218,16 +316,16 @@ jobs:
           lake build verify-tests
           ./.lake/build/bin/verify-tests.exe
 
-      - name: Build LeanSoplex and run smoke executable
+      - name: Build LeanSoplex and run ffi-check executable
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build LeanSoplex soplex-smoke solve-exact-tests solve-float-tests solve-verified-tests
+          lake build LeanSoplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
 
           set +e
-          ./.lake/build/bin/soplex-smoke.exe > /tmp/smoke.out 2>&1
+          ./.lake/build/bin/ffi-check.exe > /tmp/ffi-check.out 2>&1
           rc=$?
-          tail -20 /tmp/smoke.out
+          tail -20 /tmp/ffi-check.out
           exit $rc
 
       - name: Run solve-exact-tests
@@ -247,6 +345,12 @@ jobs:
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
           ./.lake/build/bin/solve-verified-tests.exe
+
+      - name: Run solve-compare-tests
+        run: |
+          set -e
+          export PATH="$(paste -sd: .elan-path):$PATH"
+          ./.lake/build/bin/solve-compare-tests.exe
 
       - name: Build and run accessor-goldens
         run: |

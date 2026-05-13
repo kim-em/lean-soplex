@@ -17,7 +17,7 @@ extern "C" {
 int lean_soplex_version(void);
 
 /*
- * Cross-stdlib ABI smoke check. Throws `std::runtime_error`, catches it
+ * Cross-stdlib C++ ABI check. Throws `std::runtime_error`, catches it
  * via the `std::exception` base, validates `what()`. Returns 0 on
  * success. See implementation in `lean_soplex.cpp` for full
  * documentation; exists primarily to validate the Windows
@@ -26,7 +26,7 @@ int lean_soplex_version(void);
 int lean_soplex_exception_check(void);
 
 /*
- * Smoke-test solve.
+ * Toy LP solve used by the FFI runtime check.
  *
  * Builds the LP
  *
@@ -48,7 +48,7 @@ int lean_soplex_exception_check(void);
  * full FFI / link / runtime pipeline end-to-end. The real API lives behind
  * `solveExact` / `solveFloat` and goes in later.
  */
-int lean_soplex_smoke_solve(
+int lean_soplex_ffi_check_solve(
     int32_t numVars,
     int32_t numConstraints,
     const double *c,

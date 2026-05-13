@@ -1,15 +1,15 @@
 /-
-  Bespoke `Rat` / `Array` arithmetic + Bool→Prop bridges used by the
+  Bespoke `Rat` / `Array` arithmetic + Bool-to-Prop lemmas used by the
   soundness proofs in `LeanSoplex.Verify.Sound`.
 
   PLAN.md §"Lean shape" makes the verifier standalone — no Mathlib —
   so this file contains the small set of derived lemmas that core
   Lean 4 does not ship under the names mathlib provides, plus the
-  one-direction bridges that turn each `Bool` check from
+  one-direction lemmas that turn each `Bool` check from
   `LeanSoplex.Verify.Bool` into a usable `Prop` fact.
 
   Scope of this module: Rat helpers, array size/index lemmas, sparse
-  bilinear identities, and the Bool→Prop bridges consumed by the
+  bilinear identities, and the Bool-to-Prop lemmas consumed by the
   soundness layer.
 -/
 
@@ -64,10 +64,10 @@ protected theorem sub_le_sub {a b c d : Rat} (h₁ : a ≤ b) (h₂ : d ≤ c) :
 
 end RatAux
 
-/-! ## `arrayEq` bridge.
+/-! ## `arrayEq` Bool-to-Prop lemma.
 
   `arrayEq` is the Bool-level equality check used by `isStationary`.
-  This bridge extracts a per-index Prop equality from the Bool true
+  This lemma extracts a per-index Prop equality from the Bool true
   hypothesis, which subsequent stationarity / Farkas reasoning
   consumes. -/
 
@@ -97,7 +97,7 @@ theorem arrayEq_true_imp_eq
   simp [Array.getElem_zip] at this
   exact this
 
-/-! ## `problemShapeOk` bridge. -/
+/-! ## `problemShapeOk` Bool-to-Prop lemma. -/
 
 /-- Bundled Prop-level shape predicate. With `Problem.c`,
     `Problem.colBounds`, and `Problem.rowBounds` now `Vector`-typed,
@@ -138,7 +138,7 @@ theorem problemShapeOk_imp
   rw [Bool.and_eq_true] at this
   exact ⟨of_decide_eq_true this.1, of_decide_eq_true this.2⟩
 
-/-! ## Bridges for Bool checks.
+/-! ## Bool-to-Prop lemmas.
 
   Each lemma is a single-direction `Bool = true → Prop fact`. The
   Prop targets live in `LeanSoplex.Verify.Prop`; the soundness proofs
@@ -832,7 +832,7 @@ theorem evalAx_addSmul_get!
   rw [← dot_y_evalAx_eq_dot_evalATy_x p e r hShape heSize hr]
   rw [hX, hR]
 
-/-! ## `isStationary` bridge.
+/-! ## `isStationary` Bool-to-Prop lemma.
 
   Translates the Bool-level array equality into the componentwise
   `StationarityAgainst p d p.c` Prop. The proof unpacks `arrayEq` to

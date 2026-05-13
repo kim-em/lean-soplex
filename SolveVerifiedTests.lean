@@ -148,17 +148,35 @@ private def tBudgetExceeded (_ : Unit) : Outcome :=
   runVerified baseOpts p (denomBudget := some 1)
     (k := fun _ v => wantsUnchecked .budgetExceeded v)
 
-/-- The default denominator budget accepts an ordinary small exact
-    certificate. This pins the default as permissive for well-behaved
-    solves, complementing the absurdly-low-budget rejection above. -/
-private def tBudgetDefaultPasses (_ : Unit) : Outcome :=
-  let p := mkProblem 2 1
-    (c := #[1, 1])
-    (a := #[(0, 0, 1), (0, 1, 1)])
-    (rowBounds := #[(some 1, some 1)])
-    (colBounds := #[(some 0, none), (some 0, none)])
-  runVerified baseOpts p
-    (k := fun _ v => wantsOptimal v)
+/-- Budget regression from issue #20 / PLAN.md §"Test corpus": a tiny
+    LP solved with the absurdly low cap `some 5`. The optimum is the
+    integer vertex `x = 100` (`bitLen 100 + bitLen 1 = 7 + 1 = 8`),
+    over the 5-bit cap, so the budget-check short-circuits to
+    `.budgetExceeded` before any `check*` runs. -/
+private def tBudget5Exceeded (_ : Unit) : Outcome :=
+  -- `min -x  s.t. x ≤ 100, x ≥ 0`. Optimum x = 100, obj = -100.
+  let p := mkProblem 1 1
+    (c := #[-1])
+    (a := #[(0, 0, 1)])
+    (rowBounds := #[(none, some 100)])
+    (colBounds := #[(some 0, none)])
+  runVerified baseOpts p (denomBudget := some 5)
+    (k := fun _ v => wantsUnchecked .budgetExceeded v)
+
+/-- Companion to `tBudget5Exceeded`: the *same* LP under the default
+    budget (`defaultDenomBudget = some 10000`) clears comfortably and
+    the driver returns a real `Verified.optimal` carrying the soundness
+    proof. Pairing the two tests pins both directions of the budget
+    contract: tight budgets reject, defaults accept. -/
+private def tDefaultBudgetPasses (_ : Unit) : Outcome :=
+  let p := mkProblem 1 1
+    (c := #[-1])
+    (a := #[(0, 0, 1)])
+    (rowBounds := #[(none, some 100)])
+    (colBounds := #[(some 0, none)])
+  match solveVerified baseOpts p with
+  | .error e => .fail s!"solveVerified failed: {repr e}"
+  | .ok r    => wantsOptimal r.verified
 
 /-- `denomBudget = none` disables the check and the optimal solve
     completes normally — pinned here to make sure the option really
@@ -231,7 +249,7 @@ private def tFailedCheckOptimal (_ : Unit) : Outcome :=
 
 /-- Non-terminal statuses pass straight through to `.unchecked status`,
     even when the certificate happens to be over budget — the budget
-    check is gated on a terminal status, not applied unconditionally. -/
+    check only runs when the status is terminal, not unconditionally. -/
 private def tNonTerminalPreservesStatus (_ : Unit) : Outcome :=
   let sol : Solution 0 1 :=
     { status := .timeLimit, objective := none
@@ -246,7 +264,8 @@ def allTests : Array TestCase := #[
   ⟨"unbounded: ray proof carried",              tUnbounded⟩,
   ⟨"maximize: IsOptimal _ .maximize transport", tMaximize⟩,
   ⟨"budget too small short-circuits",           tBudgetExceeded⟩,
-  ⟨"default budget accepts small certificate",  tBudgetDefaultPasses⟩,
+  ⟨"budget=5 short-circuits (issue #20)",       tBudget5Exceeded⟩,
+  ⟨"default budget accepts the same LP",        tDefaultBudgetPasses⟩,
   ⟨"budget=none disables the check",            tBudgetNoneDisables⟩,
   ⟨"verifyOutcome: optimal missing primal/dual", tMissingCertOptimal⟩,
   ⟨"verifyOutcome: infeasible missing dual",     tMissingCertInfeasible⟩,
