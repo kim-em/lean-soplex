@@ -19,6 +19,10 @@
   * `LeanSoplex.Verify.Prop`      — mathematical `IsFeasible` etc.
   * `LeanSoplex.Verify.Sound`     — soundness theorems for accepted
                                     certificates.
+  * `LeanSoplex.Verify.Driver`    — `Verified` / `VerifiedSolve`
+                                    types and the pure
+                                    `Solution`→`Verified` mapping
+                                    `verifyOutcome`.
 
   See `PLAN.md` §"Verification layer" for the design.
 -/
@@ -30,3 +34,4 @@ import LeanSoplex.Verify.Budget
 import LeanSoplex.Verify.Arith
 import LeanSoplex.Verify.Prop
 import LeanSoplex.Verify.Sound
+import LeanSoplex.Verify.Driver
