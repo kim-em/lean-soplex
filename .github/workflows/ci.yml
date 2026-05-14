@@ -44,9 +44,6 @@ jobs:
       - name: Build Lean targets
         run: lake build Soplex ffi-check quickstart-example
 
-      - name: Run elaboration-time FFI probe
-        run: lake env lean tests/FFIProbe.lean
-
       - name: Run ffi-check executable
         run: |
           set +e
@@ -128,7 +125,7 @@ jobs:
 
       - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
         run: |
-          echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
+          echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/SoplexTest/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
 
       - name: Build sanitized Lean targets
         run: LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 Soplex ffi-check quickstart-example
@@ -194,9 +191,6 @@ jobs:
       - name: Build Lean targets
         run: lake build Soplex ffi-check quickstart-example
 
-      - name: Run elaboration-time FFI probe
-        run: lake env lean tests/FFIProbe.lean
-
       - name: Run ffi-check executable
         run: |
           set +e
@@ -257,7 +251,6 @@ jobs:
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
           lake build Soplex ffi-check quickstart-example
-          lake env lean tests/FFIProbe.lean
 
           set +e
           ./.lake/build/bin/ffi-check.exe > /tmp/ffi-check.out 2>&1

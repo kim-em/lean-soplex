@@ -101,14 +101,12 @@ itself.
 `quickstart-example` runs the verified solve from the
 [Quickstart](#quickstart) above and prints `optimal x = #[2, 6]`.
 `lake test` builds and runs the full test suite under
-[`SoplexTest/`](./SoplexTest); for a lower-level FFI-only check
+[`SoplexTest/`](./SoplexTest). The suite includes
+`SoplexTest/FFIProbe.lean`, which calls `solveVerified` from inside a
+tactic and checks the elaboration-time FFI loading path used by future
+tactics. For a lower-level FFI-only check
 (SoPlex version, throw/catch ABI, toy LP via the direct binding) use
 `lake exe ffi-check`.
-
-CI also runs `lake env lean tests/FFIProbe.lean`. That probe calls
-`solveVerified` from inside a tactic, so it checks the elaboration-time
-FFI loading path used by future tactics rather than only executable
-runtime linking.
 
 The first Lake build is slow (~1–3 min) because the `SoplexFFI`
 dependency configures and compiles vendored SoPlex with CMake.
@@ -164,8 +162,8 @@ Main.lean                     # `ffi-check` executable
 SoplexTest/                   # test suite (run via `lake test`)
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
-tests/FFIProbe.lean           # elaboration-time FFI loading regression probe
-tests/fixtures/               # MPS / LP test inputs
+  FFIProbe.lean               #   elaboration-time FFI loading regression probe
+  fixtures/                   #   MPS / LP test inputs
 docs/accessors.md             # row-sense × column-status accessor reference
 lakefile.lean                 # depends on `SoplexFFI`
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer

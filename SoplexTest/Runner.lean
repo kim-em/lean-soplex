@@ -1,7 +1,8 @@
 /-! # `lake test` driver
 
-Runs the full test suite: each test executable in `SoplexTest/` is built
-and run in turn. The first non-zero exit aborts and is propagated.
+Runs the full test suite: the elaboration-time Lean probes and each test
+executable in `SoplexTest/` are run in turn. The first non-zero exit aborts
+and is propagated.
 
 Invoked via `lake test`.
 -/
@@ -14,6 +15,10 @@ def testExes : Array String := #[
   "solve-verified-tests",
   "accessor-goldens",
   "file-io-tests"
+]
+
+def leanProbes : Array String := #[
+  "SoplexTest/FFIProbe.lean"
 ]
 
 def binPath (name : String) : System.FilePath :=
@@ -33,6 +38,12 @@ def main (args : List String) : IO UInt32 := do
   if buildCode ≠ 0 then
     IO.eprintln s!"build failed (exit {buildCode})"
     return buildCode
+  for probe in leanProbes do
+    IO.println s!"\n==> lake env lean {probe}"
+    let code ← run "lake" #["env", "lean", probe]
+    if code ≠ 0 then
+      IO.eprintln s!"{probe} failed (exit {code})"
+      return code
   for exe in testExes do
     IO.println s!"\n==> {exe}"
     let code ← run (binPath exe).toString #[]

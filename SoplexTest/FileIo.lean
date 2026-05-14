@@ -36,8 +36,8 @@ private def equalAfterValidate
 @[inline] private def asSigma {m n : Nat} (p : Problem m n) :
     Σ m n, Problem m n := ⟨m, n, p⟩
 
-/-- The reference Problem corresponding to `tests/fixtures/tiny.mps`
-    and `tests/fixtures/tiny.lp`: minimise `x1 + x2` subject to
+/-- The reference Problem corresponding to `SoplexTest/fixtures/tiny.mps`
+    and `SoplexTest/fixtures/tiny.lp`: minimise `x1 + x2` subject to
     `x1 + x2 = 1`, `x1, x2 ≥ 0`. -/
 private def tinyProblem : Σ m n, Problem m n := asSigma <|
   mkProblem 2 1
@@ -180,13 +180,13 @@ private def tCorpusRoundtripLp : IO Outcome :=
     return .ok
 
 private def tFixtureMps : IO Outcome := do
-  let path : System.FilePath := "tests" / "fixtures" / "tiny.mps"
+  let path : System.FilePath := "SoplexTest" / "fixtures" / "tiny.mps"
   match readMps path with
   | .error e => return .fail s!"readMps failed: {repr e}"
   | .ok p => return equalAfterValidate tinyProblem p
 
 private def tFixtureLp : IO Outcome := do
-  let path : System.FilePath := "tests" / "fixtures" / "tiny.lp"
+  let path : System.FilePath := "SoplexTest" / "fixtures" / "tiny.lp"
   match readLp path with
   | .error e => return .fail s!"readLp failed: {repr e}"
   | .ok p => return equalAfterValidate tinyProblem p
@@ -196,7 +196,7 @@ private def tFixtureLp : IO Outcome := do
     in place, which (because SoPlex's `obj()` itself sense-corrects)
     cancelled out and returned `+c` instead of `-c`. -/
 private def tMaximizeFixture : IO Outcome := do
-  let path : System.FilePath := "tests" / "fixtures" / "maximize.lp"
+  let path : System.FilePath := "SoplexTest" / "fixtures" / "maximize.lp"
   let expected : Σ m n, Problem m n := asSigma <|
     mkProblem 2 1
       (c := #[-2, -3])
