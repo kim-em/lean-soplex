@@ -41,13 +41,8 @@ jobs:
           export PATH="$HOME/.elan/bin:$PATH"
           ./scripts/install-toolchain.sh
 
-      - name: Build and run verify-tests
-        run: |
-          lake build verify-tests
-          ./.lake/build/bin/verify-tests
-
       - name: Build Lean targets
-        run: lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build Soplex ffi-check
 
       - name: Run ffi-check executable
         run: |
@@ -57,27 +52,8 @@ jobs:
           tail -20 /tmp/ffi-check.out
           exit $rc
 
-      - name: Run solve-exact-tests
-        run: ./.lake/build/bin/solve-exact-tests
-
-      - name: Run solve-float-tests
-        run: ./.lake/build/bin/solve-float-tests
-
-      - name: Run solve-verified-tests
-        run: ./.lake/build/bin/solve-verified-tests
-
-      - name: Run solve-compare-tests
-        run: ./.lake/build/bin/solve-compare-tests
-
-      - name: Build and run accessor-goldens
-        run: |
-          lake build accessor-goldens
-          ./.lake/build/bin/accessor-goldens
-
-      - name: Build and run file-io-tests
-        run: |
-          lake build file-io-tests
-          ./.lake/build/bin/file-io-tests
+      - name: lake test
+        run: lake test
 
   linux-asan:
     name: Linux ASan/UBSan
@@ -145,17 +121,8 @@ jobs:
         run: |
           echo "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1:suppressions=$GITHUB_WORKSPACE/tests/sanitizer-suppressions.supp" >> "$GITHUB_ENV"
 
-      - name: Build and run verify-tests (sanitized)
-        run: |
-          LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 verify-tests
-          ldd ./.lake/build/bin/verify-tests || true
-          ./.lake/build/bin/verify-tests
-
       - name: Build sanitized Lean targets
-        run: |
-          LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 Soplex ffi-check \
-            solve-exact-tests solve-float-tests solve-verified-tests \
-            accessor-goldens file-io-tests
+        run: LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 Soplex ffi-check
 
       - name: Run ffi-check under ASan/UBSan
         run: |
@@ -165,20 +132,8 @@ jobs:
           tail -40 /tmp/ffi-check.out
           exit $rc
 
-      - name: Run solve-exact-tests under ASan/UBSan
-        run: ./.lake/build/bin/solve-exact-tests
-
-      - name: Run solve-float-tests under ASan/UBSan
-        run: ./.lake/build/bin/solve-float-tests
-
-      - name: Run solve-verified-tests under ASan/UBSan
-        run: ./.lake/build/bin/solve-verified-tests
-
-      - name: Run accessor-goldens under ASan/UBSan
-        run: ./.lake/build/bin/accessor-goldens
-
-      - name: Run file-io-tests under ASan/UBSan
-        run: ./.lake/build/bin/file-io-tests
+      - name: lake test (sanitized)
+        run: LD_PRELOAD="$ASAN_RUNTIME" lake -Ksanitize=1 test -- -Ksanitize=1
 
   macos:
     name: macOS
@@ -218,13 +173,8 @@ jobs:
           export PATH="$HOME/.elan/bin:$PATH"
           ./scripts/install-toolchain.sh
 
-      - name: Build and run verify-tests
-        run: |
-          lake build verify-tests
-          ./.lake/build/bin/verify-tests
-
       - name: Build Lean targets
-        run: lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+        run: lake build Soplex ffi-check
 
       - name: Run ffi-check executable
         run: |
@@ -234,27 +184,8 @@ jobs:
           tail -20 /tmp/ffi-check.out
           exit $rc
 
-      - name: Run solve-exact-tests
-        run: ./.lake/build/bin/solve-exact-tests
-
-      - name: Run solve-float-tests
-        run: ./.lake/build/bin/solve-float-tests
-
-      - name: Run solve-verified-tests
-        run: ./.lake/build/bin/solve-verified-tests
-
-      - name: Run solve-compare-tests
-        run: ./.lake/build/bin/solve-compare-tests
-
-      - name: Build and run accessor-goldens
-        run: |
-          lake build accessor-goldens
-          ./.lake/build/bin/accessor-goldens
-
-      - name: Build and run file-io-tests
-        run: |
-          lake build file-io-tests
-          ./.lake/build/bin/file-io-tests
+      - name: lake test
+        run: lake test
 
   windows:
     name: Windows (MSYS2 / mingw-w64)
@@ -294,18 +225,11 @@ jobs:
           echo "$ELAN_DIR_MSYS/bin" > .elan-path
           echo "$MINGW_PREFIX/bin" >> .elan-path
 
-      - name: Build and run verify-tests
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build verify-tests
-          ./.lake/build/bin/verify-tests.exe
-
       - name: Build Soplex and run ffi-check executable
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build Soplex ffi-check solve-exact-tests solve-float-tests solve-verified-tests solve-compare-tests
+          lake build Soplex ffi-check
 
           set +e
           ./.lake/build/bin/ffi-check.exe > /tmp/ffi-check.out 2>&1
@@ -313,40 +237,8 @@ jobs:
           tail -20 /tmp/ffi-check.out
           exit $rc
 
-      - name: Run solve-exact-tests
+      - name: lake test
         run: |
           set -e
           export PATH="$(paste -sd: .elan-path):$PATH"
-          ./.lake/build/bin/solve-exact-tests.exe
-
-      - name: Run solve-float-tests
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          ./.lake/build/bin/solve-float-tests.exe
-
-      - name: Run solve-verified-tests
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          ./.lake/build/bin/solve-verified-tests.exe
-
-      - name: Run solve-compare-tests
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          ./.lake/build/bin/solve-compare-tests.exe
-
-      - name: Build and run accessor-goldens
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build accessor-goldens
-          ./.lake/build/bin/accessor-goldens.exe
-
-      - name: Build and run file-io-tests
-        run: |
-          set -e
-          export PATH="$(paste -sd: .elan-path):$PATH"
-          lake build file-io-tests
-          ./.lake/build/bin/file-io-tests.exe
+          lake test

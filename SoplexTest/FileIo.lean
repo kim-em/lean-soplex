@@ -258,7 +258,7 @@ private def tMissingFile : IO Outcome := do
 
 /-! ## Verify-corpus round-trip (issue #20).
 
-  Each `Problem` below appears in `VerifyTests.lean`'s hand-rolled
+  Each `Problem` below appears in `SoplexTest/Verify.lean`'s hand-rolled
   certificate corpus. We assert that writing it to MPS, reading it back,
   and validating both sides recovers the same normalised problem
   (sparse-entry sort, duplicate summing, zero pruning).

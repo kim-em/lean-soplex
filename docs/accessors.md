@@ -12,7 +12,7 @@ consume.
 The translation is *untrusted*: the verification layer catches
 mistakes here as non-verifying certificates. The exhaustive
 row-sense × column-status × min/max golden tests in
-`AccessorGoldens.lean` pin down the conventions below by running one
+`SoplexTest/AccessorGoldens.lean` pin down the conventions below by running one
 tiny LP per cell and asserting the resulting `DualBundle` exactly. A
 SoPlex bump that changes any convention will break those goldens
 before it can mis-translate a real certificate.
@@ -62,7 +62,7 @@ cost is `z = colLower − colUpper`.
 ## Per-cell sign behaviour
 
 The 17 cells of the row-sense × column-status matrix below are each
-exercised by `AccessorGoldens.lean` in both senses. The "signed
+exercised by `SoplexTest/AccessorGoldens.lean` in both senses. The "signed
 SoPlex output" column shows the values `getDualRational` /
 `getRedCostRational` return for the canonical (min) LP; the
 "`DualBundle` after split" column is what
@@ -135,7 +135,7 @@ splits into `rowUpper`.
 
 Both row bounds finite; only the binding side gets a nonzero
 multiplier. The cell-matrix examples pick `c > 0` to bind the lower
-row bound. The supplemental case in `AccessorGoldens.lean`
+row bound. The supplemental case in `SoplexTest/AccessorGoldens.lean`
 (`C_ranged_upper_binding`, `c = -1`, same ranged row, lower-only col)
 also pins the upper-side-binding case, which mirrors the upper-only
 table above.
@@ -183,7 +183,7 @@ before the LP is sent to SoPlex. Concretely:
   sends `−c` and reports `−objective`, but the LP SoPlex actually
   solves — and therefore the `DualBundle` SoPlex returns — is the
   same as solving the negated user-facing LP with `sense = .minimize`.
-* `AccessorGoldens.lean` exploits this by running each canonical LP
+* `SoplexTest/AccessorGoldens.lean` exploits this by running each canonical LP
   twice: once with the canonical `c` and `.minimize`, once with the
   negated `c` and `.maximize`. Both runs assert the **same**
   `expectedDual`; only the user-facing `objective` flips sign.
@@ -199,21 +199,21 @@ column therefore checks the bridge's handling of
 `mapObjectiveForSense` (the user-facing-objective sign flip) and
 `canonicalize`'s sign discipline, not SoPlex's
 `OBJSENSE_MAXIMIZE` parameter (which the bridge intentionally
-never sets). `SolveExactTests.tMaximize` covers the
+never sets). `SoplexTest.SolveExact.tMaximize` covers the
 end-to-end max-sense user-API path with an asymmetric LP.
 
 ## Unbounded and infeasible cases
 
 `getPrimalRayRational` and `getDualFarkasRational` are exercised by
-`SolveExactTests.lean` rather than by this matrix (the
+`SoplexTest/SolveExact.lean` rather than by this matrix (the
 row-sense × column-status pattern only makes sense for an LP whose
 optimum exists). Bridge behaviour for those accessors:
 
 | Accessor                  | Test fixture                           | LP                                                  | What the bridge does |
 |---------------------------|----------------------------------------|------------------------------------------------------|----------------------|
-| `getPrimalRayRational`    | `SolveExactTests.tUnbounded`           | `min -x s.t. x ≥ 0` (no rows; col lower bound only). | Stored verbatim into `Solution.certificate.ray`. The pure-Lean `isRecessionRay` checks the shape; `dot c r < 0` confirms it improves the objective in canonical min sense. |
-| `getDualFarkasRational`   | `SolveExactTests.tInfeasibleRowsOnly`  | `min 0 s.t. x ≥ 1, x ≤ 0` (two contradictory rows; free col). | Compute `−Aᵀy` for the implied column-side multiplier, call `bound_combination_sign` to check the canonical bound combination, *negate both `y` and `−Aᵀy` if it came out negative*, then `split_pos` into the four `DualBundle` arrays. The verifier's `boundCombinationPos` then sees a strictly-positive combination. |
-| `getDualFarkasRational`   | `SolveExactTests.tInfeasibleRowAndBounds` | `min 0 s.t. x ≥ 2, 0 ≤ x ≤ 1` (rows + bound contradiction). | Same translation; in this case the column-side multipliers `−Aᵀy` carry the bound contribution. |
+| `getPrimalRayRational`    | `SoplexTest.SolveExact.tUnbounded`           | `min -x s.t. x ≥ 0` (no rows; col lower bound only). | Stored verbatim into `Solution.certificate.ray`. The pure-Lean `isRecessionRay` checks the shape; `dot c r < 0` confirms it improves the objective in canonical min sense. |
+| `getDualFarkasRational`   | `SoplexTest.SolveExact.tInfeasibleRowsOnly`  | `min 0 s.t. x ≥ 1, x ≤ 0` (two contradictory rows; free col). | Compute `−Aᵀy` for the implied column-side multiplier, call `bound_combination_sign` to check the canonical bound combination, *negate both `y` and `−Aᵀy` if it came out negative*, then `split_pos` into the four `DualBundle` arrays. The verifier's `boundCombinationPos` then sees a strictly-positive combination. |
+| `getDualFarkasRational`   | `SoplexTest.SolveExact.tInfeasibleRowAndBounds` | `min 0 s.t. x ≥ 2, 0 ≤ x ≤ 1` (rows + bound contradiction). | Same translation; in this case the column-side multipliers `−Aᵀy` carry the bound contribution. |
 
 Both Farkas examples confirm:
 

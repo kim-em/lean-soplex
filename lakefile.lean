@@ -59,22 +59,27 @@ lean_exe «ffi-check» where
   root := `Main
 
 lean_exe «verify-tests» where
-  root := `VerifyTests
+  root := `SoplexTest.Verify
 
 lean_exe «solve-exact-tests» where
-  root := `SolveExactTests
+  root := `SoplexTest.SolveExact
 
 lean_exe «solve-float-tests» where
-  root := `SolveFloatTests
+  root := `SoplexTest.SolveFloat
 
 lean_exe «solve-compare-tests» where
-  root := `SolveCompareTests
+  root := `SoplexTest.SolveCompare
 
 lean_exe «solve-verified-tests» where
-  root := `SolveVerifiedTests
+  root := `SoplexTest.SolveVerified
 
 lean_exe «accessor-goldens» where
-  root := `AccessorGoldens
+  root := `SoplexTest.AccessorGoldens
 
 lean_exe «file-io-tests» where
-  root := `FileIoTests
+  root := `SoplexTest.FileIo
+
+/-- `lake test` driver: builds and runs every test executable. -/
+@[test_driver]
+lean_exe «test-runner» where
+  root := `SoplexTest.Runner
