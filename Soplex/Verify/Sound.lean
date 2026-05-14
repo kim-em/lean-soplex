@@ -1,22 +1,16 @@
 /-
-  Soundness theorems bridging the `Bool` checkers in
+  Soundness theorems lifting the `Bool` checkers from
   `Soplex.Verify.Bool` to the `Prop` predicates in
   `Soplex.Verify.Prop`.
 
-  The central technical lemma is `bound_combination_le_dot_q`: for any
-  primal-feasible `x`, any dual nonneg/zero-where-absent `d`, and any
-  `q` satisfying `Aᵀ(yL − yU) + (zL − zU) = q`, the dual bound
-  combination lower-bounds `dot q x`. Specialised:
-
-  * `weak_duality` at `q := p.c.toArray` discharges `checkOptimal_sound`.
-  * `q := Array.replicate n 0` discharges `checkInfeasible_sound`.
-
-  `checkUnbounded_sound` does not use the bound-combination lemma; it
-  builds `y := x + λ · ray` and uses `IsRecessionRay`'s sign
-  discipline plus `evalAx_addSmul` / `primalObj_addSmul` linearity.
-
-  These proofs are the Prop-level soundness layer for accepted
-  certificates.
+  Central lemma: `bound_combination_le_dot_q` — for any primal-feasible
+  `x`, dual `d` (nonneg / zero-where-absent), and `q` with
+  `Aᵀ(yL − yU) + (zL − zU) = q`, the dual bound combination
+  lower-bounds `dot q x`. Specialised at `q := p.c.toArray` it gives
+  `weak_duality` → `checkOptimal_sound`; at `q := 0` it gives
+  `checkInfeasible_sound`. `checkUnbounded_sound` goes a different
+  route: build `y := x + λ · ray` and use `IsRecessionRay` plus the
+  `evalAx_addSmul` / `primalObj_addSmul` linearity lemmas.
 -/
 
 import Soplex.Verify.Arith

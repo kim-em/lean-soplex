@@ -1,27 +1,10 @@
 /-
-  End-to-end FFI runtime check for `Soplex`.
+  End-to-end FFI runtime check.
 
-  Steps:
-
-  1. Prints `SOPLEX_VERSION` via `Soplex.version`, confirming the
-     FFI is linked and the SoPlex headers used at build time match the
-     runtime library actually loaded.
-  2. On non-macOS platforms, runs `Soplex.exceptionCheck`, a
-     cross-stdlib C++ exception throw / catch / `what()` round trip.
-     Catches libstdc++ vs libc++ mismatches that would otherwise corrupt
-     exception handling silently.
-  3. Solves the toy LP
-
-         minimise   x + y
-         subject to x + y = 1
-                    0 ≤ x, 0 ≤ y
-
-     whose optimum is `(x, y) = (0, 1)` (or any convex combination on
-     the segment) with objective value `1`. Exercises SoPlex's
-     constructors, parameter system, column / row builders, the solver
-     loop, and result extraction in a single call.
-
-  Exits with status 0 on success; non-zero on any unexpected output.
+  Prints `SOPLEX_VERSION`, runs a cross-stdlib C++ throw/catch round
+  trip on non-macOS (libstdc++ vs libc++ mismatches otherwise corrupt
+  exception handling silently), and solves a toy LP via `ffiCheckSolve`.
+  Exits 0 on success; non-zero (1/2/3) tags which step failed.
 -/
 
 import Soplex

@@ -21,15 +21,11 @@
       independently certifies the bridge's translation.
 -/
 
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
+open Soplex Soplex.Verify SoplexTest
 
 namespace AccessorGoldens
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
 
 /-- A single golden case, expressed in canonical (minimisation) form. -/
 structure CoreCase where

@@ -1,10 +1,10 @@
 # SoPlex rational accessors → canonical `DualBundle`
 
-Pinned SoPlex release: **v8.0.2** (`SOPLEX_VERSION = 802`, April 2026).
+Pinned SoPlex release: **v8.0.2** (`SOPLEX_VERSION = 802`).
 
 This document records the sign and meaning of each SoPlex rational
-accessor used by the bridge, and the exact translation in
-`SoplexFFI`'s `ffi/lean_soplex_bridge.cpp` applies to land them in the
+accessor used by the bridge, and the exact translation that
+`SoplexFFI`'s `ffi/lean_soplex_bridge.cpp` uses to land them in the
 canonical lower/upper-split `DualBundle` that
 `Soplex.Verify.checkOptimal`, `checkInfeasible`, and `checkUnbounded`
 consume.

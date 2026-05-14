@@ -1,34 +1,6 @@
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
-
-structure TestCase where
-  name : String
-  run : Unit → Outcome
-
-private def expect (b : Bool) (msg : String) : Outcome :=
-  if b then .ok else .fail msg
-
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
-
-private def noPresolve : Options :=
-  { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
+open Soplex Soplex.Verify SoplexTest
 
 private def bigBase : Nat := 2 ^ 60
 
@@ -81,20 +53,7 @@ private def tFloatRoundsButExactVerifies (_ : Unit) : Outcome :=
   | _, _, .error e => .fail s!"solveVerified failed: {repr e}"
 
 def allTests : Array TestCase := #[
-  ⟨"float rounding diverges from exact verified solve", tFloatRoundsButExactVerifies⟩
+  .ofPure "float rounding diverges from exact verified solve" tFloatRoundsButExactVerifies
 ]
 
-def main : IO UInt32 := do
-  let mut failed := 0
-  for t in allTests do
-    match t.run () with
-    | .ok => IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  if failed = 0 then
-    IO.println s!"All {allTests.size} solve-compare tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {allTests.size} solve-compare tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "solve-compare" allTests

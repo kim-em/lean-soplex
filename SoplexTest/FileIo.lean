@@ -1,31 +1,6 @@
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
-
-structure TestCase where
-  name : String
-  run : IO Outcome
-
-private def expect (b : Bool) (msg : String) : Outcome :=
-  if b then .ok else .fail msg
-
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
+open Soplex Soplex.Verify SoplexTest
 
 /-- Validate both problems and compare them field-by-field. The
     contract for our file-I/O round trip: writer + reader preserves
@@ -393,17 +368,4 @@ def allTests : Array TestCase := #[
   ⟨"LP  round-trip: normalisation corpus",      tRoundtripLpNormalisation⟩
 ]
 
-def main : IO UInt32 := do
-  let mut failed := 0
-  for t in allTests do
-    match (← t.run) with
-    | .ok => IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  if failed = 0 then
-    IO.println s!"All {allTests.size} file-I/O tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {allTests.size} file-I/O tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "file-I/O" allTests

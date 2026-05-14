@@ -72,13 +72,10 @@ This example is kept in [`QuickstartExample.lean`](./QuickstartExample.lean)
 and built as `lake exe quickstart-example` so it stays in sync with
 the API.
 
-## Status
-
-* Pinned SoPlex tag: **`v8.0.2`**, provided transitively by the
-  `SoplexFFI` dependency.
-* Pinned Lean toolchain: see [`lean-toolchain`](./lean-toolchain).
-
 ## Build
+
+Pinned SoPlex tag: **`v8.0.2`** (transitive via `SoplexFFI`). Pinned
+Lean toolchain: see [`lean-toolchain`](./lean-toolchain).
 
 System dependencies:
 
@@ -94,6 +91,7 @@ Clone and build through Lake:
 git clone https://github.com/kim-em/soplex
 cd soplex
 lake exe quickstart-example
+lake test
 ```
 
 Lake fetches `SoplexFFI` and initialises its vendored SoPlex submodule
@@ -102,8 +100,10 @@ itself.
 
 `quickstart-example` runs the verified solve from the
 [Quickstart](#quickstart) above and prints `optimal x = #[2, 6]`.
-For a lower-level FFI-only check (SoPlex version, throw/catch ABI,
-toy LP via the direct binding) use `lake exe ffi-check`.
+`lake test` builds and runs the full test suite under
+[`SoplexTest/`](./SoplexTest); for a lower-level FFI-only check
+(SoPlex version, throw/catch ABI, toy LP via the direct binding) use
+`lake exe ffi-check`.
 
 The first Lake build is slow (~1–3 min) because the `SoplexFFI`
 dependency configures and compiles vendored SoPlex with CMake.
@@ -123,27 +123,25 @@ translation can only cause a verifier rejection
 ### Verification Notes
 
 * `solveVerified` validates and normalises the Lean-side `Problem`,
-  forces `Options.presolve := false`, calls exact-mode SoPlex, then
-  checks the returned certificate against the normalised original
-  problem. Certificates are never checked against data round-tripped
-  through C++.
-* `Verified` is indexed by the normalised problem and objective sense.
-  `Verified.optimal`, `.infeasible`, and `.unbounded` carry Lean proofs;
-  undecided solver statuses or failed certificates return
-  `Verified.unchecked`.
-* The verifier stores dual multipliers as a nonnegative lower/upper
-  split for rows and columns. This is deliberately more explicit than
-  a signed dual vector and handles ranged rows and boxed columns
-  uniformly.
-* Maximisation is reduced internally to minimisation by negating the
-  objective. User-facing objectives and witnesses remain in the
-  caller's original sense, including `objOffset`.
-* `solveVerified` has a denominator budget, defaulting to `some 10000`
-  bits per rational coordinate. Exceeding it returns
-  `Verified.unchecked .budgetExceeded`; `none` disables the check.
-* SoPlex presolve is allowed for direct `solveExact` calls, but is not
-  part of the verified path yet. Reconstructing original-problem
-  certificates from presolve is tracked separately.
+  forces `Options.presolve := false`, runs exact-mode SoPlex, and
+  checks the returned certificate against the **normalised Lean-side
+  problem** — never against data round-tripped through C++. `Verified`
+  is indexed by that normalised problem and the objective sense;
+  `.optimal` / `.infeasible` / `.unbounded` carry real Lean proofs,
+  and `.unchecked` covers undecided solver statuses and failed checks.
+* Direct `solveExact` calls may use SoPlex presolve; the verified
+  path forces it off. Reconstructing certificates for the original
+  problem from presolve output is tracked separately.
+* Dual multipliers are stored as a nonnegative lower/upper split per
+  row and column. This is more explicit than a signed dual vector
+  and handles ranged rows and boxed columns uniformly.
+* Maximisation reduces internally to minimisation by negating the
+  objective; user-facing objectives and witnesses, including
+  `objOffset`, stay in the caller's original sense.
+* The denominator budget caps the combined numerator + denominator
+  bit length of every certificate rational. Default `some 10000`;
+  exceeding it yields `Verified.unchecked .budgetExceeded`. Pass
+  `none` to disable.
 
 ## Layout
 
@@ -158,7 +156,9 @@ Soplex/Verify/                # pure-Lean certificate checker
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
   Arith.lean, Budget.lean     #   rational arithmetic + denominator budget
 Main.lean                     # `ffi-check` executable
-SoplexTest/                   # test suite (`lake exe verify-tests`, `solve-*-tests`, etc.)
+SoplexTest/                   # test suite (run via `lake test`)
+  Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
+  SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
 tests/fixtures/               # MPS / LP test inputs
 docs/accessors.md             # row-sense × column-status accessor reference
 lakefile.lean                 # depends on `SoplexFFI`

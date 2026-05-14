@@ -35,8 +35,9 @@ def main : IO Unit := do
   proof is built into the `.optimal` constructor itself; this lemma
   just exposes the API contract.
 
-  See [issue #N] for an `lp` tactic that would let us state and prove
-  a fully pure-`Rat` version of this in a single line.
+  See https://github.com/kim-em/soplex/issues/40 for an `lp` tactic
+  that would let us state and prove a fully pure-`Rat` version of this
+  in a single line.
 -/
 theorem lp_optimum_correct {r x h}
     (_hr : solveVerified (opts := { sense := .maximize }) lp = .ok r)

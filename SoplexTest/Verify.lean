@@ -1,68 +1,19 @@
 /-
-  Hand-rolled tests for the pure-Lean certificate checker.
-
-  This executable exists to exercise `validate`, `checkOptimal`,
-  `checkInfeasible`, `checkUnbounded`, and the supporting `is*`
-  Booleans on small LPs with known answers. Two purposes:
-
-  * Catch bugs in the `Bool` definitions before they are baked into the
-    soundness proofs, using hand-rolled tiny certificates with no
-    SoPlex involvement.
-  * Provide a SoPlex-free CI signal that runs even on platforms where
-    the FFI link is currently broken (notably Windows).
-
-  All certificates are computed by hand and the expected `Bool`
-  results commented inline.
+  Hand-rolled tests for the pure-Lean certificate checker. Exercises
+  `validate`, `checkOptimal`, `checkInfeasible`, `checkUnbounded` and
+  the supporting `is*` Booleans on small LPs with known answers, using
+  hand-rolled tiny certificates.
 -/
 
-import Soplex.Verify
+import SoplexTest.Common
 
-open Soplex Soplex.Verify
-
-/-! ## Test infrastructure. -/
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
-
-instance : Inhabited Outcome := ⟨.ok⟩
-
-structure TestCase where
-  name    : String
-  outcome : Unit → Outcome
-
-@[inline] private def expect (cond : Bool) (msg : String) : Outcome :=
-  if cond then .ok else .fail msg
+open Soplex Soplex.Verify SoplexTest
 
 @[inline] private def expectTrue (cond : Bool) : Outcome :=
   expect cond "expected true, got false"
 
 @[inline] private def expectFalse (cond : Bool) : Outcome :=
   expect (!cond) "expected false, got true"
-
-/-! ## `validate` happy paths. -/
-
-/-- A small `Problem` constructor that does *not* run `validate`. Used
-    so test cases can probe both validated and unvalidated inputs.
-
-    With `Problem` now parameterised by `(numConstraints numVars : Nat)`
-    at the type level, the size proofs on `c`/`rowBounds`/`colBounds`
-    must be discharged at construction; defaulting them to `by decide`
-    handles well-formed array literals whose lengths match the
-    declared `numVars` / `numConstraints`. -/
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
 
 /-- `validate` collapses duplicate `(row, col)` entries and drops the
     resulting zeros. -/
@@ -446,47 +397,32 @@ def tBudgetBitLenConvention : Outcome :=
 /-! ## Driver. -/
 
 def allTests : Array TestCase := #[
-  ⟨"validate normalises duplicate / zero entries",  fun _ => tValidateNormalise⟩,
-  ⟨"validate sorts sparse entries",                 fun _ => tValidateSort⟩,
-  ⟨"validate is idempotent",                        fun _ => tValidateIdempotent⟩,
-  ⟨"validate rejects sparse row out of range",      fun _ => tRejectSparseRowOOR⟩,
-  ⟨"validate rejects sparse col out of range",      fun _ => tRejectSparseColOOR⟩,
-  ⟨"validate rejects inverted column bound",        fun _ => tRejectInvertedColBound⟩,
-  ⟨"checkOptimal: equality LP",                     fun _ => tOptimalEquality⟩,
-  ⟨"checkOptimal: ranged-row LP",                   fun _ => tOptimalRangedRow⟩,
-  ⟨"checkOptimal: max sense via canonicalize",      fun _ => tOptimalMaxCanonicalized⟩,
-  ⟨"checkInfeasible: rows-only Farkas",             fun _ => tInfeasibleRowsOnly⟩,
-  ⟨"checkInfeasible: column-bounds-only Farkas",    fun _ => tInfeasibleColBoundsOnly⟩,
-  ⟨"checkInfeasible: row + bounds Farkas",          fun _ => tInfeasibleRowAndBounds⟩,
-  ⟨"checkUnbounded: simple x ≥ 0",                  fun _ => tUnboundedSimple⟩,
-  ⟨"checkUnbounded: with equality row",             fun _ => tUnboundedWithEquality⟩,
-  ⟨"checkOptimal rejects infeasible primal",        fun _ => tRejectInfeasiblePrimal⟩,
-  ⟨"checkOptimal rejects bad stationarity",         fun _ => tRejectBadStationarity⟩,
-  ⟨"checkOptimal rejects ranged-row decomposition", fun _ => tRejectRangedRowDecomposition⟩,
-  ⟨"checkOptimal rejects objective mismatch",       fun _ => tRejectObjectiveMismatch⟩,
-  ⟨"checkInfeasible rejects non-strict bound sum",  fun _ => tRejectFarkasNotStrict⟩,
-  ⟨"checkUnbounded rejects c·r = 0",                fun _ => tRejectUnboundedNonStrict⟩,
-  ⟨"shape: primal Vector length by construction",   fun _ => tPrimalVectorShapeByConstruction⟩,
-  ⟨"totality: sparse OOR → false",                  fun _ => tTotalitySparseOutOfRange⟩,
-  ⟨"budget: small certificate within 10000",        fun _ => tBudgetSmallPasses⟩,
-  ⟨"budget: none disables the check",               fun _ => tBudgetNoneAlwaysPasses⟩,
-  ⟨"budget: large rationals rejected at 5",         fun _ => tBudgetLargeRejected⟩,
-  ⟨"budget: Rat.bitLen convention pinning",         fun _ => tBudgetBitLenConvention⟩
+  ⟨"validate normalises duplicate / zero entries",  pure tValidateNormalise⟩,
+  ⟨"validate sorts sparse entries",                 pure tValidateSort⟩,
+  ⟨"validate is idempotent",                        pure tValidateIdempotent⟩,
+  ⟨"validate rejects sparse row out of range",      pure tRejectSparseRowOOR⟩,
+  ⟨"validate rejects sparse col out of range",      pure tRejectSparseColOOR⟩,
+  ⟨"validate rejects inverted column bound",        pure tRejectInvertedColBound⟩,
+  ⟨"checkOptimal: equality LP",                     pure tOptimalEquality⟩,
+  ⟨"checkOptimal: ranged-row LP",                   pure tOptimalRangedRow⟩,
+  ⟨"checkOptimal: max sense via canonicalize",      pure tOptimalMaxCanonicalized⟩,
+  ⟨"checkInfeasible: rows-only Farkas",             pure tInfeasibleRowsOnly⟩,
+  ⟨"checkInfeasible: column-bounds-only Farkas",    pure tInfeasibleColBoundsOnly⟩,
+  ⟨"checkInfeasible: row + bounds Farkas",          pure tInfeasibleRowAndBounds⟩,
+  ⟨"checkUnbounded: simple x ≥ 0",                  pure tUnboundedSimple⟩,
+  ⟨"checkUnbounded: with equality row",             pure tUnboundedWithEquality⟩,
+  ⟨"checkOptimal rejects infeasible primal",        pure tRejectInfeasiblePrimal⟩,
+  ⟨"checkOptimal rejects bad stationarity",         pure tRejectBadStationarity⟩,
+  ⟨"checkOptimal rejects ranged-row decomposition", pure tRejectRangedRowDecomposition⟩,
+  ⟨"checkOptimal rejects objective mismatch",       pure tRejectObjectiveMismatch⟩,
+  ⟨"checkInfeasible rejects non-strict bound sum",  pure tRejectFarkasNotStrict⟩,
+  ⟨"checkUnbounded rejects c·r = 0",                pure tRejectUnboundedNonStrict⟩,
+  ⟨"shape: primal Vector length by construction",   pure tPrimalVectorShapeByConstruction⟩,
+  ⟨"totality: sparse OOR → false",                  pure tTotalitySparseOutOfRange⟩,
+  ⟨"budget: small certificate within 10000",        pure tBudgetSmallPasses⟩,
+  ⟨"budget: none disables the check",               pure tBudgetNoneAlwaysPasses⟩,
+  ⟨"budget: large rationals rejected at 5",         pure tBudgetLargeRejected⟩,
+  ⟨"budget: Rat.bitLen convention pinning",         pure tBudgetBitLenConvention⟩
 ]
 
-def main : IO UInt32 := do
-  let mut failed : Nat := 0
-  for t in allTests do
-    match t.outcome () with
-    | .ok =>
-      IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  let total := allTests.size
-  if failed = 0 then
-    IO.println s!"All {total} verifier tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {total} verifier tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "verifier" allTests

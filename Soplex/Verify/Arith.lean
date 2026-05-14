@@ -1,15 +1,9 @@
 /-
-  Bespoke `Rat` / `Array` arithmetic + Bool-to-Prop lemmas used by the
-  soundness proofs in `Soplex.Verify.Sound`.
-
-  The verifier is standalone — no Mathlib — so this file contains the
-  small set of derived lemmas that core Lean 4 does not ship under the
-  names mathlib provides, plus the one-direction lemmas that turn each
-  `Bool` check from `Soplex.Verify.Bool` into a usable `Prop` fact.
-
-  Scope of this module: Rat helpers, array size/index lemmas, sparse
-  bilinear identities, and the Bool-to-Prop lemmas consumed by the
-  soundness layer.
+  Rat / Array arithmetic and Bool-to-Prop lemmas used by the soundness
+  proofs in `Soplex.Verify.Sound`. The verifier is Mathlib-free, so
+  this file fills the small gaps between core Lean 4 and what the
+  soundness layer needs: Rat helpers, array size/index lemmas, sparse
+  bilinear identities, and the per-checker Bool→Prop bridges.
 -/
 
 import Soplex.Verify.Bool
@@ -33,16 +27,8 @@ open Soplex
     rfl
   · rw [getElem!_neg v i h, getElem!_neg v.toArray i (by rw [Vector.size_toArray]; exact h)]
 
-/-! ## Derived `Rat` arithmetic.
-
-  Lean 4 core (4.29.1) already provides `mul_nonneg`,
-  `mul_le_mul_of_nonneg_left/right`, `add_nonneg`,
-  `add_le_add_left/right` (as iffs), `add_lt_add_left/right`,
-  `le_of_lt`, `le_trans`, `le_iff_sub_nonneg`, `neg_le_neg(_iff)`,
-  `mul_lt_mul_of_pos_left/right`, the cancellation lemmas, and
-  division lemmas. The handful below close the small gaps. Kept
-  `private` and namespaced to avoid polluting the public verifier
-  surface. -/
+/-! ## Derived `Rat` arithmetic. Small gaps over core Lean 4, namespaced
+  under `RatAux` to keep the public verifier surface clean. -/
 
 namespace RatAux
 

@@ -1,34 +1,6 @@
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
-
-structure TestCase where
-  name : String
-  run : Unit → Outcome
-
-private def expect (b : Bool) (msg : String) : Outcome :=
-  if b then .ok else .fail msg
-
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
-
-private def noPresolve : Options :=
-  { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
+open Soplex Soplex.Verify SoplexTest
 
 private def solveChecked {m n : Nat} (opts : Options) (p : Problem m n)
     (k : Problem m n → Solution m n → Outcome) : Outcome :=
@@ -158,28 +130,15 @@ private def tMaximize (_ : Unit) : Outcome :=
     | _, _, _, _ => .fail s!"unexpected solution: {repr s}"
 
 def allTests : Array TestCase := #[
-  ⟨"optimal equality", tOptimalEquality⟩,
-  ⟨"optimal ranged row", tRangedRow⟩,
-  ⟨"infeasible rows only", tInfeasibleRowsOnly⟩,
-  ⟨"infeasible row and bounds", tInfeasibleRowAndBounds⟩,
-  ⟨"unbounded", tUnbounded⟩,
-  ⟨"duplicate sparse entries and big rationals", tDuplicateAndBigRat⟩,
-  ⟨"maximization canonicalization", tMaximize⟩,
-  ⟨"verbose log captured", tVerboseLogCaptured⟩,
-  ⟨"non-verbose log empty", tNonVerboseLogEmpty⟩
+  .ofPure "optimal equality" tOptimalEquality,
+  .ofPure "optimal ranged row" tRangedRow,
+  .ofPure "infeasible rows only" tInfeasibleRowsOnly,
+  .ofPure "infeasible row and bounds" tInfeasibleRowAndBounds,
+  .ofPure "unbounded" tUnbounded,
+  .ofPure "duplicate sparse entries and big rationals" tDuplicateAndBigRat,
+  .ofPure "maximization canonicalization" tMaximize,
+  .ofPure "verbose log captured" tVerboseLogCaptured,
+  .ofPure "non-verbose log empty" tNonVerboseLogEmpty
 ]
 
-def main : IO UInt32 := do
-  let mut failed := 0
-  for t in allTests do
-    match t.run () with
-    | .ok => IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  if failed = 0 then
-    IO.println s!"All {allTests.size} solveExact tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {allTests.size} solveExact tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "solveExact" allTests

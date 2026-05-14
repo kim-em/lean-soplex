@@ -82,11 +82,11 @@ namespace DualNonnegZeroWhereAbsent
 
 variable {m n : Nat} {p : Problem m n} {d : DualBundle m n}
 
-/-- Legacy convenience accessors: `d.rowLower.toArray.size = m`, etc.
-    With `DualBundle m n` parameterised matching `Problem m n`, these
-    are just `Vector.size_toArray` — the hypothesis is unused. Kept
-    as `theorem`s so existing dot-notation call sites
-    (`hDual.rowLower_size`) keep typechecking. -/
+/-! Dot-notation size lemmas. `Vector.size_toArray` already proves each
+    of these — they're re-exposed on `DualNonnegZeroWhereAbsent` so the
+    soundness layer can write `hDual.rowLower_size` next to the other
+    facts it pulls from the hypothesis. -/
+
 theorem rowLower_size (_ : DualNonnegZeroWhereAbsent p d) :
     d.rowLower.toArray.size = m := d.rowLower.size_toArray
 

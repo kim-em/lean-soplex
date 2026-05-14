@@ -4,52 +4,21 @@
   prove (literally — the `h` field is a real soundness-lemma
   proof) optimality / infeasibility / unboundedness.
 -/
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
+open Soplex Soplex.Verify SoplexTest
 
-inductive Outcome
-  | ok
-  | fail (msg : String)
+/-! ## `wantsX` helpers.
 
-structure TestCase where
-  name : String
-  run  : Unit → Outcome
-
-private def expect (b : Bool) (msg : String) : Outcome :=
-  if b then .ok else .fail msg
-
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
-
-private def baseOpts : Options :=
-  { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
-
-/-! ## Witnesses extracted from `Verified` constructors.
-
-  These `wantsX` helpers do the pattern-matching the issue demands:
-  on a real soundness proof the constructors deliver the matching
-  `Verified.optimal`/`.infeasible`/`.unbounded` and we extract the
-  primal / ray data alongside the proof. -/
+  Pattern-match a `Verified` against the expected constructor and pin
+  the proof's type with a `let _ : ... := h`. A mismatched constructor
+  reports the constructor we got. -/
 
 private def wantsOptimal {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal x h =>
-      -- The match binding `h` confirms the proof exists; we also
-      -- verify the primal vector has the right shape.
       let _ : IsFeasible p x.toArray ∧ IsOptimal p sense x.toArray := h
-      expect (True) s!"optimal x has wrong size: {repr x}"
+      .ok
   | .infeasible _ => .fail "expected optimal, got infeasible"
   | .unbounded .. => .fail "expected optimal, got unbounded"
   | .unchecked s  => .fail s!"expected optimal, got unchecked {repr s}"
@@ -67,10 +36,9 @@ private def wantsUnbounded {m n : Nat} {p : Problem m n} {sense : ObjSense} :
     Verified p sense → Outcome
   | .optimal ..       => .fail "expected unbounded, got optimal"
   | .infeasible _     => .fail "expected unbounded, got infeasible"
-  | .unbounded x r h  =>
+  | .unbounded _ _ h  =>
       let _ : IsUnbounded p sense := h
-      expect (True && True)
-        s!"unbounded shapes off: x={repr x}, ray={repr r}"
+      .ok
   | .unchecked s      => .fail s!"expected unbounded, got unchecked {repr s}"
 
 private def wantsUnchecked (expected : SolveStatus)
@@ -98,7 +66,7 @@ private def tOptimal (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1), (0, 1, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
-  runVerified baseOpts p (k := fun _ v => wantsOptimal v)
+  runVerified noPresolve p (k := fun _ v => wantsOptimal v)
 
 private def tInfeasible (_ : Unit) : Outcome :=
   let p := mkProblem 1 2
@@ -106,7 +74,7 @@ private def tInfeasible (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1), (1, 0, 1)])
     (rowBounds := #[(some 1, none), (none, some 0)])
     (colBounds := #[(none, none)])
-  runVerified baseOpts p (k := fun _ v => wantsInfeasible v)
+  runVerified noPresolve p (k := fun _ v => wantsInfeasible v)
 
 private def tUnbounded (_ : Unit) : Outcome :=
   let p := mkProblem 1 0
@@ -114,7 +82,7 @@ private def tUnbounded (_ : Unit) : Outcome :=
     (a := #[])
     (rowBounds := #[])
     (colBounds := #[(some 0, none)])
-  runVerified baseOpts p (k := fun _ v => wantsUnbounded v)
+  runVerified noPresolve p (k := fun _ v => wantsUnbounded v)
 
 /-- Maximization. Crucially, the `Verified.optimal` constructor here
     carries `IsOptimal p .maximize x`, which unfolds to
@@ -127,7 +95,7 @@ private def tMaximize (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(none, some 1)])
     (colBounds := #[(some 0, none)])
-  let opts := { baseOpts with sense := .maximize }
+  let opts := { noPresolve with sense := .maximize }
   runVerified opts p (k := fun norm v =>
     match v with
     | .optimal x h =>
@@ -145,7 +113,7 @@ private def tBudgetExceeded (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1), (0, 1, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
-  runVerified baseOpts p (denomBudget := some 1)
+  runVerified noPresolve p (denomBudget := some 1)
     (k := fun _ v => wantsUnchecked .budgetExceeded v)
 
 /-- Budget regression from issue #20: a tiny
@@ -160,7 +128,7 @@ private def tBudget5Exceeded (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(none, some 100)])
     (colBounds := #[(some 0, none)])
-  runVerified baseOpts p (denomBudget := some 5)
+  runVerified noPresolve p (denomBudget := some 5)
     (k := fun _ v => wantsUnchecked .budgetExceeded v)
 
 /-- Companion to `tBudget5Exceeded`: the *same* LP under the default
@@ -174,7 +142,7 @@ private def tDefaultBudgetPasses (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1)])
     (rowBounds := #[(none, some 100)])
     (colBounds := #[(some 0, none)])
-  match solveVerified baseOpts p with
+  match solveVerified noPresolve p with
   | .error e => .fail s!"solveVerified failed: {repr e}"
   | .ok r    => wantsOptimal r.verified
 
@@ -187,15 +155,8 @@ private def tBudgetNoneDisables (_ : Unit) : Outcome :=
     (a := #[(0, 0, 1), (0, 1, 1)])
     (rowBounds := #[(some 1, some 1)])
     (colBounds := #[(some 0, none), (some 0, none)])
-  runVerified baseOpts p (denomBudget := none)
+  runVerified noPresolve p (denomBudget := none)
     (k := fun _ v => wantsOptimal v)
-
--- `tInvalidProblem` used to construct a Problem with a
--- wrong-length `c` and check that `solveVerified` returned
--- `.invalidProblem`. With `Problem m n` parameterised, the
--- mismatch is unrepresentable — `mkProblem 2 1 (c := #[1]) …`
--- no longer typechecks. The `invalidProblem` path is still
--- reachable for other failures (inverted bounds, sparse OOR).
 
 /-! ## Pure `verifyOutcome` tests.
 
@@ -214,14 +175,14 @@ private def emptyCert : Certificate 0 1 :=
 private def tMissingCertOptimal (_ : Unit) : Outcome :=
   let sol : Solution 0 1 :=
     { status := .optimal, objective := none, certificate := emptyCert, log := "" }
-  let v := verifyOutcome baseOpts none trivialProblem sol
+  let v := verifyOutcome noPresolve none trivialProblem sol
   wantsUnchecked .optimal v
 
 /-- `.infeasible` status with no dual certificate. -/
 private def tMissingCertInfeasible (_ : Unit) : Outcome :=
   let sol : Solution 0 1 :=
     { status := .infeasible, objective := none, certificate := emptyCert, log := "" }
-  let v := verifyOutcome baseOpts none trivialProblem sol
+  let v := verifyOutcome noPresolve none trivialProblem sol
   wantsUnchecked .infeasible v
 
 /-- `.unbounded` status with no ray. -/
@@ -230,7 +191,7 @@ private def tMissingCertUnbounded (_ : Unit) : Outcome :=
     { status := .unbounded, objective := none
       certificate := { primal := some #v[0], dual := none, ray := none }
       log := "" }
-  let v := verifyOutcome baseOpts none trivialProblem sol
+  let v := verifyOutcome noPresolve none trivialProblem sol
   wantsUnchecked .unbounded v
 
 /-- Primal infeasible for `trivialProblem`'s `0 ≤ x` bound, so
@@ -244,7 +205,7 @@ private def tFailedCheckOptimal (_ : Unit) : Outcome :=
     { status := .optimal, objective := none
       certificate := { primal := some #v[-1], dual := some bogusDual, ray := none }
       log := "" }
-  let v := verifyOutcome baseOpts none trivialProblem sol
+  let v := verifyOutcome noPresolve none trivialProblem sol
   wantsUnchecked .optimal v
 
 /-- Non-terminal statuses pass straight through to `.unchecked status`,
@@ -255,36 +216,23 @@ private def tNonTerminalPreservesStatus (_ : Unit) : Outcome :=
     { status := .timeLimit, objective := none
       certificate := { primal := some #v[(1234567 : Rat) / 89], dual := none, ray := none }
       log := "" }
-  let v := verifyOutcome baseOpts (some 1) trivialProblem sol
+  let v := verifyOutcome noPresolve (some 1) trivialProblem sol
   wantsUnchecked .timeLimit v
 
 def allTests : Array TestCase := #[
-  ⟨"optimal: feasibility + min proof carried",  tOptimal⟩,
-  ⟨"infeasible: Farkas proof carried",          tInfeasible⟩,
-  ⟨"unbounded: ray proof carried",              tUnbounded⟩,
-  ⟨"maximize: IsOptimal _ .maximize transport", tMaximize⟩,
-  ⟨"budget too small short-circuits",           tBudgetExceeded⟩,
-  ⟨"budget=5 short-circuits (issue #20)",       tBudget5Exceeded⟩,
-  ⟨"default budget accepts the same LP",        tDefaultBudgetPasses⟩,
-  ⟨"budget=none disables the check",            tBudgetNoneDisables⟩,
-  ⟨"verifyOutcome: optimal missing primal/dual", tMissingCertOptimal⟩,
-  ⟨"verifyOutcome: infeasible missing dual",     tMissingCertInfeasible⟩,
-  ⟨"verifyOutcome: unbounded missing ray",       tMissingCertUnbounded⟩,
-  ⟨"verifyOutcome: failed checkOptimal",         tFailedCheckOptimal⟩,
-  ⟨"verifyOutcome: non-terminal preserves status", tNonTerminalPreservesStatus⟩
+  .ofPure "optimal: feasibility + min proof carried"    tOptimal,
+  .ofPure "infeasible: Farkas proof carried"            tInfeasible,
+  .ofPure "unbounded: ray proof carried"                tUnbounded,
+  .ofPure "maximize: IsOptimal _ .maximize transport"   tMaximize,
+  .ofPure "budget too small short-circuits"             tBudgetExceeded,
+  .ofPure "budget=5 short-circuits (issue #20)"         tBudget5Exceeded,
+  .ofPure "default budget accepts the same LP"          tDefaultBudgetPasses,
+  .ofPure "budget=none disables the check"              tBudgetNoneDisables,
+  .ofPure "verifyOutcome: optimal missing primal/dual"  tMissingCertOptimal,
+  .ofPure "verifyOutcome: infeasible missing dual"      tMissingCertInfeasible,
+  .ofPure "verifyOutcome: unbounded missing ray"        tMissingCertUnbounded,
+  .ofPure "verifyOutcome: failed checkOptimal"          tFailedCheckOptimal,
+  .ofPure "verifyOutcome: non-terminal preserves status" tNonTerminalPreservesStatus
 ]
 
-def main : IO UInt32 := do
-  let mut failed := 0
-  for t in allTests do
-    match t.run () with
-    | .ok => IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  if failed = 0 then
-    IO.println s!"All {allTests.size} solveVerified tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {allTests.size} solveVerified tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "solveVerified" allTests

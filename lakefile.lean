@@ -52,6 +52,12 @@ lean_lib Soplex where
   globs := #[`Soplex, `Soplex.Basic, `Soplex.Verify, `Soplex.Verify.+]
   precompileModules := true
 
+/-- Shared scaffolding for the `SoplexTest/` executables. Keeping it as
+    a `lean_lib` lets each test exe pick up `SoplexTest.Common` and
+    `SoplexTest.SolveCommon` as compiled dependencies. -/
+lean_lib SoplexTest where
+  roots := #[`SoplexTest.Common, `SoplexTest.SolveCommon]
+
 /-- End-to-end FFI runtime check: prints the SoPlex version, runs the
     cross-stdlib ABI throw/catch test, and solves a toy LP. Used by CI
     to confirm the binding links, loads, and computes on every platform. -/

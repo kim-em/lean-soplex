@@ -1,14 +1,11 @@
 /-
-  Boolean (decidable) certificate checkers.
-
-  All `is*` and `check*` functions are *total*: any kind of structural
-  mismatch (wrong array lengths, out-of-range sparse indices, unequal
-  `DualBundle` array sizes) returns `false` rather than panicking.
-  Callers that have not run `validate` get a benign `false` instead
-  of undefined behaviour.
-
-  Soundness lemmas live in `Soplex.Verify.Sound`; they lift these
-  `Bool` checks to the `Prop` predicates in `Soplex.Verify.Prop`.
+  Boolean (decidable) certificate checkers. All `is*` / `check*`
+  functions are *total*: any structural mismatch (wrong array lengths,
+  out-of-range sparse indices, unequal `DualBundle` array sizes)
+  returns `false` rather than panicking, so callers that have not run
+  `validate` get a benign rejection. Soundness lemmas in
+  `Soplex.Verify.Sound` lift these checks to the `Prop` predicates in
+  `Soplex.Verify.Prop`.
 -/
 
 import Soplex.Verify.Types
@@ -19,11 +16,9 @@ open Soplex
 
 /-! ## Problem shape sanity check.
 
-  Every public `is*` / `check*` function below calls `problemShapeOk`
-  first. Without this guard, a malformed `Problem` (e.g. wrong
-  `rowBounds` length, out-of-range sparse entries) would reach `[i]!`
-  accesses that panic. The checker returns `false` on structural
-  mismatch so callers that bypass `validate` get a benign rejection. -/
+  Every `is*` / `check*` below calls `problemShapeOk` first so the
+  totality contract holds — without it, malformed inputs would reach
+  panicking `[i]!` accesses. -/
 
 /-- Structural well-formedness for a `Problem`: every sparse entry's
     `(row, col)` is in range. Length checks for `c`, `colBounds`, and
@@ -37,10 +32,8 @@ def problemShapeOk {m n : Nat} (p : Problem m n) : Bool :=
 
 /-! ## Sparse matrix arithmetic.
 
-  Stated via `Array.foldl` rather than a `for` loop with an early-exit
-  range. Both forms are semantically equivalent on well-shaped `p`, but
-  the `foldl` form is what `Array.foldl_induction` (core Lean) operates
-  on, so reasoning in `Soplex.Verify.Arith` is direct.
+  Stated via `Array.foldl` (not a `for` loop) so the soundness layer
+  can use `Array.foldl_induction` directly in `Soplex.Verify.Arith`.
 -/
 
 /-- Apply a single sparse entry `(r, c, v)` to the accumulator: add
@@ -73,10 +66,7 @@ def evalATy {m n : Nat} (p : Problem m n) (y : Array Rat) : Array Rat :=
 
 /-! ### Output-size lemmas for `evalAx` / `evalATy`.
 
-  Stated here so `vEvalAx` / `vEvalATy` below can package the size
-  facts into the type. The proofs go via `Array.foldl_induction`,
-  which is the canonical core-Lean structural induction over the
-  sparse-entry foldl. -/
+  Packaged into the type by `vEvalAx` / `vEvalATy` below. -/
 
 /-- `applyAx` preserves the output array's size. -/
 theorem applyAx_size (x : Array Rat) (out : Array Rat)

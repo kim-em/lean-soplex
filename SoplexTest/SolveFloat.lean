@@ -1,34 +1,6 @@
-import Soplex
+import SoplexTest.SolveCommon
 
-open Soplex Soplex.Verify
-
-inductive Outcome
-  | ok
-  | fail (msg : String)
-
-structure TestCase where
-  name : String
-  run : Unit → Outcome
-
-private def expect (b : Bool) (msg : String) : Outcome :=
-  if b then .ok else .fail msg
-
-private def mkProblem
-    (numVars numConstraints : Nat)
-    (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
-    (rowBounds : Array (Option Rat × Option Rat))
-    (colBounds : Array (Option Rat × Option Rat))
-    (objOffset : Rat := 0)
-    (hc : c.size = numVars := by decide)
-    (hRB : rowBounds.size = numConstraints := by decide)
-    (hCB : colBounds.size = numVars := by decide) :
-    Problem numConstraints numVars :=
-  { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
-    colBounds := ⟨colBounds, hCB⟩, objOffset }
-
-private def noPresolve : Options :=
-  { ({} : Options) with presolve := false, verbose := false, precisionBoost := false }
+open Soplex Soplex.Verify SoplexTest
 
 private def toyProblem : Problem 1 2 :=
   mkProblem 2 1
@@ -150,25 +122,12 @@ private def tIterLimitTooLarge (_ : Unit) : Outcome :=
   | .ok s => .fail s!"expected iterLimitTooLarge, got solution {repr s}"
 
 def allTests : Array TestCase := #[
-  ⟨"optimal equality", tOptimalEquality⟩,
-  ⟨"infeasible rows", tInfeasibleRows⟩,
-  ⟨"binary round-trip of 0.1", tBinaryRoundTrip⟩,
-  ⟨"maximize", tMaximize⟩,
-  ⟨"verbose log", tVerboseLog⟩,
-  ⟨"oversized iterLimit rejected", tIterLimitTooLarge⟩
+  .ofPure "optimal equality" tOptimalEquality,
+  .ofPure "infeasible rows" tInfeasibleRows,
+  .ofPure "binary round-trip of 0.1" tBinaryRoundTrip,
+  .ofPure "maximize" tMaximize,
+  .ofPure "verbose log" tVerboseLog,
+  .ofPure "oversized iterLimit rejected" tIterLimitTooLarge
 ]
 
-def main : IO UInt32 := do
-  let mut failed := 0
-  for t in allTests do
-    match t.run () with
-    | .ok => IO.println s!"[ok]   {t.name}"
-    | .fail msg =>
-      failed := failed + 1
-      IO.println s!"[FAIL] {t.name}: {msg}"
-  if failed = 0 then
-    IO.println s!"All {allTests.size} solveFloat tests passed."
-    return 0
-  else
-    IO.eprintln s!"{failed} of {allTests.size} solveFloat tests FAILED."
-    return 1
+def main : IO UInt32 := runAll "solveFloat" allTests

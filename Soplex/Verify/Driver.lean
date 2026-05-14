@@ -1,17 +1,10 @@
 /-
-  User-facing verified-solve driver: data types and the pure
-  Solution→Verified mapping.
+  User-facing verified-solve driver: the `Verified` / `VerifiedSolve`
+  data types and the pure `Solution → Verified` mapping `verifyOutcome`.
 
-  The `solveVerified` glue in `Soplex.Basic` chains
-  `validateOptions`, `validate`, and `solveExact`, then defers to
-  `verifyOutcome` (below) for the certificate-by-certificate
-  bookkeeping. Keeping that bookkeeping in this file (which has no
-  FFI dependency) lets the soundness story sit entirely in the
-  pure-Lean `SoplexVerify` library: the FFI side only contributes
-  the `Solution` value.
-
-  This file stays pure Lean; `Soplex.Basic` is responsible for calling
-  the FFI and passing the resulting `Solution` back here.
+  Stays FFI-free: `Soplex.Basic` calls SoPlex and feeds the resulting
+  `Solution` into `verifyOutcome`, so the full soundness story lives
+  inside the pure-Lean `SoplexVerify` library.
 -/
 
 import Soplex.Verify.Prop
