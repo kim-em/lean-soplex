@@ -50,12 +50,8 @@ def main : IO Unit := do
     | .unbounded _ _ _ => IO.println "unbounded (with Lean proof)"
     | .unchecked s     => IO.println s!"unchecked: {repr s}"
 
-theorem lp_optimum_correct {r x h}
-    (_hr : solveVerified (opts := { sense := .maximize }) lp = .ok r)
-    (_hopt : r.verified = .optimal x h) :
-    IsFeasible r.normalized x.toArray ∧
-      IsOptimal r.normalized .maximize x.toArray :=
-  h
+-- We don't yet have a tactic layer using this machinery:
+-- see https://github.com/kim-em/soplex/issues/40.
 ```
 
 Key shape:
