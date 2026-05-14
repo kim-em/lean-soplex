@@ -1,10 +1,110 @@
 import Lean
+import Init.Data.Vector.Lemmas
 import Soplex.Basic
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
 
 namespace Soplex.Tactic.LP
+
+@[simp] theorem vector_get_mk {α : Type u} {n : Nat} {xs : Array α}
+    {h : xs.size = n} (i : Fin n) :
+    (Vector.mk xs h).get i = xs[i.val]'(by rw [h]; exact i.isLt) := by
+  rfl
+
+theorem rat_le_of_sub_nonpos {a b : Rat} (h : a - b ≤ 0) : a ≤ b := by
+  have hAdd := (Rat.add_le_add_right (a := a - b) (b := 0) (c := b)).mpr h
+  simpa [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.neg_add_cancel, Rat.add_zero, Rat.zero_add]
+    using hAdd
+
+theorem rat_sub_nonpos_of_le {a b : Rat} (h : a ≤ b) : a - b ≤ 0 := by
+  have hAdd := (Rat.add_le_add_right (a := a) (b := b) (c := -b)).mpr h
+  simpa [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.add_neg_cancel, Rat.add_zero, Rat.zero_add]
+    using hAdd
+
+theorem rat_sub_nonpos_of_eq {a b : Rat} (h : a = b) : a - b ≤ 0 := by
+  subst h
+  simp [Rat.sub_eq_add_neg, Rat.add_neg_cancel]
+
+theorem rat_lt_of_sub_neg {a b : Rat} (h : a - b < 0) : a < b := by
+  have hAdd := (Rat.add_lt_add_right (a := a - b) (b := 0) (c := b)).mpr h
+  simpa [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.neg_add_cancel, Rat.add_zero, Rat.zero_add]
+    using hAdd
+
+theorem rat_le_of_nonneg_sub {a b : Rat} (h : 0 ≤ b - a) : a ≤ b := by
+  exact Soplex.Verify.RatAux.sub_nonneg.mp h
+
+theorem rat_lt_of_pos_sub {a b : Rat} (h : 0 < b - a) : a < b := by
+  have hle : a ≤ b := rat_le_of_nonneg_sub (Rat.le_of_lt h)
+  exact Rat.lt_of_le_of_ne hle (by
+    intro hEq
+    subst hEq
+    simp [Rat.sub_eq_add_neg, Rat.add_neg_cancel] at h)
+
+theorem lower_bound_of_checkOptimal
+    {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualBundle m n}
+    {y : Array Rat}
+    (hCheck : checkOptimal p x d = true)
+    (hFeas : IsFeasible p y) :
+    primalObj p x.toArray ≤ primalObj p y :=
+  (checkOptimal_sound hCheck).2.2 y hFeas
+
+theorem nonneg_obj_of_min_certificate
+    {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualBundle m n}
+    {y : Array Rat} {obj : Rat}
+    (hCheck : checkOptimal p x d = true)
+    (hFeas : IsFeasible p y)
+    (hOptNonneg : 0 ≤ primalObj p x.toArray)
+    (hObj : primalObj p y = obj) :
+    0 ≤ obj := by
+  rw [← hObj]
+  exact Rat.le_trans hOptNonneg (lower_bound_of_checkOptimal hCheck hFeas)
+
+theorem pos_obj_of_min_certificate
+    {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualBundle m n}
+    {y : Array Rat} {obj : Rat}
+    (hCheck : checkOptimal p x d = true)
+    (hFeas : IsFeasible p y)
+    (hOptPos : 0 < primalObj p x.toArray)
+    (hObj : primalObj p y = obj) :
+    0 < obj := by
+  rw [← hObj]
+  exact Std.lt_of_lt_of_le hOptPos (lower_bound_of_checkOptimal hCheck hFeas)
+
+theorem le_goal_of_min_certificate
+    {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualBundle m n}
+    {y : Array Rat} {lhs rhs : Rat}
+    (hCheck : checkOptimal p x d = true)
+    (hFeas : IsFeasible p y)
+    (hOptNonneg : 0 ≤ primalObj p x.toArray)
+    (hObj : primalObj p y = rhs - lhs) :
+    lhs ≤ rhs :=
+  rat_le_of_nonneg_sub (nonneg_obj_of_min_certificate hCheck hFeas hOptNonneg hObj)
+
+theorem lt_goal_of_min_certificate
+    {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualBundle m n}
+    {y : Array Rat} {lhs rhs : Rat}
+    (hCheck : checkOptimal p x d = true)
+    (hFeas : IsFeasible p y)
+    (hOptPos : 0 < primalObj p x.toArray)
+    (hObj : primalObj p y = rhs - lhs) :
+    lhs < rhs :=
+  rat_lt_of_pos_sub (pos_obj_of_min_certificate hCheck hFeas hOptPos hObj)
+
+theorem false_of_checkInfeasible
+    {m n : Nat} {p : Problem m n} {y : Array Rat} {d : DualBundle m n}
+    (hCheck : checkInfeasible p d = true)
+    (hFeas : IsFeasible p y) :
+    False :=
+  checkInfeasible_sound hCheck ⟨y, hFeas⟩
+
+theorem any_of_checkInfeasible
+    {m n : Nat} {p : Problem m n} {y : Array Rat} {d : DualBundle m n} {α : Prop}
+    (hCheck : checkInfeasible p d = true)
+    (hFeas : IsFeasible p y) :
+    α :=
+  (false_of_checkInfeasible hCheck hFeas).elim
+
 
 inductive Rel where
   | le
@@ -16,6 +116,10 @@ structure LinExpr where
   const : Rat := 0
   coeffs : Array (FVarId × Rat) := #[]
   deriving Inhabited
+
+structure Row where
+  expr : LinExpr
+  proof : MetaM Expr
 
 structure ParseState where
   vars : Array FVarId := #[]
@@ -165,12 +269,12 @@ private def isRatExpr (e : Expr) : MetaM Bool := do
   isDefEq (← inferType e) ratType
 
 private def parseAtomicRat (rel : Rel) (lhs rhs : Expr) :
-    ParseM (Option (Rel × LinExpr × LinExpr)) := do
+    ParseM (Option (Rel × Expr × Expr × LinExpr × LinExpr)) := do
   unless (← isRatExpr lhs) && (← isRatExpr rhs) do
     return none
-  return some (rel, ← parseExpr lhs, ← parseExpr rhs)
+  return some (rel, lhs, rhs, ← parseExpr lhs, ← parseExpr rhs)
 
-private def parseAtomic? (type : Expr) : ParseM (Option (Rel × LinExpr × LinExpr)) := do
+private def parseAtomic? (type : Expr) : ParseM (Option (Rel × Expr × Expr × LinExpr × LinExpr)) := do
   let e := type
   let fn := e.getAppFn
   let args := e.getAppArgs
@@ -201,26 +305,32 @@ private def isAnd? (type : Expr) : Option (Expr × Expr) :=
       if args.size == 2 then some (args[0]!, args[1]!) else none
   | _ => none
 
-private partial def collectHypType (origin : Name) (type : Expr) :
-    ParseM (Array LinExpr) := do
-  if let some (p, q) := isAnd? type then
-    return (← collectHypType origin p) ++ (← collectHypType origin q)
+private partial def collectHypProof (origin : Name) (proof : Expr) :
+    ParseM (Array Row) := do
+  let type ← inferType proof
+  if (isAnd? type).isSome then
+    let left ← mkAppM ``And.left #[proof]
+    let right ← mkAppM ``And.right #[proof]
+    return (← collectHypProof origin left) ++ (← collectHypProof origin right)
   match ← parseAtomic? type with
   | none => return #[]
-  | some (.lt, _, _) =>
+  | some (.lt, _, _, _, _) =>
       throwError "lp: strict hypothesis `{origin}` is not supported in Stage 1"
-  | some (.le, lhs, rhs) =>
-      return #[lhs.sub rhs]
-  | some (.eq, lhs, rhs) =>
+  | some (.le, _, _, lhs, rhs) =>
+      let row := lhs.sub rhs
+      return #[{ expr := row, proof := mkAppM ``rat_sub_nonpos_of_le #[proof] }]
+  | some (.eq, _, _, lhs, rhs) =>
       let d := lhs.sub rhs
-      return #[d, d.neg]
+      return #[
+        { expr := d, proof := mkAppM ``rat_sub_nonpos_of_eq #[proof] },
+        { expr := d.neg, proof := do mkAppM ``rat_sub_nonpos_of_eq #[← mkEqSymm proof] }]
 
-private def collectHyps : ParseM (Array LinExpr) := do
+private def collectHyps : ParseM (Array Row) := do
   let mut rows := #[]
   for decl in (← getLCtx) do
     unless decl.isImplementationDetail do
       if ← isProp decl.type then
-        rows := rows ++ (← collectHypType decl.userName decl.type)
+        rows := rows ++ (← collectHypProof decl.userName decl.toExpr)
   return rows
 
 private def coeffAt (e : LinExpr) (v : FVarId) : Rat :=
@@ -253,29 +363,132 @@ private def buildProblem (rows : Array LinExpr) (obj : LinExpr)
 private def ratList (xs : Array Rat) : String :=
   "[" ++ String.intercalate ", " (xs.toList.map (toString ·)) ++ "]"
 
-private def checkEntailed (rows : Array LinExpr) (obj : LinExpr) (strict : Bool)
-    (vars : Array FVarId) : MetaM Unit := do
-  let p := buildProblem rows obj vars
-  let opts : Options := { ({} : Options) with sense := .maximize, presolve := false }
-  match solveVerified opts p with
-  | .error e =>
-      throwError "lp: solveVerified failed: {repr e}"
-  | .ok r =>
-      match r.verified with
-      | .optimal x _ =>
-          let m := primalObj r.normalized x.toArray
-          if strict then
-            unless decide (m < 0) do
-              throwError "lp: goal is not entailed; verified optimum is {m}, not < 0"
-          else
-            unless decide (m ≤ 0) do
-              throwError "lp: goal is not entailed; verified optimum is {m}, not ≤ 0"
-      | .infeasible _ =>
-          return ()
-      | .unbounded x ray _ =>
-          throwError "lp: objective is unbounded above; base={ratList x.toArray}, ray={ratList ray.toArray}"
-      | .unchecked status =>
-          throwError "lp: solver outcome was unchecked: {repr status}"
+private def proveByTactic (type : Expr) (tac : TacticM Unit) : TacticM Expr := do
+  let proof ← mkFreshExprMVar type
+  let mvarId := proof.mvarId!
+  let savedGoals ← getGoals
+  setGoals [mvarId]
+  tac
+  let remaining ← getGoals
+  unless remaining.isEmpty do
+    throwError "lp: internal proof reconstruction left unsolved goals"
+  setGoals savedGoals
+  instantiateMVars proof
+
+private def mkVectorExpr {α : Type} [ToExpr α] (xs : Array α) (n : Nat) : MetaM Expr := do
+  let arr := toExpr xs
+  let h ← mkDecideProof (← mkEq (← mkAppM ``Array.size #[arr]) (toExpr n))
+  mkAppM ``Vector.mk #[arr, h]
+
+private def mkVectorExprFromElems (type : Expr) (xs : Array Expr) (n : Nat) : MetaM Expr := do
+  let arr ← mkArrayLit type xs.toList
+  let h ← mkDecideProof (← mkEq (← mkAppM ``Array.size #[arr]) (toExpr n))
+  mkAppM ``Vector.mk #[arr, h]
+
+private def mkProblemExpr {m n : Nat} (p : Problem m n) : MetaM Expr := do
+  let c ← mkVectorExpr p.c.toArray n
+  let rowBounds ← mkVectorExpr p.rowBounds.toArray m
+  let colBounds ← mkVectorExpr p.colBounds.toArray n
+  mkAppM ``Problem.mk #[c, toExpr p.objOffset, toExpr p.a, rowBounds, colBounds]
+
+private def mkDualExpr {m n : Nat} (d : DualBundle m n) : MetaM Expr := do
+  let rowLower ← mkVectorExpr d.rowLower.toArray m
+  let rowUpper ← mkVectorExpr d.rowUpper.toArray m
+  let colLower ← mkVectorExpr d.colLower.toArray n
+  let colUpper ← mkVectorExpr d.colUpper.toArray n
+  mkAppM ``DualBundle.mk #[rowLower, rowUpper, colLower, colUpper]
+
+private def mkAssignmentExpr (vars : Array FVarId) : MetaM Expr := do
+  let values ← vars.mapM fun id => pure (mkFVar id)
+  mkVectorExprFromElems (mkConst ``Rat) values vars.size
+
+private def mkSubExpr (lhs rhs : Expr) : MetaM Expr :=
+  mkAppM ``HSub.hSub #[lhs, rhs]
+
+private def mkLeZero (e : Expr) : MetaM Expr :=
+  mkAppM ``LE.le #[e, toExpr (0 : Rat)]
+
+private def mkLtZero (e : Expr) : MetaM Expr :=
+  mkAppM ``LT.lt #[e, toExpr (0 : Rat)]
+
+private def mkNonneg (e : Expr) : MetaM Expr :=
+  mkAppM ``LE.le #[toExpr (0 : Rat), e]
+
+private def mkPos (e : Expr) : MetaM Expr :=
+  mkAppM ``LT.lt #[toExpr (0 : Rat), e]
+
+private def mkTrueEq (b : Expr) : MetaM Expr :=
+  mkEq b (toExpr true)
+
+private def reconstructionTactic : TacticM Unit := do
+  evalTactic (← `(tactic|
+    simp [Soplex.Verify.IsFeasible, Soplex.Verify.ColBoundsSatisfied,
+      Soplex.Verify.RowBoundsSatisfied, Soplex.Verify.evalAx, Soplex.Verify.applyAx,
+      Soplex.Verify.primalObj, Soplex.Verify.dot]))
+  evalTactic (← `(tactic|
+    grind [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]))
+
+private def proveEntailed (rows : Array Row) (strict : Bool)
+    (vars : Array FVarId) (lhs rhs : Expr) : TacticM Expr := do
+  let rowExprs := rows.map (·.expr)
+  let obj := (← (parseExpr rhs).run' { vars := vars }).sub
+    (← (parseExpr lhs).run' { vars := vars })
+  let p := buildProblem rowExprs obj vars
+  let opts : Options := { ({} : Options) with sense := .minimize, presolve := false }
+  let normalized ←
+    match validate p with
+    | .error e => throwError "lp: invalid generated problem: {repr e}"
+    | .ok p => pure p
+  let sol ←
+    match solveExact opts normalized with
+    | .error e => throwError "lp: solveExact failed: {repr e}"
+    | .ok sol => pure sol
+  let pExpr ← mkProblemExpr normalized
+  let yVecExpr ← mkAssignmentExpr vars
+  let yArrayExpr ← mkAppM ``Vector.toArray #[yVecExpr]
+  let hFeasType ← mkAppM ``IsFeasible #[pExpr, yArrayExpr]
+  let hFeas ← proveByTactic hFeasType reconstructionTactic
+  let verified := verifyOutcome opts defaultDenomBudget normalized sol
+  match verified with
+  | .optimal x _ =>
+      let m := primalObj normalized x.toArray
+      if strict then
+        unless decide (0 < m) do
+          throwError "lp: goal is not entailed; verified optimum is {m}, not > 0"
+      else
+        unless decide (0 ≤ m) do
+          throwError "lp: goal is not entailed; verified optimum is {m}, not ≥ 0"
+      let some d := sol.certificate.dual
+        | throwError "lp: verified optimal result is missing its dual certificate"
+      unless checkOptimal normalized x d do
+        throwError "lp: internal error: spliced optimal certificate no longer checks"
+      let xExpr ← mkVectorExpr x.toArray vars.size
+      let dExpr ← mkDualExpr d
+      let checkExpr ← mkAppM ``checkOptimal #[pExpr, xExpr, dExpr]
+      let hCheck ← mkDecideProof (← mkTrueEq checkExpr)
+      let primalX ← mkAppM ``primalObj #[pExpr, ← mkAppM ``Vector.toArray #[xExpr]]
+      let hOptType ← if strict then mkPos primalX else mkNonneg primalX
+      let hOpt ← mkDecideProof hOptType
+      let objExpr ← mkSubExpr rhs lhs
+      let primalY ← mkAppM ``primalObj #[pExpr, yArrayExpr]
+      let hObj ← proveByTactic (← mkEq primalY objExpr) reconstructionTactic
+      if strict then
+        mkAppM ``lt_goal_of_min_certificate #[hCheck, hFeas, hOpt, hObj]
+      else
+        mkAppM ``le_goal_of_min_certificate #[hCheck, hFeas, hOpt, hObj]
+  | .infeasible _ =>
+      let some d := sol.certificate.dual
+        | throwError "lp: verified infeasible result is missing its dual certificate"
+      unless checkInfeasible normalized d do
+        throwError "lp: internal error: spliced infeasibility certificate no longer checks"
+      let dExpr ← mkDualExpr d
+      let checkExpr ← mkAppM ``checkInfeasible #[pExpr, dExpr]
+      let hCheck ← mkDecideProof (← mkTrueEq checkExpr)
+      mkAppM ``any_of_checkInfeasible #[hCheck, hFeas]
+  | .unbounded x ray _ =>
+      throwError "lp: objective is unbounded above; base={ratList x.toArray}, ray={ratList ray.toArray}"
+  | .unchecked status =>
+      throwError "lp: solver outcome was unchecked: {repr status}"
 
 private def solveAtomic (g : MVarId) : TacticM Unit := do
   g.withContext do
@@ -284,19 +497,20 @@ private def solveAtomic (g : MVarId) : TacticM Unit := do
       let p ← parseAtomic? target
       let hs ← collectHyps
       pure (p, hs)).run {}
-    let some (rel, lhs, rhs) := parsed?
+    let some (rel, lhsExpr, rhsExpr, _, _) := parsed?
       | throwError "lp: goal is not an atomic Rat comparison"
     match rel with
     | .le =>
-        checkEntailed rows (lhs.sub rhs) false st.vars
+        let proof ← proveEntailed rows false st.vars lhsExpr rhsExpr
+        g.assign proof
     | .lt =>
-        checkEntailed rows (lhs.sub rhs) true st.vars
+        let proof ← proveEntailed rows true st.vars lhsExpr rhsExpr
+        g.assign proof
     | .eq =>
-        let d := lhs.sub rhs
-        checkEntailed rows d false st.vars
-        checkEntailed rows d.neg false st.vars
-  throwError
-    "lp: verified SoPlex entailment succeeded, but certificate proof reconstruction is not implemented yet; refusing to close the goal with another arithmetic tactic"
+        let h₁ ← proveEntailed rows false st.vars lhsExpr rhsExpr
+        let h₂ ← proveEntailed rows false st.vars rhsExpr lhsExpr
+        let proof ← mkAppM ``Rat.le_antisymm #[h₁, h₂]
+        g.assign proof
 
 private partial def solveGoal (g : MVarId) : TacticM Unit := do
   let (_, g) ← g.intros
