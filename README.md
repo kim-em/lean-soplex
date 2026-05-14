@@ -1,7 +1,8 @@
-# lean-soplex
+# Soplex
 
-Lean 4 FFI bindings for [SoPlex](https://soplex.zib.de/), the linear
-programming solver from the SCIP optimization suite.
+Lean 4 bindings and verified certificate checking for
+[SoPlex](https://soplex.zib.de/), the linear programming solver from
+the SCIP optimization suite.
 
 The library exposes exact-mode and floating-point LP solves, MPS / LP
 file I/O, and a **pure-Lean certificate checker**. Exact certificates
@@ -10,8 +11,8 @@ before any proof-carrying result is constructed.
 
 ## Status
 
-Pinned SoPlex tag: **`v8.0.2`** (vendored as a git submodule under
-[`soplex-ffi/vendor/soplex`](./soplex-ffi/vendor/soplex)).
+Pinned SoPlex tag: **`v8.0.2`**, provided by the
+[`SoplexFFI`](https://github.com/kim-em/soplex-ffi) dependency.
 
 Pinned Lean toolchain: see [`lean-toolchain`](./lean-toolchain).
 
@@ -28,25 +29,26 @@ System dependencies:
 Clone with submodules and build through Lake:
 
 ```bash
-git clone --recurse-submodules https://github.com/kim-em/lean-soplex
-cd lean-soplex
+git clone https://github.com/kim-em/soplex
+cd soplex
 lake exe ffi-check
 ```
 
-If you cloned without submodules, Lake stops with a diagnostic asking
-you to run `git submodule update --init --recursive`.
+Lake fetches `SoplexFFI` and initializes its vendored SoPlex submodule
+as part of the build.
 
 `ffi-check` prints SoPlex's version, solves a toy LP, and exits 0
 on success.
 
-The first Lake build is slow (~1–3 min) because the `soplex-ffi`
-lakefile configures and compiles vendored SoPlex with CMake. Subsequent
-runs are nearly instant: CMake reuses its cache, and Lake only rebuilds
-the bridge or extracted SoPlex objects when their inputs change.
+The first Lake build is slow (~1–3 min) because the `SoplexFFI`
+dependency configures and compiles vendored SoPlex with CMake.
+Subsequent runs are nearly instant: CMake reuses its cache, and Lake
+only rebuilds the bridge or extracted SoPlex objects when their inputs
+change.
 
 ## Trust model
 
-`lean-soplex` is layered over a local `soplex-ffi` package:
+`Soplex` is layered over the `SoplexFFI` package:
 
 * **`SoplexFFI`** — the direct SoPlex binding package. It owns the
   vendored solver build, C++ bridge, thin Lean extern wrappers,
@@ -90,15 +92,10 @@ translation can only cause a verifier rejection
 ## Layout
 
 ```
-soplex-ffi/                   # direct SoPlex binding Lake package
-soplex-ffi/vendor/soplex      # vendor submodule (scipopt/soplex, tag v8.0.2)
-soplex-ffi/ffi/               # C++ bridge and C ABI entry points
-soplex-ffi/SoplexFFI.lean     # direct FFI package entry point
 Soplex/Basic.lean             # high-level API + solveVerified
 Soplex/Verify.lean            # pure-Lean certificate checker
 Main.lean                     # `ffi-check` executable
-lakefile.lean                 # high-level Lake package
-soplex-ffi/lakefile.lean      # low-level Lake package with extern_lib
+lakefile.lean                 # high-level Lake package, depends on SoplexFFI
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer
 .github/workflows/ci.yml      # Linux + macOS + Windows CI matrix
 ```
@@ -111,7 +108,8 @@ and GMP linkage all break silently on a subset of platforms.
 
 ## Licence
 
-`lean-soplex` is licenced under the [Apache License 2.0](./LICENSE),
+`Soplex` is licenced under the [Apache License 2.0](./LICENSE),
 matching SoPlex itself. The compiled binary's GMP runtime dependency
-(LGPL) is linked dynamically by default. SoPlex itself is linked into
-the Lean shared library from the vendored static archive.
+(LGPL) is linked dynamically by default through `SoplexFFI`. SoPlex
+itself is linked into the Lean shared library from the vendored static
+archive.

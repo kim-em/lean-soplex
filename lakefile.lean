@@ -1,13 +1,13 @@
 import Lake
 open System Lake DSL
 
-/-! # `lean-soplex` build configuration
+/-! # `Soplex` build configuration
 
-  The direct SoPlex binding lives in the local `soplex-ffi` package.
+  The direct SoPlex binding lives in the `SoplexFFI` package.
   This package builds the high-level verified API on top of it.
 -/
 
-require soplexFfi from "./soplex-ffi"
+require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @ "main"
 
 def sanitizerEnabled : Bool :=
   match get_config? sanitize with
@@ -22,7 +22,7 @@ def sanitizerArgs : Array String :=
   else
     #[]
 
-def soplexFfiRoot : FilePath := __dir__ / "soplex-ffi"
+def soplexFfiRoot : FilePath := __dir__ / defaultPackagesDir / "SoplexFFI"
 
 def soplexFfiRuntimeLinkArgs : Array String :=
   if System.Platform.isOSX then
@@ -43,7 +43,7 @@ def soplexFfiRuntimeLinkArgs : Array String :=
       "-L/usr/lib64",
       "-L/usr/lib"] ++ sanitizerArgs
 
-package leanSoplex where
+package Soplex where
   moreLinkArgs := soplexFfiRuntimeLinkArgs
 
 @[default_target]

@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install GMP / Boost / CMake / build tools
         run: |
@@ -95,8 +93,6 @@ jobs:
       ASAN_OPTIONS: "detect_leaks=0:halt_on_error=1:abort_on_error=1:symbolize=1:print_stacktrace=1"
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install GMP / Boost / CMake / build tools
         run: |
@@ -183,8 +179,6 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install GMP / Boost / build tools (Homebrew)
         run: |
@@ -264,8 +258,6 @@ jobs:
         shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2

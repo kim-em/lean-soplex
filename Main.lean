@@ -1,5 +1,5 @@
 /-
-  End-to-end FFI runtime check for `lean-soplex`.
+  End-to-end FFI runtime check for `Soplex`.
 
   Steps:
 

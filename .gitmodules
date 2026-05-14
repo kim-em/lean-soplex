@@ -1,4 +1,0 @@
-[submodule "soplex"]
-	path = soplex-ffi/vendor/soplex
-	url = https://github.com/scipopt/soplex.git
-	branch = master

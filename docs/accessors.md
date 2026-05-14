@@ -3,10 +3,11 @@
 Pinned SoPlex release: **v8.0.2** (`SOPLEX_VERSION = 802`, April 2026).
 
 This document records the sign and meaning of each SoPlex rational
-accessor used by the bridge, and the exact translation `soplex-ffi/ffi/lean_soplex_bridge.cpp`
-applies to land them in the canonical lower/upper-split `DualBundle`
-that `Soplex.Verify.checkOptimal`, `checkInfeasible`, and
-`checkUnbounded` consume.
+accessor used by the bridge, and the exact translation in
+`SoplexFFI`'s `ffi/lean_soplex_bridge.cpp` applies to land them in the
+canonical lower/upper-split `DualBundle` that
+`Soplex.Verify.checkOptimal`, `checkInfeasible`, and `checkUnbounded`
+consume.
 
 The translation is *untrusted*: the verification layer catches
 mistakes here as non-verifying certificates. The exhaustive
@@ -225,8 +226,8 @@ Both Farkas examples confirm:
 
 ## When this document goes stale
 
-Whenever the pinned SoPlex tag in `lakefile.lean` (or the bridge's
-parameter setup in `soplex-ffi/ffi/lean_soplex_bridge.cpp`) changes:
+Whenever the pinned SoPlex tag in `SoplexFFI` or the bridge's
+parameter setup in `SoplexFFI`'s `ffi/lean_soplex_bridge.cpp` changes:
 
 1. Re-run `lake exe accessor-goldens` against the new SoPlex.
 2. If any case fails, update the bridge until the goldens pass.
