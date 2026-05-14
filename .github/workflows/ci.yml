@@ -124,7 +124,7 @@ jobs:
       - name: Plant compiler-rt sanitizer archives into Lean's clang
         run: ./scripts/install-sanitizer-runtime.sh
 
-      - name: Preload ASan runtime for Lean
+      - name: Locate ASan runtime for diagnostics
         run: |
           asan_so="$(find "$(lean --print-prefix)/lib/clang" \
             -path '*/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so' \
@@ -133,7 +133,12 @@ jobs:
             echo "Could not find libclang_rt.asan.so under Lean's clang resource directory" >&2
             exit 1
           fi
-          echo "LD_PRELOAD=$asan_so" >> "$GITHUB_ENV"
+          # Lean needs this preloaded while compiling sanitized shared
+          # libraries, but sanitized executables must not inherit LD_PRELOAD:
+          # their link already chooses an ASan runtime, and preloading a
+          # second one aborts at process startup with "incompatible ASan
+          # runtimes".
+          echo "ASAN_RUNTIME=$asan_so" >> "$GITHUB_ENV"
           echo "Using ASan runtime: $asan_so"
 
       - name: Set UBSAN_OPTIONS with workspace-rooted suppressions
@@ -142,12 +147,13 @@ jobs:
 
       - name: Build and run verify-tests (sanitized)
         run: |
-          lake build -Ksanitize=1 verify-tests
+          LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 verify-tests
+          ldd ./.lake/build/bin/verify-tests || true
           ./.lake/build/bin/verify-tests
 
       - name: Build sanitized Lean targets
         run: |
-          lake build -Ksanitize=1 Soplex ffi-check \
+          LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 Soplex ffi-check \
             solve-exact-tests solve-float-tests solve-verified-tests \
             accessor-goldens file-io-tests
 
