@@ -105,6 +105,11 @@ itself.
 (SoPlex version, throw/catch ABI, toy LP via the direct binding) use
 `lake exe ffi-check`.
 
+CI also runs `lake env lean tests/FFIProbe.lean`. That probe calls
+`solveVerified` from inside a tactic, so it checks the elaboration-time
+FFI loading path used by future tactics rather than only executable
+runtime linking.
+
 The first Lake build is slow (~1–3 min) because the `SoplexFFI`
 dependency configures and compiles vendored SoPlex with CMake.
 Subsequent runs are nearly instant: CMake reuses its cache, and Lake
@@ -159,6 +164,7 @@ Main.lean                     # `ffi-check` executable
 SoplexTest/                   # test suite (run via `lake test`)
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
+tests/FFIProbe.lean           # elaboration-time FFI loading regression probe
 tests/fixtures/               # MPS / LP test inputs
 docs/accessors.md             # row-sense × column-status accessor reference
 lakefile.lean                 # depends on `SoplexFFI`

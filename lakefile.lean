@@ -7,7 +7,8 @@ open System Lake DSL
   This package builds the high-level verified API on top of it.
 -/
 
-require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @ "main"
+require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
+  "058eb8ab73e866c70fa8acb9cd138049a30b25f7"
 
 def sanitizerEnabled : Bool :=
   match get_config? sanitize with
@@ -22,13 +23,13 @@ def sanitizerArgs : Array String :=
   else
     #[]
 
-def soplexFfiRoot : FilePath := __dir__ / defaultPackagesDir / "SoplexFFI"
+def soplexFFIRoot : FilePath := __dir__ / defaultPackagesDir / "SoplexFFI"
 
-def soplexFfiRuntimeLinkArgs : Array String :=
+def soplexFFIRuntimeLinkArgs : Array String :=
   if System.Platform.isOSX then
     #[]
   else if System.Platform.isWindows then
-    let mingwLibDir := soplexFfiRoot / "vendor" / "mingw-libs"
+    let mingwLibDir := soplexFFIRoot / "vendor" / "mingw-libs"
     #["-Wl,--allow-multiple-definition",
       (mingwLibDir / "libstdc++.a").toString,
       (mingwLibDir / "libgmpxx.a").toString,
@@ -44,13 +45,18 @@ def soplexFfiRuntimeLinkArgs : Array String :=
       "-L/usr/lib"] ++ sanitizerArgs
 
 package Soplex where
-  moreLinkArgs := soplexFfiRuntimeLinkArgs
+  moreLinkArgs := soplexFFIRuntimeLinkArgs
 
 @[default_target]
 lean_lib Soplex where
   roots := #[`Soplex]
   globs := #[`Soplex, `Soplex.Basic, `Soplex.Verify, `Soplex.Verify.+]
   precompileModules := true
+  -- Keep the native runtime link arguments on the downstream library as
+  -- well as the package. `Soplex.Basic` imports and calls the FFI during
+  -- elaboration-time probes, so its shared-library link step must resolve
+  -- the same platform libraries as the final executables.
+  moreLinkArgs := soplexFFIRuntimeLinkArgs
 
 /-- Shared scaffolding for the `SoplexTest/` executables. Keeping it as
     a `lean_lib` lets each test exe pick up `SoplexTest.Common` and
