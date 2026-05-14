@@ -19,13 +19,13 @@ instance : Inhabited Outcome := ⟨.ok⟩
 @[inline] def expect (b : Bool) (msg : String) : Outcome :=
   if b then .ok else .fail msg
 
-/-- Untyped problem builder: takes raw `Array`s plus size hypotheses
+/-- Problem builder: takes arrays plus size hypotheses
     (which `decide` discharges automatically for literal-shape inputs)
     and packages them as a typed `Problem numConstraints numVars`. -/
 def mkProblem
     (numVars numConstraints : Nat)
     (c : Array Rat)
-    (a : Array (Nat × Nat × Rat))
+    (a : Array (Fin numConstraints × Fin numVars × Rat))
     (rowBounds : Array (Option Rat × Option Rat))
     (colBounds : Array (Option Rat × Option Rat))
     (objOffset : Rat := 0)
@@ -35,6 +35,10 @@ def mkProblem
     Problem numConstraints numVars :=
   { c := ⟨c, hc⟩, a, rowBounds := ⟨rowBounds, hRB⟩,
     colBounds := ⟨colBounds, hCB⟩, objOffset }
+
+def sparseVals {m n : Nat} (a : Array (Fin m × Fin n × Rat)) :
+    Array (Nat × Nat × Rat) :=
+  a.map fun e => (e.1.val, e.2.1.val, e.2.2)
 
 /-- A single named test. `run` is `IO`-bound so the same scaffolding
     handles pure tests and file-I/O tests; wrap pure tests via

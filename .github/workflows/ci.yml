@@ -144,8 +144,11 @@ jobs:
           echo "$out"
           echo "$out" | grep -Fqx 'optimal x = #[2, 6]'
 
-      - name: lake test (sanitized)
-        run: LD_PRELOAD="$ASAN_RUNTIME" lake -Ksanitize=1 test -- -Ksanitize=1
+      - name: Build sanitized test targets
+        run: LD_PRELOAD="$ASAN_RUNTIME" lake build -Ksanitize=1 test-runner verify-tests solve-exact-tests solve-float-tests solve-compare-tests solve-verified-tests accessor-goldens file-io-tests
+
+      - name: Run sanitized test suite
+        run: ./.lake/build/bin/test-runner -Ksanitize=1
 
   macos:
     name: macOS

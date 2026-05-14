@@ -1,11 +1,11 @@
 /-
-  Boolean (decidable) certificate checkers. All `is*` / `check*`
-  functions are *total*: any structural mismatch (wrong array lengths,
-  out-of-range sparse indices, unequal `DualBundle` array sizes)
-  returns `false` rather than panicking, so callers that have not run
-  `validate` get a benign rejection. Soundness lemmas in
-  `Soplex.Verify.Sound` lift these checks to the `Prop` predicates in
-  `Soplex.Verify.Prop`.
+  Boolean (decidable) certificate checkers.
+
+  All `is*` and `check*` functions are total over well-typed `Problem`
+  and certificate values.
+
+  Soundness lemmas live in `Soplex.Verify.Sound`; they lift these
+  `Bool` checks to the `Prop` predicates in `Soplex.Verify.Prop`.
 -/
 
 import Soplex.Verify.Types
@@ -14,46 +14,29 @@ namespace Soplex.Verify
 
 open Soplex
 
-/-! ## Problem shape sanity check.
-
-  Every `is*` / `check*` below calls `problemShapeOk` first so the
-  totality contract holds — without it, malformed inputs would reach
-  panicking `[i]!` accesses. -/
-
-/-- Structural well-formedness for a `Problem`: every sparse entry's
-    `(row, col)` is in range. Length checks for `c`, `colBounds`, and
-    `rowBounds` used to live here too, but with `Problem`'s `Vector`
-    fields those sizes are guaranteed by the type. Implemented as
-    `Array.all` over the sparse entries so the soundness layer can
-    extract per-entry facts via `Array.all_eq_true`. -/
-def problemShapeOk {m n : Nat} (p : Problem m n) : Bool :=
-  p.a.all (fun entry =>
-    decide (entry.1 < m) && decide (entry.2.1 < n))
-
 /-! ## Sparse matrix arithmetic.
 
-  Stated via `Array.foldl` (not a `for` loop) so the soundness layer
-  can use `Array.foldl_induction` directly in `Soplex.Verify.Arith`.
+  Stated via `Array.foldl`, which is what `Array.foldl_induction`
+  operates on in `Soplex.Verify.Arith`.
 -/
 
 /-- Apply a single sparse entry `(r, c, v)` to the accumulator: add
-    `v * x[c]!` into slot `r` of `out`, defensively skipping the entry
-    if either index is out of range. Both `out` and `x` keep their
-    sizes. -/
-@[inline] def applyAx (x : Array Rat) (out : Array Rat)
-    (entry : Nat × Nat × Rat) : Array Rat :=
+    `v * x[c]!` into slot `r` of `out`. Both `out` and `x` keep their
+    sizes; the `Fin` indices provide the shape facts. -/
+@[inline] def applyAx {m n : Nat} (x : Array Rat) (out : Array Rat)
+    (entry : Fin m × Fin n × Rat) : Array Rat :=
   let (r, c, v) := entry
-  if h : r < out.size ∧ c < x.size then
-    out.set r (out[r]! + v * x[c]!) h.1
+  if h : r.val < out.size then
+    out.set r.val (out[r.val]! + v * x[c.val]!) h
   else out
 
 /-- Apply a single sparse entry `(r, c, v)` to the transposed
     accumulator: add `v * y[r]!` into slot `c` of `out`. -/
-@[inline] def applyATy (y : Array Rat) (out : Array Rat)
-    (entry : Nat × Nat × Rat) : Array Rat :=
+@[inline] def applyATy {m n : Nat} (y : Array Rat) (out : Array Rat)
+    (entry : Fin m × Fin n × Rat) : Array Rat :=
   let (r, c, v) := entry
-  if h : c < out.size ∧ r < y.size then
-    out.set c (out[c]! + v * y[r]!) h.1
+  if h : c.val < out.size then
+    out.set c.val (out[c.val]! + v * y[r.val]!) h
   else out
 
 /-- Compute `Ax` as an `Array Rat` of length `m`. -/
@@ -69,24 +52,24 @@ def evalATy {m n : Nat} (p : Problem m n) (y : Array Rat) : Array Rat :=
   Packaged into the type by `vEvalAx` / `vEvalATy` below. -/
 
 /-- `applyAx` preserves the output array's size. -/
-theorem applyAx_size (x : Array Rat) (out : Array Rat)
-    (entry : Nat × Nat × Rat) :
+theorem applyAx_size {m n : Nat} (x : Array Rat) (out : Array Rat)
+    (entry : Fin m × Fin n × Rat) :
     (applyAx x out entry).size = out.size := by
   obtain ⟨r, c, v⟩ := entry
-  show (if h : r < out.size ∧ c < x.size
-       then out.set r (out[r]! + v * x[c]!) h.1 else out).size = out.size
-  by_cases h : r < out.size ∧ c < x.size
+  show (if h : r.val < out.size
+       then out.set r.val (out[r.val]! + v * x[c.val]!) h else out).size = out.size
+  by_cases h : r.val < out.size
   · simp [h, Array.size_set]
   · simp [h]
 
 /-- `applyATy` preserves the output array's size. -/
-theorem applyATy_size (y : Array Rat) (out : Array Rat)
-    (entry : Nat × Nat × Rat) :
+theorem applyATy_size {m n : Nat} (y : Array Rat) (out : Array Rat)
+    (entry : Fin m × Fin n × Rat) :
     (applyATy y out entry).size = out.size := by
   obtain ⟨r, c, v⟩ := entry
-  show (if h : c < out.size ∧ r < y.size
-       then out.set c (out[c]! + v * y[r]!) h.1 else out).size = out.size
-  by_cases h : c < out.size ∧ r < y.size
+  show (if h : c.val < out.size
+       then out.set c.val (out[c.val]! + v * y[r.val]!) h else out).size = out.size
+  by_cases h : c.val < out.size
   · simp [h, Array.size_set]
   · simp [h]
 
@@ -152,8 +135,7 @@ def dot (a b : Array Rat) : Rat :=
 
 /-- Decide whether `x` is primal-feasible for the (normalised) `p`. -/
 def isPrimalFeasible {m n : Nat} (p : Problem m n) (x : Vector Rat n) : Bool :=
-  problemShapeOk p
-  && (Vector.finRange n).all (fun j =>
+  (Vector.finRange n).all (fun j =>
        let (lo, hi) := p.colBounds[j]
        geLB x[j] lo && leUB x[j] hi)
   && let ax := evalAx p x.toArray
@@ -170,8 +152,7 @@ def isPrimalFeasible {m n : Nat} (p : Problem m n) (x : Vector Rat n) : Bool :=
     is definitional but `m = m` is not. -/
 def dualNonnegAndZeroWhereAbsent {m n : Nat}
     (p : Problem m n) (d : DualBundle m n) : Bool :=
-  problemShapeOk p
-  && (Vector.finRange m).all (fun i =>
+  (Vector.finRange m).all (fun i =>
        let (lo, hi) := p.rowBounds[i]
        decide (0 ≤ d.rowLower[i])
        && decide (0 ≤ d.rowUpper[i])
@@ -247,20 +228,17 @@ def primalObj {m n : Nat} (p : Problem m n) (x : Array Rat) : Rat :=
   hi.elim 0 (mult * ·)
 
 /-- The bound combination underlying `dualObj` and `boundCombinationPos`:
-    `Σᵢ (yLᵢ · rₗᵢ − yUᵢ · rᵤᵢ) + Σⱼ (zLⱼ · cₗⱼ − zUⱼ · cᵤⱼ)`. Returns
-    `0` on any structural mismatch. The `+ objOffset` for `dualObj`
-    and the strict-positive check for `boundCombinationPos` are
-    layered on top. -/
+    `Σᵢ (yLᵢ · rₗᵢ − yUᵢ · rᵤᵢ) + Σⱼ (zLⱼ · cₗⱼ − zUⱼ · cᵤⱼ)`.
+    The `+ objOffset` for `dualObj` and the strict-positive check for
+    `boundCombinationPos` are layered on top. -/
 def dualBoundCombination {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Rat :=
-  if problemShapeOk p then
-    let rowPart := (Array.range m).foldl (fun (acc : Rat) i =>
-      let (lo, hi) := p.rowBounds[i]!
-      acc + loContrib lo d.rowLower[i]! - hiContrib hi d.rowUpper[i]!) 0
-    let colPart := (Array.range n).foldl (fun (acc : Rat) j =>
-      let (lo, hi) := p.colBounds[j]!
-      acc + loContrib lo d.colLower[j]! - hiContrib hi d.colUpper[j]!) 0
-    rowPart + colPart
-  else 0
+  let rowPart := (Array.range m).foldl (fun (acc : Rat) i =>
+    let (lo, hi) := p.rowBounds[i]!
+    acc + loContrib lo d.rowLower[i]! - hiContrib hi d.rowUpper[i]!) 0
+  let colPart := (Array.range n).foldl (fun (acc : Rat) j =>
+    let (lo, hi) := p.colBounds[j]!
+    acc + loContrib lo d.colLower[j]! - hiContrib hi d.colUpper[j]!) 0
+  rowPart + colPart
 
 /-- Dual objective in the canonical lower/upper split form:
 
@@ -271,19 +249,14 @@ def dualBoundCombination {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Ra
     A coordinate contributes zero whenever the matching bound is `none`
     (regardless of the multiplier — see `dualNonnegAndZeroWhereAbsent`).
 
-    Returns `objOffset` on any structural mismatch — `dualBoundCombination`
-    short-circuits to `0` on a malformed problem, so the only term that
-    survives is the offset. `checkOptimal` always requires
-    `isDualFeasible` to hold before consulting this value, so the
-    mismatch case is unreachable for accepted certificates. -/
+    `checkOptimal` always requires `isDualFeasible` to hold before
+    consulting this value. -/
 def dualObj {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Rat :=
   dualBoundCombination p d + p.objOffset
 
 /-- The Farkas strict-positivity step: the bound combination must be
     strictly positive (with the same convention as `dualObj`, but
-    without the `objOffset`). Returns `false` on any structural
-    mismatch (in which case `dualBoundCombination` returns `0`, which
-    is not strictly positive). -/
+    without the `objOffset`). -/
 def boundCombinationPos {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
   decide (0 < dualBoundCombination p d)
 
@@ -308,8 +281,7 @@ def checkInfeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
     constraint on the corresponding `(Ar)ᵢ` / `rⱼ`. Equality rows /
     boxed columns collapse to `= 0`. -/
 def isRecessionRay {m n : Nat} (p : Problem m n) (r : Vector Rat n) : Bool :=
-  problemShapeOk p
-  && (Vector.finRange n).all (fun j =>
+  (Vector.finRange n).all (fun j =>
        let (lo, hi) := p.colBounds[j]
        (!lo.isSome || decide (0 ≤ r[j]))
        && (!hi.isSome || decide (r[j] ≤ 0)))

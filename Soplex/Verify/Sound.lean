@@ -19,35 +19,16 @@ namespace Soplex.Verify
 
 open Soplex
 
-private theorem problemShapeOk_of_prop {m n : Nat} {p : Problem m n}
-    (h : ProblemShapeOk p) : problemShapeOk p = true := by
-  unfold problemShapeOk
-  rw [Array.all_eq_true]
-  intro k hk
-  have hrange := h.sparse_in_range k hk
-  rw [Bool.and_eq_true]
-  exact ⟨decide_eq_true hrange.1, decide_eq_true hrange.2⟩
-
-private theorem dualNonnegAndZeroWhereAbsent_imp_shape
-    {m n : Nat} {p : Problem m n} {d : DualBundle m n}
-    (h : dualNonnegAndZeroWhereAbsent p d = true) :
-    ProblemShapeOk p := by
-  unfold dualNonnegAndZeroWhereAbsent at h
-  rw [Bool.and_eq_true, Bool.and_eq_true] at h
-  exact problemShapeOk_imp h.1.1
-
 private theorem isDualFeasible_imp
     {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (h : isDualFeasible p d = true) :
-    ProblemShapeOk p ∧ IsDualFeasible p d := by
+    IsDualFeasible p d := by
   unfold isDualFeasible at h
   rw [Bool.and_eq_true] at h
   obtain ⟨hNonneg, hStatBool⟩ := h
-  have hShape := dualNonnegAndZeroWhereAbsent_imp_shape hNonneg
   have hDual := dualNonnegAndZeroWhereAbsent_imp hNonneg
-  refine ⟨hShape, ?_⟩
   exact { nonneg_zero_absent := hDual
-          stationarity := isStationary_imp hShape hDual hStatBool }
+          stationarity := isStationary_imp hDual hStatBool }
 
 private theorem range_fold_mono
     (n : Nat) (f g : Nat → Rat)
@@ -198,7 +179,6 @@ private theorem dot_of_stationarity
 
 private theorem bound_combination_le_dot_q
     {m n : Nat} {p : Problem m n} {d : DualBundle m n} {x : Array Rat} {q : Vector Rat n}
-    (hShape : ProblemShapeOk p)
     (hX : IsFeasible p x)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (hStat : StationarityAgainst p d q) :
@@ -298,14 +278,13 @@ private theorem bound_combination_le_dot_q
         dot (arraySub d.rowLower.toArray d.rowUpper.toArray) (evalAx p x) +
           dot (arraySub d.colLower.toArray d.colUpper.toArray) x := by
     unfold dualBoundCombination
-    simp [problemShapeOk_of_prop hShape]
     have hAdd := RatAux.add_le_add hRowLe hColLe
     simpa [Rat.sub_eq_add_neg] using hAdd
   have hBilin :
       dot (arraySub d.rowLower.toArray d.rowUpper.toArray) (evalAx p x) =
-        dot (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)) x :=
+    dot (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)) x :=
     dot_y_evalAx_eq_dot_evalATy_x p (arraySub d.rowLower.toArray d.rowUpper.toArray) x
-      hShape hRowSub hXSize
+      hRowSub hXSize
   have hDot := dot_of_stationarity hXSize hDual hStat
   rw [hBilin] at hBoundLe
   rw [hDot]
@@ -329,9 +308,9 @@ theorem weak_duality {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d : DualB
     (hx : isPrimalFeasible p x = true)
     (hd : isDualFeasible    p d = true) :
     dualObj p d ≤ primalObj p x.toArray := by
-  obtain ⟨hShape, hFeas⟩ := isPrimalFeasible_imp hx
-  obtain ⟨_, hDualFeas⟩ := isDualFeasible_imp hd
-  have hBound := bound_combination_le_dot_q hShape hFeas
+  have hFeas := isPrimalFeasible_imp hx
+  have hDualFeas := isDualFeasible_imp hd
+  have hBound := bound_combination_le_dot_q hFeas
     hDualFeas.nonneg_zero_absent hDualFeas.stationarity
   unfold dualObj primalObj
   exact Rat.add_le_add_right.mpr hBound
@@ -344,13 +323,13 @@ theorem checkOptimal_sound {m n : Nat} {p : Problem m n} {x : Vector Rat n} {d :
   unfold checkOptimal at h
   rw [Bool.and_eq_true, Bool.and_eq_true] at h
   obtain ⟨⟨hPrimal, hDualBool⟩, hEqBool⟩ := h
-  obtain ⟨hShape, hFeasX⟩ := isPrimalFeasible_imp hPrimal
-  obtain ⟨_, hDual⟩ := isDualFeasible_imp hDualBool
+  have hFeasX := isPrimalFeasible_imp hPrimal
+  have hDual := isDualFeasible_imp hDualBool
   have hEq : primalObj p x.toArray = dualObj p d := by
     simpa [beq_iff_eq] using hEqBool
   refine ⟨hFeasX, hFeasX, ?_⟩
   intro y hFeasY
-  have hBound := bound_combination_le_dot_q hShape hFeasY
+  have hBound := bound_combination_le_dot_q hFeasY
     hDual.nonneg_zero_absent hDual.stationarity
   have hWeakY : dualObj p d ≤ primalObj p y := by
     unfold dualObj primalObj
@@ -368,7 +347,6 @@ theorem checkInfeasible_sound {m n : Nat} {p : Problem m n} {d : DualBundle m n}
   unfold isFarkasFeasible at hFarkasBool
   rw [Bool.and_eq_true] at hFarkasBool
   obtain ⟨hNonnegBool, hZeroBool⟩ := hFarkasBool
-  have hShape := dualNonnegAndZeroWhereAbsent_imp_shape hNonnegBool
   have hFarkas := isFarkasFeasible_imp (by
     unfold isFarkasFeasible
     rw [Bool.and_eq_true]
@@ -379,7 +357,7 @@ theorem checkInfeasible_sound {m n : Nat} {p : Problem m n} {d : DualBundle m n}
   have hStatZero : StationarityAgainst p d (Vector.replicate n 0) := by
     intro j
     simpa using hFarkas.stationarity_zero j
-  have hLe := bound_combination_le_dot_q hShape hFeasX
+  have hLe := bound_combination_le_dot_q hFeasX
     hFarkas.nonneg_zero_absent hStatZero
   have hXSize : x.size = n := hFeasX.1.1
   rw [show (Vector.replicate n (0 : Rat)).toArray = Array.replicate n 0 by rfl] at hLe
@@ -389,7 +367,6 @@ theorem checkInfeasible_sound {m n : Nat} {p : Problem m n} {d : DualBundle m n}
 
 private theorem feasible_addSmul_of_recession
     {m n : Nat} {p : Problem m n} {x ray : Vector Rat n} {lam : Rat}
-    (hShape : ProblemShapeOk p)
     (hFeas : IsFeasible p x.toArray)
     (hRay : IsRecessionRay p ray.toArray)
     (hLam : 0 ≤ lam) :
@@ -435,7 +412,7 @@ private theorem feasible_addSmul_of_recession
     have hAx :
         (evalAx p (Array.addSmul x.toArray lam ray.toArray))[i.val]! =
           (evalAx p x.toArray)[i.val]! + lam * (evalAx p ray.toArray)[i.val]! :=
-      evalAx_addSmul_get! p x.toArray ray.toArray lam hShape hFeas.1.1 hRay.size i.val i.isLt
+      evalAx_addSmul_get! p x.toArray ray.toArray lam hFeas.1.1 hRay.size i.val i.isLt
     have hxBounds := hFeas.2 i
     constructor
     · intro l hLo
@@ -464,7 +441,7 @@ theorem checkUnbounded_sound {m n : Nat} {p : Problem m n} {x ray : Vector Rat n
   unfold checkUnbounded at h
   rw [Bool.and_eq_true, Bool.and_eq_true] at h
   obtain ⟨⟨hPrimal, hRayBool⟩, hNegBool⟩ := h
-  obtain ⟨hShape, hFeasX⟩ := isPrimalFeasible_imp hPrimal
+  have hFeasX := isPrimalFeasible_imp hPrimal
   have hRay := isRecessionRay_imp hRayBool
   have hNeg : dot p.c.toArray ray.toArray < 0 := by
     simpa using hNegBool
@@ -491,11 +468,11 @@ theorem checkUnbounded_sound {m n : Nat} {p : Problem m n} {x ray : Vector Rat n
       unfold lam
       grind
     refine ⟨Array.addSmul x.toArray lam ray.toArray,
-      feasible_addSmul_of_recession hShape hFeasX hRay hLamNonneg, ?_⟩
+      feasible_addSmul_of_recession hFeasX hRay hLamNonneg, ?_⟩
     have hObj :
         primalObj p (Array.addSmul x.toArray lam ray.toArray) =
           primalObj p x.toArray + lam * dot p.c.toArray ray.toArray := by
-      exact primalObj_addSmul p x.toArray ray.toArray lam (by rw [hShape.c_size, hFeasX.1.1])
+      exact primalObj_addSmul p x.toArray ray.toArray lam (by rw [p.c.size_toArray, hFeasX.1.1])
         (by rw [hFeasX.1.1, hRay.size])
     rw [hObj]
     unfold lam denom
