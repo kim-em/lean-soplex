@@ -49,3 +49,32 @@ example (x : Rat) (_h : 1 > x) : True := by
 example (_c _x : Rat) : True := by
   fail_if_success (have : _c * _x ≤ _c * _x := by lp)
   trivial
+
+-- Inconsistent hypotheses → `Verified.infeasible` branch closes any
+-- atomic Rat goal by contradiction.
+example (x : Rat) (_h₁ : x ≤ 0) (_h₂ : 1 ≤ x) : x = 5 := by lp
+
+-- Unbounded objective → `Verified.unbounded` branch surfaces a clear
+-- message rather than fabricating a proof.
+/-- error: lp: objective is unbounded above; base=[0], ray=[1] -/
+#guard_msgs in
+example (x : Rat) : x ≤ 0 := by lp
+
+-- Division → rejected at the linear-expression extractor with a
+-- targeted message.
+/-- error: lp: division is outside the supported affine Rat grammar -/
+#guard_msgs in
+example (x : Rat) (_h : x / 2 ≤ 1) : x ≤ 2 := by lp
+
+-- Opaque function application → rejected at the linear-expression
+-- extractor's catchall.
+example (f : Rat → Rat) (x : Rat) (_h : f x ≤ 1) : True := by
+  fail_if_success (have : f x ≤ 1 := by lp)
+  trivial
+
+-- Locally `let`-bound scalar → unfolded by `parseScalar?` and accepted
+-- as the multiplier on `x`.
+example (x : Rat) (_h : x ≤ 1) : True := by
+  let c : Rat := 3
+  have : c * x ≤ 3 := by lp
+  trivial

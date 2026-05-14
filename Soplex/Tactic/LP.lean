@@ -171,6 +171,31 @@ private def fvarLetValue? (id : FVarId) : MetaM (Option Expr) := do
   | .cdecl .. => return none
   | .ldecl (value := value) .. => return some value
 
+/--
+Recognise an expression as a "reducibly-closed" `Rat` scalar.
+
+Policy:
+* Unfolding scope is **`withReducible <| whnfR`** — definitions that are
+  not reducible-by-default remain opaque.
+* Numeric literals are accepted via `OfNat.ofNat _ (.lit (.natVal _)) _`.
+* `Neg.neg`, `HAdd`, `HSub`, `HMul` are accepted recursively when both
+  operands are themselves scalars.
+* `HDiv` is accepted only when both sides reduce to scalars **and** the
+  denominator is nonzero. A general affine division such as `x / 2` is
+  rejected by `parseExpr` (the variable side returns `none` here).
+* An `fvar` is accepted only when it is `let`-bound (`.ldecl`) and its
+  body parses as a scalar; `cdecl` parameters return `none`.
+
+Returning `none` means "not a scalar". Two follow-on behaviours in
+`parseExpr` depend on this:
+
+* A bare `Rat` `fvar` whose `parseScalar?` returns `none` is treated as
+  an LP variable.
+* A non-`fvar` application (e.g. `f x` with `f : Rat → Rat` opaque)
+  whose `parseScalar?` returns `none` falls through to the
+  `unsupported Rat expression` error rather than being coerced into an
+  LP variable.
+-/
 private partial def parseScalar? (e : Expr) : MetaM (Option Rat) := do
   let e ← withReducible <| whnfR e
   match e with
@@ -426,7 +451,7 @@ private def reconstructionTactic : TacticM Unit := do
       Soplex.Verify.RowBoundsSatisfied, Soplex.Verify.evalAx, Soplex.Verify.applyAx,
       Soplex.Verify.primalObj, Soplex.Verify.dot]))
   evalTactic (← `(tactic|
-    grind [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]))
+    all_goals grind [Rat.sub_eq_add_neg, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]))
 
 private def proveEntailed (rows : Array Row) (strict : Bool)
     (vars : Array FVarId) (lhs rhs : Expr) : TacticM Expr := do
@@ -484,7 +509,10 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
       let dExpr ← mkDualExpr d
       let checkExpr ← mkAppM ``checkInfeasible #[pExpr, dExpr]
       let hCheck ← mkDecideProof (← mkTrueEq checkExpr)
-      mkAppM ``any_of_checkInfeasible #[hCheck, hFeas]
+      let goalType ←
+        if strict then mkAppM ``LT.lt #[lhs, rhs] else mkAppM ``LE.le #[lhs, rhs]
+      mkAppOptM ``any_of_checkInfeasible
+        #[none, none, none, none, none, some goalType, some hCheck, some hFeas]
   | .unbounded x ray _ =>
       throwError "lp: objective is unbounded above; base={ratList x.toArray}, ray={ratList ray.toArray}"
   | .unchecked status =>
