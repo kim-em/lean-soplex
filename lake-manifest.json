@@ -5,7 +5,7 @@
    "type": "git",
    "subDir": null,
    "scope": "",
-   "rev": "9421d307ead1f1b4e6896511262f46ff38b10062",
+   "rev": "01f5160ee952b640c256bd9b1045612a948c6465",
    "name": "SoplexFFI",
    "manifestFile": "lake-manifest.json",
    "inputRev": "main",
