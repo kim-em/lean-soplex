@@ -37,7 +37,7 @@ def tValidateSort : Outcome :=
     (colBounds := #[(none, none), (none, none)])
   match validate p with
   | .ok p' =>
-      let expected : Array (Nat × Nat × Rat) :=
+      let expected : Array (Fin 2 × Fin 2 × Rat) :=
         #[(0, 0, 1), (0, 1, 2), (1, 0, 3), (1, 1, 4)]
       expect (p'.a == expected) s!"expected {repr expected}, got {repr p'.a}"
   | .error e => .fail s!"validate rejected: {repr e}"
@@ -56,34 +56,26 @@ def tValidateIdempotent : Outcome :=
     | .error e => .fail s!"second validate rejected: {repr e}"
   | .error e => .fail s!"first validate rejected: {repr e}"
 
-/-! ## `validate` rejection paths.
-
-  Wrong-length cases (`wrongLength "c"`, `wrongLength "colBounds"`,
-  `wrongLength "rowBounds"`) used to live here but have become
-  unrepresentable now that `Problem` is parameterised by its
-  dimensions at the type level: there is no way to construct a
-  `Problem m n` whose `c` field is the wrong length. The
-  corresponding `ProblemError.wrongLength` constructor is retained
-  for source compatibility but is never thrown. -/
+/-! ## `validate` rejection paths. -/
 
 def tRejectSparseRowOOR : Outcome :=
-  let p := mkProblem 1 1
-    (c := #[1])
-    (a := #[(5, 0, 1)])                      -- row 5 ≥ numConstraints
-    (rowBounds := #[(none, none)])
-    (colBounds := #[(none, none)])
-  match validate p with
+  let p : RawProblem 1 1 :=
+  { c := ⟨#[1], by decide⟩
+    a := #[(5, 0, 1)]                      -- row 5 ≥ numConstraints
+    rowBounds := ⟨#[(none, none)], by decide⟩
+    colBounds := ⟨#[(none, none)], by decide⟩ }
+  match validateRaw p with
   | .error (.indexOutOfRange .row 5 1) => .ok
   | .error e => .fail s!"wrong error: {repr e}"
   | .ok _ => .fail "expected error"
 
 def tRejectSparseColOOR : Outcome :=
-  let p := mkProblem 1 1
-    (c := #[1])
-    (a := #[(0, 7, 1)])                      -- col 7 ≥ numVars
-    (rowBounds := #[(none, none)])
-    (colBounds := #[(none, none)])
-  match validate p with
+  let p : RawProblem 1 1 :=
+  { c := ⟨#[1], by decide⟩
+    a := #[(0, 7, 1)]                      -- col 7 ≥ numVars
+    rowBounds := ⟨#[(none, none)], by decide⟩
+    colBounds := ⟨#[(none, none)], by decide⟩ }
+  match validateRaw p with
   | .error (.indexOutOfRange .col 7 1) => .ok
   | .error e => .fail s!"wrong error: {repr e}"
   | .ok _ => .fail "expected error"
@@ -316,44 +308,6 @@ def tRejectUnboundedNonStrict : Outcome :=
   let r : Vector Rat 1 := #v[1]
   expectFalse (checkUnbounded p x r)
 
--- `tTotalityMalformedColBounds` and `tTotalityMalformedRowBounds`
--- used to live here, testing that the Bool checker rejects a
--- `Problem` whose `colBounds` / `rowBounds` array length disagreed
--- with `numVars` / `numConstraints`. Both scenarios are now
--- unrepresentable: `Problem m n` carries the lengths in the type.
-
-/-- Totality on out-of-range sparse entry. Without the guard
-    `evalAx` / `evalATy` would silently drop the entry and verify a
-    *different* LP than the one declared. -/
-def tTotalitySparseOutOfRange : Outcome :=
-  let p := mkProblem 1 1
-    (c := #[1])
-    (a := #[(0, 5, 1)])                          -- col 5 ≥ numVars
-    (rowBounds := #[(some 0, some 0)])
-    (colBounds := #[(none, none)])
-  let x : Vector Rat 1 := #v[0]
-  let d : DualBundle _ _ :=
-    { rowLower := #v[0], rowUpper := #v[0]
-    , colLower := #v[0], colUpper := #v[0] }
-  expectFalse (checkOptimal p x d)
-
--- `tTotalityInfeasibleMalformed` and `tTotalityUnboundedMalformed`
--- used to live here, testing that the Bool checker rejects a
--- malformed `Problem` (size-mismatched `colBounds` /  `rowBounds`).
--- Same story: `Problem m n` makes the mismatch unrepresentable.
-
--- `tTotalityPrimalSizeMismatch` and `tTotalityDualSizeMismatch` used
--- to live here: they built checker inputs with dimensions that
--- disagreed with the `Problem`. Now `checkOptimal` takes a
--- `Vector Rat n` and `DualBundle m n`, so both mismatches are
--- unrepresentable at the checker boundary.
-
-/-- The checker boundary now carries the primal dimension in the
-    witness type: there is no runtime length guard left to exercise. -/
-def tPrimalVectorShapeByConstruction : Outcome :=
-  let x : Vector Rat 2 := #v[0, 0]
-  expect (x.toArray.size == 2) s!"bad Vector-backed primal size: {repr x}"
-
 /-! ## Denominator-budget check. -/
 
 /-- A representative small certificate: single-digit numerators and
@@ -417,8 +371,6 @@ def allTests : Array TestCase := #[
   ⟨"checkOptimal rejects objective mismatch",       pure tRejectObjectiveMismatch⟩,
   ⟨"checkInfeasible rejects non-strict bound sum",  pure tRejectFarkasNotStrict⟩,
   ⟨"checkUnbounded rejects c·r = 0",                pure tRejectUnboundedNonStrict⟩,
-  ⟨"shape: primal Vector length by construction",   pure tPrimalVectorShapeByConstruction⟩,
-  ⟨"totality: sparse OOR → false",                  pure tTotalitySparseOutOfRange⟩,
   ⟨"budget: small certificate within 10000",        pure tBudgetSmallPasses⟩,
   ⟨"budget: none disables the check",               pure tBudgetNoneAlwaysPasses⟩,
   ⟨"budget: large rationals rejected at 5",         pure tBudgetLargeRejected⟩,

@@ -7,7 +7,7 @@ open System Lake DSL
   This package builds the high-level verified API on top of it.
 -/
 
-require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @ "main"
+require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @ "issue-37"
 
 def sanitizerEnabled : Bool :=
   match get_config? sanitize with

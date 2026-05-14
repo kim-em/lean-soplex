@@ -20,8 +20,8 @@ private def equalAfterValidate
         .fail s!"c: {repr p'.c.toArray} ≠ {repr q'.c.toArray}"
       else if p'.objOffset ≠ q'.objOffset then
         .fail s!"objOffset: {p'.objOffset} ≠ {q'.objOffset}"
-      else if p'.a ≠ q'.a then
-        .fail s!"a: {repr p'.a} ≠ {repr q'.a}"
+      else if sparseVals p'.a ≠ sparseVals q'.a then
+        .fail s!"a: {repr (sparseVals p'.a)} ≠ {repr (sparseVals q'.a)}"
       else if p'.rowBounds.toArray ≠ q'.rowBounds.toArray then
         .fail s!"rowBounds: {repr p'.rowBounds.toArray} ≠ {repr q'.rowBounds.toArray}"
       else if p'.colBounds.toArray ≠ q'.colBounds.toArray then
