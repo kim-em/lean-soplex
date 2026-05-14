@@ -25,7 +25,7 @@ open Soplex
 def ColBoundsSatisfied {m n : Nat} (p : Problem m n) (x : Array Rat) : Prop :=
   x.size = n ∧
   ∀ j : Fin n,
-    let (lo, hi) := p.colBounds[j.val]!
+    let (lo, hi) := p.colBounds[j]
     (∀ l, lo = some l → l ≤ x[j.val]!) ∧
     (∀ h, hi = some h → x[j.val]! ≤ h)
 
@@ -33,7 +33,7 @@ def ColBoundsSatisfied {m n : Nat} (p : Problem m n) (x : Array Rat) : Prop :=
 def RowBoundsSatisfied {m n : Nat} (p : Problem m n) (x : Array Rat) : Prop :=
   let ax := evalAx p x
   ∀ i : Fin m,
-    let (lo, hi) := p.rowBounds[i.val]!
+    let (lo, hi) := p.rowBounds[i]
     (∀ l, lo = some l → l ≤ ax[i.val]!) ∧
     (∀ h, hi = some h → ax[i.val]! ≤ h)
 
@@ -67,16 +67,16 @@ def IsUnboundedMin {m n : Nat} (p : Problem m n) : Prop :=
     can reuse it. -/
 structure DualNonnegZeroWhereAbsent {m n : Nat}
     (p : Problem m n) (d : DualBundle m n) : Prop where
-  row_nonneg : ∀ i, i < m →
-    0 ≤ d.rowLower[i]! ∧ 0 ≤ d.rowUpper[i]!
-  col_nonneg : ∀ j, j < n →
-    0 ≤ d.colLower[j]! ∧ 0 ≤ d.colUpper[j]!
-  row_zero_absent : ∀ i, i < m →
-    ((p.rowBounds[i]!).1 = none → d.rowLower[i]! = 0) ∧
-    ((p.rowBounds[i]!).2 = none → d.rowUpper[i]! = 0)
-  col_zero_absent : ∀ j, j < n →
-    ((p.colBounds[j]!).1 = none → d.colLower[j]! = 0) ∧
-    ((p.colBounds[j]!).2 = none → d.colUpper[j]! = 0)
+  row_nonneg : ∀ i : Fin m,
+    0 ≤ d.rowLower[i] ∧ 0 ≤ d.rowUpper[i]
+  col_nonneg : ∀ j : Fin n,
+    0 ≤ d.colLower[j] ∧ 0 ≤ d.colUpper[j]
+  row_zero_absent : ∀ i : Fin m,
+    (p.rowBounds[i].1 = none → d.rowLower[i] = 0) ∧
+    (p.rowBounds[i].2 = none → d.rowUpper[i] = 0)
+  col_zero_absent : ∀ j : Fin n,
+    (p.colBounds[j].1 = none → d.colLower[j] = 0) ∧
+    (p.colBounds[j].2 = none → d.colUpper[j] = 0)
 
 namespace DualNonnegZeroWhereAbsent
 
@@ -101,28 +101,28 @@ theorem colUpper_size (_ : DualNonnegZeroWhereAbsent p d) :
 
 end DualNonnegZeroWhereAbsent
 
-/-- Stationarity against an arbitrary `q : Array Rat`:
+/-- Stationarity against an arbitrary `q : Vector Rat n`:
     `Aᵀ(yL − yU) + (zL − zU) = q` componentwise. -/
 def StationarityAgainst {m n : Nat}
-    (p : Problem m n) (d : DualBundle m n) (q : Array Rat) : Prop :=
-  ∀ j, j < n →
-    (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))[j]! +
-      (d.colLower[j]! - d.colUpper[j]!) = q[j]!
+    (p : Problem m n) (d : DualBundle m n) (q : Vector Rat n) : Prop :=
+  ∀ j : Fin n,
+    (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))[j.val]! +
+      (d.colLower[j] - d.colUpper[j]) = q[j]
 
 /-- Full dual feasibility for the optimality certificate: nonnegativity,
     zero-where-absent, and stationarity against the objective `c`. -/
 structure IsDualFeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Prop where
   nonneg_zero_absent : DualNonnegZeroWhereAbsent p d
-  stationarity : StationarityAgainst p d p.c.toArray
+  stationarity : StationarityAgainst p d p.c
 
 /-- Farkas (homogeneous) dual feasibility: nonnegativity, zero-where-absent,
     and stationarity against `0`. -/
 structure IsFarkasDualFeasible {m n : Nat}
     (p : Problem m n) (d : DualBundle m n) : Prop where
   nonneg_zero_absent : DualNonnegZeroWhereAbsent p d
-  stationarity_zero : ∀ j, j < n →
-    (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))[j]! +
-      (d.colLower[j]! - d.colUpper[j]!) = 0
+  stationarity_zero : ∀ j : Fin n,
+    (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))[j.val]! +
+      (d.colLower[j] - d.colUpper[j]) = 0
 
 /-- Prop form of `isRecessionRay`. Each row/column with a finite bound
     on a given side constrains the ray's sign on the matching `r[j]!`
@@ -130,12 +130,12 @@ structure IsFarkasDualFeasible {m n : Nat}
     `= 0` by antisymmetry. -/
 structure IsRecessionRay {m n : Nat} (p : Problem m n) (r : Array Rat) : Prop where
   size : r.size = n
-  col_lo_nonneg : ∀ j, j < n → (p.colBounds[j]!).1.isSome = true → 0 ≤ r[j]!
-  col_hi_nonpos : ∀ j, j < n → (p.colBounds[j]!).2.isSome = true → r[j]! ≤ 0
-  row_lo_nonneg : ∀ i, i < m →
-    (p.rowBounds[i]!).1.isSome = true → 0 ≤ (evalAx p r)[i]!
-  row_hi_nonpos : ∀ i, i < m →
-    (p.rowBounds[i]!).2.isSome = true → (evalAx p r)[i]! ≤ 0
+  col_lo_nonneg : ∀ j : Fin n, p.colBounds[j].1.isSome = true → 0 ≤ r[j.val]!
+  col_hi_nonpos : ∀ j : Fin n, p.colBounds[j].2.isSome = true → r[j.val]! ≤ 0
+  row_lo_nonneg : ∀ i : Fin m,
+    p.rowBounds[i].1.isSome = true → 0 ≤ (evalAx p r)[i.val]!
+  row_hi_nonpos : ∀ i : Fin m,
+    p.rowBounds[i].2.isSome = true → (evalAx p r)[i.val]! ≤ 0
 
 /-! ## Sense-aware wrappers. -/
 

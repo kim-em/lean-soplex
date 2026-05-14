@@ -163,13 +163,13 @@ def dot (a b : Array Rat) : Rat :=
 /-- Decide whether `x` is primal-feasible for the (normalised) `p`. -/
 def isPrimalFeasible {m n : Nat} (p : Problem m n) (x : Vector Rat n) : Bool :=
   problemShapeOk p
-  && (Array.range n).all (fun j =>
-       let (lo, hi) := p.colBounds[j]!
-       geLB x[j]! lo && leUB x[j]! hi)
+  && (Vector.finRange n).all (fun j =>
+       let (lo, hi) := p.colBounds[j]
+       geLB x[j] lo && leUB x[j] hi)
   && let ax := evalAx p x.toArray
-     (Array.range m).all (fun i =>
-       let (lo, hi) := p.rowBounds[i]!
-       geLB ax[i]! lo && leUB ax[i]! hi)
+     (Vector.finRange m).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]
+       geLB ax[i.val]! lo && leUB ax[i.val]! hi)
 
 /-! ## Dual feasibility. -/
 
@@ -181,18 +181,18 @@ def isPrimalFeasible {m n : Nat} (p : Problem m n) (x : Vector Rat n) : Bool :=
 def dualNonnegAndZeroWhereAbsent {m n : Nat}
     (p : Problem m n) (d : DualBundle m n) : Bool :=
   problemShapeOk p
-  && (Array.range m).all (fun i =>
-       let (lo, hi) := p.rowBounds[i]!
-       decide (0 ≤ d.rowLower[i]!)
-       && decide (0 ≤ d.rowUpper[i]!)
-       && (!lo.isNone || decide (d.rowLower[i]! = 0))
-       && (!hi.isNone || decide (d.rowUpper[i]! = 0)))
-  && (Array.range n).all (fun j =>
-       let (lo, hi) := p.colBounds[j]!
-       decide (0 ≤ d.colLower[j]!)
-       && decide (0 ≤ d.colUpper[j]!)
-       && (!lo.isNone || decide (d.colLower[j]! = 0))
-       && (!hi.isNone || decide (d.colUpper[j]! = 0)))
+  && (Vector.finRange m).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]
+       decide (0 ≤ d.rowLower[i])
+       && decide (0 ≤ d.rowUpper[i])
+       && (!lo.isNone || decide (d.rowLower[i] = 0))
+       && (!hi.isNone || decide (d.rowUpper[i] = 0)))
+  && (Vector.finRange n).all (fun j =>
+       let (lo, hi) := p.colBounds[j]
+       decide (0 ≤ d.colLower[j])
+       && decide (0 ≤ d.colUpper[j])
+       && (!lo.isNone || decide (d.colLower[j] = 0))
+       && (!hi.isNone || decide (d.colUpper[j] = 0)))
 
 /-- Componentwise subtraction of two same-length `Array Rat`. Returns
     `#[]` on length mismatch — that disagrees with `c` in size, which
@@ -319,15 +319,15 @@ def checkInfeasible {m n : Nat} (p : Problem m n) (d : DualBundle m n) : Bool :=
     boxed columns collapse to `= 0`. -/
 def isRecessionRay {m n : Nat} (p : Problem m n) (r : Vector Rat n) : Bool :=
   problemShapeOk p
-  && (Array.range n).all (fun j =>
-       let (lo, hi) := p.colBounds[j]!
-       (!lo.isSome || decide (0 ≤ r[j]!))
-       && (!hi.isSome || decide (r[j]! ≤ 0)))
+  && (Vector.finRange n).all (fun j =>
+       let (lo, hi) := p.colBounds[j]
+       (!lo.isSome || decide (0 ≤ r[j]))
+       && (!hi.isSome || decide (r[j] ≤ 0)))
   && let ar := evalAx p r.toArray
-     (Array.range m).all (fun i =>
-       let (lo, hi) := p.rowBounds[i]!
-       (!lo.isSome || decide (0 ≤ ar[i]!))
-       && (!hi.isSome || decide (ar[i]! ≤ 0)))
+     (Vector.finRange m).all (fun i =>
+       let (lo, hi) := p.rowBounds[i]
+       (!lo.isSome || decide (0 ≤ ar[i.val]!))
+       && (!hi.isSome || decide (ar[i.val]! ≤ 0)))
 
 /-- Unbounded certificate: a feasible base point and an improving
     recession ray. -/
