@@ -168,39 +168,31 @@ theorem dualNonnegAndZeroWhereAbsent_imp
   unfold dualNonnegAndZeroWhereAbsent at h
   rw [Bool.and_eq_true, Bool.and_eq_true] at h
   obtain ⟨⟨_, hRow⟩, hCol⟩ := h
-  rw [Array.all_eq_true] at hRow hCol
+  rw [Vector.all_eq_true] at hRow hCol
   refine
     { row_nonneg := ?_
       col_nonneg := ?_
       row_zero_absent := ?_
       col_zero_absent := ?_ }
-  · intro i hi
-    have hRange : i < (Array.range m).size := by
-      simpa [Array.size_range] using hi
-    have hi' := hRow i hRange
-    rw [Array.getElem_range] at hi'
+  · intro i
+    have hi' := hRow i.val i.isLt
+    simp only [Vector.getElem_finRange] at hi'
     simp only [Bool.and_eq_true] at hi'
     exact ⟨of_decide_eq_true hi'.1.1.1, of_decide_eq_true hi'.1.1.2⟩
-  · intro j hj
-    have hRange : j < (Array.range n).size := by
-      simpa [Array.size_range] using hj
-    have hj' := hCol j hRange
-    rw [Array.getElem_range] at hj'
+  · intro j
+    have hj' := hCol j.val j.isLt
+    simp only [Vector.getElem_finRange] at hj'
     simp only [Bool.and_eq_true] at hj'
     exact ⟨of_decide_eq_true hj'.1.1.1, of_decide_eq_true hj'.1.1.2⟩
-  · intro i hi
-    have hRange : i < (Array.range m).size := by
-      simpa [Array.size_range] using hi
-    have hi' := hRow i hRange
-    rw [Array.getElem_range] at hi'
+  · intro i
+    have hi' := hRow i.val i.isLt
+    simp only [Vector.getElem_finRange] at hi'
     simp only [Bool.and_eq_true] at hi'
     exact ⟨or_not_isNone_decide_eq_true hi'.1.2,
            or_not_isNone_decide_eq_true hi'.2⟩
-  · intro j hj
-    have hRange : j < (Array.range n).size := by
-      simpa [Array.size_range] using hj
-    have hj' := hCol j hRange
-    rw [Array.getElem_range] at hj'
+  · intro j
+    have hj' := hCol j.val j.isLt
+    simp only [Vector.getElem_finRange] at hj'
     simp only [Bool.and_eq_true] at hj'
     exact ⟨or_not_isNone_decide_eq_true hj'.1.2,
            or_not_isNone_decide_eq_true hj'.2⟩
@@ -833,16 +825,16 @@ theorem evalAx_addSmul_get!
 
 /-! ## `isStationary` Bool-to-Prop lemma.
 
-  Translates the Bool-level array equality into the componentwise
-  `StationarityAgainst p d p.c` Prop. The proof unpacks `arrayEq` to
-  get a per-index equality, then uses `getElem_zipWith` and
-  `arraySub_get!_of_eq` to rewrite both sides into `[i]!` form. -/
+  Translates the Bool-level Vector equality into the componentwise
+  `StationarityAgainst p d p.c` Prop. The proof projects the Vector
+  equality to a bounded coordinate, then uses `arraySub_get!_of_eq`
+  only at the remaining Array-typed `evalATy`/`arraySub` boundary. -/
 theorem isStationary_imp
     {m n : Nat} {p : Problem m n} {d : DualBundle m n}
     (_hShape : ProblemShapeOk p)
     (hDual : DualNonnegZeroWhereAbsent p d)
     (h : isStationary p d = true) :
-    StationarityAgainst p d p.c.toArray := by
+    StationarityAgainst p d p.c := by
   -- Unfold; the Bool check now reduces to a `Vector` equality.
   unfold isStationary at h
   simp only [decide_eq_true_eq] at h
@@ -863,27 +855,30 @@ theorem isStationary_imp
     evalATy_size ..
   have hZdiff : (arraySub d.colLower.toArray d.colUpper.toArray).size = n := by
     rw [arraySub_size_of_eq _ _ hColEq]; exact hDual.colLower_size
-  intro j hj
+  intro j
   -- Project `hArr` to index `j`.
-  have hjAty : j < (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size := by
-    rw [hAty]; exact hj
-  have hjZdiff : j < (arraySub d.colLower.toArray d.colUpper.toArray).size := by
-    rw [hZdiff]; exact hj
-  have hjC : j < p.c.toArray.size := by rw [Vector.size_toArray]; exact hj
-  have hjZip : j <
+  have hjAty : j.val < (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray)).size := by
+    rw [hAty]; exact j.isLt
+  have hjZdiff : j.val < (arraySub d.colLower.toArray d.colUpper.toArray).size := by
+    rw [hZdiff]; exact j.isLt
+  have hjC : j.val < p.c.toArray.size := by rw [Vector.size_toArray]; exact j.isLt
+  have hjZip : j.val <
       (Array.zipWith (· + ·)
         (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))
         (arraySub d.colLower.toArray d.colUpper.toArray)).size := by
-    rw [Array.size_zipWith, hAty, hZdiff, Nat.min_self]; exact hj
+    rw [Array.size_zipWith, hAty, hZdiff, Nat.min_self]; exact j.isLt
   have hEqj : (Array.zipWith (· + ·)
         (evalATy p (arraySub d.rowLower.toArray d.rowUpper.toArray))
-        (arraySub d.colLower.toArray d.colUpper.toArray))[j]! = p.c.toArray[j]! :=
-    congrArg (·[j]!) hArr
-  rw [getElem!_pos _ j hjZip, Array.getElem_zipWith] at hEqj
-  rw [← getElem!_pos _ j hjAty, ← getElem!_pos _ j hjZdiff] at hEqj
-  rw [arraySub_get!_of_eq _ _ hColEq j (by rw [hDual.colLower_size]; exact hj)]
+        (arraySub d.colLower.toArray d.colUpper.toArray))[j.val]! = p.c.toArray[j.val]! :=
+    congrArg (·[j.val]!) hArr
+  rw [getElem!_pos _ j.val hjZip, Array.getElem_zipWith] at hEqj
+  rw [← getElem!_pos _ j.val hjAty, ← getElem!_pos _ j.val hjZdiff] at hEqj
+  rw [arraySub_get!_of_eq _ _ hColEq j.val (by rw [hDual.colLower_size]; exact j.isLt)]
     at hEqj
   simp only [Vector.toArray_getElem!] at hEqj ⊢
+  rw [getElem!_pos d.colLower j.val j.isLt,
+    getElem!_pos d.colUpper j.val j.isLt,
+    getElem!_pos p.c j.val j.isLt] at hEqj
   exact hEqj
 
 /-- `(!o.isSome || decide P) = true ↔ (o = some _ → P)`. The Bool
@@ -923,22 +918,18 @@ theorem isPrimalFeasible_imp
   obtain ⟨⟨hShape, hCol⟩, hRow⟩ := h
   have hShape' := problemShapeOk_imp hShape
   have hxSize' : x.toArray.size = n := x.size_toArray
-  rw [Array.all_eq_true] at hCol hRow
+  rw [Vector.all_eq_true] at hCol hRow
   refine ⟨hShape', ?_, ?_⟩
   · -- ColBoundsSatisfied
     refine ⟨hxSize', ?_⟩
     intro j
-    have hRange : j.val < (Array.range n).size := by
-      simp [Array.size_range, j.isLt]
-    have hj' := hCol j.val hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+    have hj' := hCol j.val j.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hj'
     exact ⟨by simpa using geLB_imp hj'.1, by simpa using leUB_imp hj'.2⟩
   · -- RowBoundsSatisfied
     intro i
-    have hRange : i.val < (Array.range m).size := by
-      simp [Array.size_range, i.isLt]
-    have hi' := hRow i.val hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+    have hi' := hRow i.val i.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hi'
     exact ⟨geLB_imp hi'.1, leUB_imp hi'.2⟩
 
 theorem isRecessionRay_imp
@@ -948,36 +939,28 @@ theorem isRecessionRay_imp
   unfold isRecessionRay at h
   rw [Bool.and_eq_true, Bool.and_eq_true] at h
   obtain ⟨⟨_, hCol⟩, hRow⟩ := h
-  rw [Array.all_eq_true] at hCol hRow
+  rw [Vector.all_eq_true] at hCol hRow
   refine
     { size := r.size_toArray
       col_lo_nonneg := ?_
       col_hi_nonpos := ?_
       row_lo_nonneg := ?_
       row_hi_nonpos := ?_ }
-  · intro j hj hLo
-    have hRange : j < (Array.range n).size := by
-      simpa [Array.size_range] using hj
-    have hj' := hCol j hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+  · intro j hLo
+    have hj' := hCol j.val j.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hj'
     simpa using or_not_isSome_decide_eq_true hj'.1 hLo
-  · intro j hj hHi
-    have hRange : j < (Array.range n).size := by
-      simpa [Array.size_range] using hj
-    have hj' := hCol j hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hj'
+  · intro j hHi
+    have hj' := hCol j.val j.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hj'
     simpa using or_not_isSome_decide_eq_true hj'.2 hHi
-  · intro i hi hLo
-    have hRange : i < (Array.range m).size := by
-      simpa [Array.size_range] using hi
-    have hi' := hRow i hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+  · intro i hLo
+    have hi' := hRow i.val i.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hi'
     exact or_not_isSome_decide_eq_true hi'.1 hLo
-  · intro i hi hHi
-    have hRange : i < (Array.range m).size := by
-      simpa [Array.size_range] using hi
-    have hi' := hRow i hRange
-    rw [Array.getElem_range, Bool.and_eq_true] at hi'
+  · intro i hHi
+    have hi' := hRow i.val i.isLt
+    simp only [Vector.getElem_finRange, Bool.and_eq_true] at hi'
     exact or_not_isSome_decide_eq_true hi'.2 hHi
 
 /-- `isFarkasFeasible p d = true` implies the homogeneous componentwise
@@ -1003,26 +986,27 @@ theorem isFarkasFeasible_imp
   refine
     { nonneg_zero_absent := hDual
       stationarity_zero := ?_ }
-  intro j hj
-  have hjZ := hZeroIdx j hj
-  -- Convert proof-bearing Vector `[j]` into `[j]!` (panics-on-OOB)
-  -- via the matching `getElem!_pos` pair, then unwrap the Vector
-  -- bridges, then resolve `arraySub` at index `j`.
+  intro j
+  have hjZ := hZeroIdx j.val j.isLt
+  -- Unwrap the Vector bridges at the remaining Array boundary, then
+  -- resolve `arraySub` at index `j`.
   have hColEq : d.colLower.toArray.size = d.colUpper.toArray.size :=
     hDual.colLower_size.trans hDual.colUpper_size.symm
-  have hjA : j < (vEvalATy p (vSub d.rowLower d.rowUpper).toArray).toArray.size := by
-    rw [Vector.size_toArray]; exact hj
-  have hjVS : j < (vSub d.colLower d.colUpper).toArray.size := by
-    rw [Vector.size_toArray]; exact hj
-  rw [show (vEvalATy p (vSub d.rowLower d.rowUpper).toArray)[j] =
-        (vEvalATy p (vSub d.rowLower d.rowUpper).toArray).toArray[j]! by
-      rw [getElem!_pos _ j hjA]; rfl,
-     show (vSub d.colLower d.colUpper)[j] =
-        (vSub d.colLower d.colUpper).toArray[j]! by
-      rw [getElem!_pos _ j hjVS]; rfl] at hjZ
+  have hjA : j.val < (vEvalATy p (vSub d.rowLower d.rowUpper).toArray).toArray.size := by
+    rw [Vector.size_toArray]; exact j.isLt
+  have hjVS : j.val < (vSub d.colLower d.colUpper).toArray.size := by
+    rw [Vector.size_toArray]; exact j.isLt
+  rw [show (vEvalATy p (vSub d.rowLower d.rowUpper).toArray)[j.val] =
+        (vEvalATy p (vSub d.rowLower d.rowUpper).toArray).toArray[j.val]! by
+      rw [getElem!_pos _ j.val hjA]; rfl,
+     show (vSub d.colLower d.colUpper)[j.val] =
+        (vSub d.colLower d.colUpper).toArray[j.val]! by
+      rw [getElem!_pos _ j.val hjVS]; rfl] at hjZ
   rw [vEvalATy_toArray, vSub_toArray, vSub_toArray] at hjZ
-  rw [arraySub_get!_of_eq _ _ hColEq j (by rw [hDual.colLower_size]; exact hj)] at hjZ
+  rw [arraySub_get!_of_eq _ _ hColEq j.val (by rw [hDual.colLower_size]; exact j.isLt)] at hjZ
   simp only [Vector.toArray_getElem!] at hjZ
+  rw [getElem!_pos d.colLower j.val j.isLt,
+    getElem!_pos d.colUpper j.val j.isLt] at hjZ
   exact hjZ
 
 end Soplex.Verify
