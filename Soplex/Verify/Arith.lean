@@ -2,11 +2,10 @@
   Bespoke `Rat` / `Array` arithmetic + Bool-to-Prop lemmas used by the
   soundness proofs in `Soplex.Verify.Sound`.
 
-  PLAN.md §"Lean shape" makes the verifier standalone — no Mathlib —
-  so this file contains the small set of derived lemmas that core
-  Lean 4 does not ship under the names mathlib provides, plus the
-  one-direction lemmas that turn each `Bool` check from
-  `Soplex.Verify.Bool` into a usable `Prop` fact.
+  The verifier is standalone — no Mathlib — so this file contains the
+  small set of derived lemmas that core Lean 4 does not ship under the
+  names mathlib provides, plus the one-direction lemmas that turn each
+  `Bool` check from `Soplex.Verify.Bool` into a usable `Prop` fact.
 
   Scope of this module: Rat helpers, array size/index lemmas, sparse
   bilinear identities, and the Bool-to-Prop lemmas consumed by the

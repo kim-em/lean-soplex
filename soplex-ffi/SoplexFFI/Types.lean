@@ -6,8 +6,8 @@
   standalone library; the FFI side imports these types and reuses them
   unchanged. Pure-Lean only — no dependency on the FFI.
 
-  Most of the design rationale lives in `PLAN.md` §"API" and
-  §"Verification layer"; this file only restates the types themselves.
+  This file states the shared API types; the verifier and FFI layers
+  both import these definitions.
 -/
 
 namespace Soplex
@@ -25,7 +25,7 @@ inductive ObjSense | minimize | maximize
 inductive Simplex  | primal | dual | auto
   deriving Repr, DecidableEq
 
-/-- Solver / verifier configuration. See `PLAN.md` §"API". -/
+/-- Solver / verifier configuration. -/
 structure Options where
   sense          : ObjSense    := .minimize
   /-- Wall-clock limit in seconds; `none` = unlimited. -/
@@ -38,7 +38,7 @@ structure Options where
   /-- Fall back to precision boosting on ill-conditioned LPs. -/
   precisionBoost : Bool        := true
   /-- Enable SoPlex's presolve. `solveVerified` forces this `false`
-      internally; see `PLAN.md` §"What this catches" §4. -/
+      internally so certificates describe the original normalised LP. -/
   presolve       : Bool        := true
   deriving Repr
 
@@ -97,8 +97,7 @@ inductive OptionError
     bound is `none`. The *signed* dual would be `rowLower − rowUpper`
     (and similarly for columns), but storing the split is strictly more
     expressive for ranged constraints, where the dual objective genuinely
-    depends on the decomposition. See `PLAN.md` §"Dual feasibility,
-    concretely". -/
+    depends on the decomposition. -/
 structure DualBundle (m n : Nat) where
   /-- Multipliers for `rowLoᵢ ≤ (Ax)ᵢ` (one per row). -/
   rowLower : Vector Rat m
@@ -135,7 +134,7 @@ inductive SolveStatus
     * anything else — none required
 
     The verifier checks the appropriate combination and accepts /
-    rejects accordingly. See `PLAN.md` §"The three certificates".
+    rejects accordingly.
 
     Parameterised by `(m n : Nat)` — the constraint and variable
     counts — so the primal / ray vectors and the dual bundle all
@@ -181,8 +180,7 @@ structure FloatSolution (numVars : Nat) where
 
 /-- Errors surfaced by the FFI layer. Invalid Lean-side inputs are
     reported structurally; all unclassified C++ / SoPlex failures remain
-    bridge errors. Impossible states `panic`; see `PLAN.md`
-    §"`Except` vs `panic`". -/
+    bridge errors. True bridge-invariant violations may still `panic`. -/
 inductive SolveError
   | invalidProblem (e : ProblemError)
   | invalidOptions (e : OptionError)

@@ -1,9 +1,9 @@
 /-
   Denominator-budget check on certificate rationals.
 
-  PLAN.md §"User-facing driver" specifies a `denomBudget` parameter
-  on `solveVerified`: a ceiling on the combined `numerator + denominator`
-  bit length of every `Rat` coordinate in a returned `Certificate`.
+  `solveVerified` accepts a `denomBudget` parameter: a ceiling on the
+  combined `numerator + denominator` bit length of every `Rat`
+  coordinate in a returned `Certificate`.
 
   The check is a pure `Bool` predicate so the user-facing driver can
   wrap a `false` result as `Verified.unchecked .budgetExceeded` without
@@ -27,8 +27,7 @@ end Nat
 
 namespace Rat
 
-/-- Combined numerator + denominator bit length of a reduced rational.
-    Matches the formula in PLAN.md §"User-facing driver":
+/-- Combined numerator + denominator bit length of a reduced rational:
     `numerator.natAbs.bitLen + denominator.bitLen`. -/
 def bitLen (q : Rat) : Nat :=
   q.num.natAbs.bitLen + q.den.bitLen

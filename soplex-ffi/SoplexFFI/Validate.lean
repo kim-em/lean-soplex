@@ -11,7 +11,8 @@
   * Duplicate `(row, col)` entries are summed.
   * Zero-valued sparse entries are dropped.
 
-  See `PLAN.md` §"API" for the design rationale.
+  This is the pure Lean boundary before data reaches either C++ or
+  the verifier.
 -/
 
 import SoplexFFI.Types

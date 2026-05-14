@@ -148,7 +148,7 @@ private def tBudgetExceeded (_ : Unit) : Outcome :=
   runVerified baseOpts p (denomBudget := some 1)
     (k := fun _ v => wantsUnchecked .budgetExceeded v)
 
-/-- Budget regression from issue #20 / PLAN.md §"Test corpus": a tiny
+/-- Budget regression from issue #20: a tiny
     LP solved with the absurdly low cap `some 5`. The optimum is the
     integer vertex `x = 100` (`bitLen 100 + bitLen 1 = 7 + 1 = 8`),
     over the 5-bit cap, so the budget-check short-circuits to

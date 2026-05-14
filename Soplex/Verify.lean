@@ -23,7 +23,8 @@
                                     `Solution`→`Verified` mapping
                                     `verifyOutcome`.
 
-  See `PLAN.md` §"Verification layer" for the design.
+  SoPlex is treated as an oracle; accepted certificates are checked
+  here before producing proofs.
 -/
 
 import Soplex.Verify.Types

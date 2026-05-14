@@ -290,7 +290,7 @@ private theorem bound_combination_le_dot_q
 /-- Weak duality on `Rat`: any primal-feasible `x` and any dual-feasible
     `d` satisfy `dualObj d ≤ primalObj x`.
 
-    Proof shape (per `PLAN.md` §"Verification layer"):
+    Proof shape:
 
     1. Stationarity `Aᵀ(yL − yU) + (zL − zU) = c` lets us rewrite
        `c·x` as `Σⱼ (Aᵀ(yL − yU) + (zL − zU))ⱼ · xⱼ`.

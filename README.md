@@ -6,8 +6,7 @@ programming solver from the SCIP optimization suite.
 The library exposes exact-mode and floating-point LP solves, MPS / LP
 file I/O, and a **pure-Lean certificate checker**. Exact certificates
 returned by SoPlex are treated as oracle output and checked in Lean
-before any proof-carrying result is constructed. See [`PLAN.md`](./PLAN.md)
-for the full design and trust model.
+before any proof-carrying result is constructed.
 
 ## Status
 
@@ -63,8 +62,32 @@ produces is checked in Lean before any proof is constructed.
 
 A bug anywhere in SoPlex, the C++ bridge, or the sign-convention
 translation can only cause a verifier rejection
-(`Verified.unchecked`), not a wrong proof. See `PLAN.md` §
-"Verification layer".
+(`Verified.unchecked`), not a wrong proof.
+
+### Verification Notes
+
+* `solveVerified` validates and normalises the Lean-side `Problem`,
+  forces `Options.presolve := false`, calls exact-mode SoPlex, then
+  checks the returned certificate against the normalised original
+  problem. Certificates are never checked against data round-tripped
+  through C++.
+* `Verified` is indexed by the normalised problem and objective sense.
+  `Verified.optimal`, `.infeasible`, and `.unbounded` carry Lean proofs;
+  undecided solver statuses or failed certificates return
+  `Verified.unchecked`.
+* The verifier stores dual multipliers as a nonnegative lower/upper
+  split for rows and columns. This is deliberately more explicit than
+  a signed dual vector and handles ranged rows and boxed columns
+  uniformly.
+* Maximisation is reduced internally to minimisation by negating the
+  objective. User-facing objectives and witnesses remain in the
+  caller's original sense, including `objOffset`.
+* `solveVerified` has a denominator budget, defaulting to `some 10000`
+  bits per rational coordinate. Exceeding it returns
+  `Verified.unchecked .budgetExceeded`; `none` disables the check.
+* SoPlex presolve is allowed for direct `solveExact` calls, but is not
+  part of the verified path yet. Reconstructing original-problem
+  certificates from presolve is tracked separately.
 
 ## Layout
 
@@ -93,5 +116,5 @@ and GMP linkage all break silently on a subset of platforms.
 
 `lean-soplex` is licenced under the [Apache License 2.0](./LICENSE),
 matching SoPlex itself. The compiled binary's GMP runtime dependency
-(LGPL) is linked dynamically by default — see [`PLAN.md`](./PLAN.md) §
-"System dependencies" for the static-vs-dynamic trade-offs.
+(LGPL) is linked dynamically by default. SoPlex itself is linked into
+the Lean shared library from the vendored static archive.

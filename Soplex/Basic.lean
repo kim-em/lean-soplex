@@ -13,8 +13,7 @@ namespace Soplex
 /-! ## Verified-solve driver.
 
   Composes `validateOptions`, `validate`, `solveExact`, and
-  `verifyOutcome` from `Soplex.Verify.Driver`. See PLAN.md
-  §"User-facing driver".
+  `verifyOutcome` from `Soplex.Verify.Driver`.
 -/
 
 /-- Default `denomBudget` for `solveVerified`: combined numerator +

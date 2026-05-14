@@ -10,7 +10,8 @@
   pure-Lean `SoplexVerify` library: the FFI side only contributes
   the `Solution` value.
 
-  See `PLAN.md` §"User-facing driver".
+  This file stays pure Lean; `Soplex.Basic` is responsible for calling
+  the FFI and passing the resulting `Solution` back here.
 -/
 
 import Soplex.Verify.Prop

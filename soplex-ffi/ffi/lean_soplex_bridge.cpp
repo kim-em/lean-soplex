@@ -721,7 +721,7 @@ static lean_object *mk_float_solution(
  * default floating-point mode. The returned `primalAsRat` is the exact
  * rational representation of each IEEE-754 double SoPlex produced
  * (via `mpq_set_d`), not a decimal rational and not a verifier-grade
- * certificate. See PLAN.md §"API".
+ * certificate.
  *
  * Marshalling helpers (`Mpq`, `mk_rat_from_mpq`, `mk_array_from_mpqs`,
  * `mk_some` / `mk_none`, `mk_except_*`, `lean_string_at`,

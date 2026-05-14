@@ -6,9 +6,8 @@
   Booleans on small LPs with known answers. Two purposes:
 
   * Catch bugs in the `Bool` definitions before they are baked into the
-    soundness proofs (see `PLAN.md` §"Implementation order" step 3:
-    "Drive [the checker] from hand-rolled tiny certificates with no
-    SoPlex involvement").
+    soundness proofs, using hand-rolled tiny certificates with no
+    SoPlex involvement.
   * Provide a SoPlex-free CI signal that runs even on platforms where
     the FFI link is currently broken (notably Windows).
 
@@ -218,7 +217,7 @@ def tInfeasibleRowsOnly : Outcome :=
 /-- Raw Bool-checker stress test (the LP itself fails `validate` —
     `0 ≤ x ≤ -1` is an inverted column bound, which `validate` rejects
     as `boundInverted` long before the checker would run). Constructs
-    the four-vector Farkas form from PLAN.md §"Worked example" directly
+    the four-vector Farkas form directly
     against the unvalidated `Problem`, to pin the sign convention for
     column-bounds-only infeasibility. In the `validate → solveExact →
     checkInfeasible` pipeline this case never arises — infeasibility

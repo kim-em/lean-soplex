@@ -22,9 +22,8 @@ open Soplex
   Every public `is*` / `check*` function below calls `problemShapeOk`
   first. Without this guard, a malformed `Problem` (e.g. wrong
   `rowBounds` length, out-of-range sparse entries) would reach `[i]!`
-  accesses that panic. PLAN.md §"Totality" mandates that the checker
-  return `false` on any structural mismatch rather than panic, so
-  callers that bypass `validate` get a benign rejection. -/
+  accesses that panic. The checker returns `false` on structural
+  mismatch so callers that bypass `validate` get a benign rejection. -/
 
 /-- Structural well-formedness for a `Problem`: every sparse entry's
     `(row, col)` is in range. Length checks for `c`, `colBounds`, and
