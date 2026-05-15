@@ -32,6 +32,13 @@ example (a b : Rat) (_h₁ : 5 ≥ 2 * a + b) (_h₂ : 1 ≥ a - b) : 6 ≥ 3 * 
 example (n : Nat) (x : Rat) (_hn : 0 ≤ n) (_h : x ≤ 0) : x ≤ 0 := by
   lp
 
+-- Closed scalar goals with no usable hypotheses: short-circuited without
+-- a SoPlex call, since the LP would have no rows or columns to feed the
+-- solver.
+example : (1 : Rat) ≤ 2 := by lp
+example : (-3 : Rat) ≤ -3 := by lp
+example : (1 : Rat) < 2 := by lp
+
 example (x : Rat) (_h : x ≤ 0) : x < 1 := by
   lp
 

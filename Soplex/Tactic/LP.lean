@@ -498,6 +498,44 @@ Given a parsed atomic `Rat` goal `lhs op rhs` and the collected `≤`/`=`
 hypotheses-as-rows, build the LP, run SoPlex, and assemble the direct
 certificate proof. -/
 
+/-- Assemble the optimal-branch certificate proof from the numerical
+multipliers and the parsed rows. Shared between the SoPlex-driven path
+and the trivial closed-goal short-circuit (where multipliers are all
+zero and `c = objLin.const`). -/
+private def assembleLeProof (rows : Array Row) (strict : Bool)
+    (objLin : LinExpr) (mults : Array Rat) (lhs rhs : Expr) : TacticM Expr := do
+  let rowLins := rows.map (·.expr)
+  let residual := computeResidual objLin rowLins mults
+  unless isLinExprClosed residual do
+    throwError "lp: dual certificate did not algebraically cancel the goal{
+      ""} (residual still depends on variables); refusing to build a proof"
+  let c := residual.const
+  if strict then
+    unless decide (0 < c) do
+      throwError "lp: goal is not entailed; numerical residual is {c}, not > 0"
+  else
+    unless decide (0 ≤ c) do
+      throwError "lp: goal is not entailed; numerical residual is {c}, not ≥ 0"
+  let rhsMinusLhs ← mkRatSub rhs lhs
+  let mut entries : Array (Rat × Expr × Expr) := #[]
+  for h : i in [0:rows.size] do
+    let lam := mults[i]!
+    if lam ≠ 0 then
+      let row := rows[i]
+      let proof ← row.proof
+      entries := entries.push (lam, row.term, proof)
+  let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
+  let cExpr := mkRatLit c
+  let lhsId ← mkRatAdd rhsMinusLhs sumExpr
+  let identType ← mkEq lhsId cExpr
+  let identProof ← proveAlgebraicIdentity identType
+  if strict then
+    let hC ← mkDecideProof (← mkAppM ``LT.lt #[mkRatLit 0, cExpr])
+    mkAppM ``direct_lt_close #[sumProof, hC, identProof]
+  else
+    let hC ← mkDecideProof (← mkAppM ``LE.le #[mkRatLit 0, cExpr])
+    mkAppM ``direct_le_close #[sumProof, hC, identProof]
+
 private def proveEntailed (rows : Array Row) (strict : Bool)
     (vars : Array FVarId) (lhs rhs : Expr) : TacticM Expr := do
   -- Numerical row data.
@@ -509,6 +547,12 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
       let lhsLin ← parseExpr lhs
       let rhsLin ← parseExpr rhs
       pure (rhsLin.sub lhsLin)).run { vars := vars }
+  -- Short-circuit when the goal is purely a closed `Rat` comparison: no
+  -- rows are needed, no SoPlex call is needed, and the empty-sum direct
+  -- certificate is enough.
+  if vars.size = 0 || isLinExprClosed objLin then
+    let mults := Array.replicate rows.size (0 : Rat)
+    return ← assembleLeProof rows strict objLin mults lhs rhs
   let objCoeffs := objLin.toDense vars
   let objConst := objLin.const
   -- Build the LP.
@@ -537,43 +581,11 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   -- Verify multipliers are nonneg.
   unless mults.all (fun lam => 0 ≤ lam) do
     throwError "lp: SoPlex returned a negative upper-bound multiplier; refusing to build a proof"
-  -- Compute the residual numerically.
+  -- Branch on the SoPlex outcome.
   let rowLins := rows.map (·.expr)
   match sol.status with
   | .optimal =>
-      let residual := computeResidual objLin rowLins mults
-      unless isLinExprClosed residual do
-        throwError "lp: dual certificate did not algebraically cancel the goal{
-          ""} (residual still depends on variables); refusing to build a proof"
-      let c := residual.const
-      if strict then
-        unless decide (0 < c) do
-          throwError "lp: goal is not entailed; numerical residual is {c}, not > 0"
-      else
-        unless decide (0 ≤ c) do
-          throwError "lp: goal is not entailed; numerical residual is {c}, not ≥ 0"
-      -- Build the source-side residual `rhs - lhs` Expr.
-      let rhsMinusLhs ← mkRatSub rhs lhs
-      -- Collect nonzero (λ, term, proof) entries in row order.
-      let mut entries : Array (Rat × Expr × Expr) := #[]
-      for h : i in [0:rows.size] do
-        let lam := mults[i]!
-        if lam ≠ 0 then
-          let row := rows[i]
-          let proof ← row.proof
-          entries := entries.push (lam, row.term, proof)
-      let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
-      -- Algebraic identity: `rhs - lhs + sumExpr = (c : Rat)`.
-      let cExpr := mkRatLit c
-      let lhsId ← mkRatAdd rhsMinusLhs sumExpr
-      let identType ← mkEq lhsId cExpr
-      let identProof ← proveAlgebraicIdentity identType
-      if strict then
-        let hC ← mkDecideProof (← mkAppM ``LT.lt #[mkRatLit 0, cExpr])
-        mkAppM ``direct_lt_close #[sumProof, hC, identProof]
-      else
-        let hC ← mkDecideProof (← mkAppM ``LE.le #[mkRatLit 0, cExpr])
-        mkAppM ``direct_le_close #[sumProof, hC, identProof]
+      assembleLeProof rows strict objLin mults lhs rhs
   | .infeasible =>
       -- Build a Farkas-style sum and turn the goal into anything via `False.elim`.
       let zeroLin : LinExpr := {}
