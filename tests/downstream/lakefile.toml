@@ -1,0 +1,15 @@
+# Tiny project that consumes `Soplex` via a path-`require`, so it
+# exercises the same dylib resolution / FFI loading path as a real
+# downstream user. The main CI build is in-tree; this test catches
+# bugs (like the stale-FFI symptom investigated in #56) where the
+# tactic behaves differently when invoked from outside the package.
+
+name = "soplex-downstream-test"
+defaultTargets = ["DownstreamTest"]
+
+[[require]]
+name = "Soplex"
+path = "../.."
+
+[[lean_lib]]
+name = "DownstreamTest"
