@@ -727,6 +727,200 @@ theorem dot_y_evalAx_eq_dot_evalATy_x
   rw [dot_evalAx_eq_sparseBilinear p y x hY hX,
       dot_evalATy_eq_sparseBilinear p y x hY hX]
 
+/-! ### Dense matrix reconstruction (one-fold)
+
+`denseMatrix` reconstructs the constraint matrix as a row-major
+`Array (Array Rat)` with a single fold over `p.a`. The point: in the `lp`
+tactic the kernel currently reduces `evalATy p (unitVector m i)` once per
+row inside `mkFeasProof`, costing m full sparse-matrix folds. `denseMatrix`
+lets the tactic substitute one `mkDecideProof (denseMatrix p = litMatrix)`
+for those m reductions: the kernel reduces the matrix exactly once.
+-/
+
+/-- Per-triple scatter step for `denseMatrix`: deposit `v` into `acc[r][c]`.
+Uses explicit `Array.set` with bounds proofs (rather than `Array.modify`)
+so that the kernel `decide` reduces predictably without getting stuck on
+the `Id.run`/`pure` in `Array.modify`'s definition. -/
+@[inline] def applyDense {m n : Nat} (acc : Array (Array Rat))
+    (entry : Fin m × Fin n × Rat) : Array (Array Rat) :=
+  let (r, c, v) := entry
+  if hr : r.val < acc.size then
+    let row := acc[r.val]
+    if hc : c.val < row.size then
+      acc.set r.val (row.set c.val (row[c.val] + v) hc) hr
+    else acc
+  else acc
+
+/-- Dense row-major reconstruction of the sparse constraint matrix. -/
+def denseMatrix {m n : Nat} (p : Problem m n) : Array (Array Rat) :=
+  p.a.foldl applyDense (Array.replicate m (Array.replicate n 0))
+
+theorem applyDense_size {m n : Nat} (acc : Array (Array Rat))
+    (entry : Fin m × Fin n × Rat) :
+    (applyDense acc entry).size = acc.size := by
+  unfold applyDense
+  obtain ⟨r, c, v⟩ := entry
+  simp only
+  split
+  · split <;> simp
+  · rfl
+
+theorem denseMatrix_size {m n : Nat} (p : Problem m n) :
+    (denseMatrix p).size = m := by
+  unfold denseMatrix
+  refine Array.foldl_induction
+    (motive := fun _ (acc : Array (Array Rat)) => acc.size = m) ?_ ?_
+  · simp
+  · intro _ acc hAcc
+    rw [applyDense_size, hAcc]
+
+/-- Auxiliary: every row of `denseMatrix p` has size `n`. -/
+theorem denseMatrix_row_size {m n : Nat} (p : Problem m n) (t : Nat) (ht : t < m) :
+    ((denseMatrix p)[t]!).size = n := by
+  unfold denseMatrix
+  have hFold := Array.foldl_induction
+    (as := p.a) (init := Array.replicate m (Array.replicate n 0))
+    (f := applyDense)
+    (motive := fun _ (acc : Array (Array Rat)) =>
+      acc.size = m ∧ (∀ s, s < m → (acc[s]!).size = n))
+    (by
+      refine ⟨by simp, ?_⟩
+      intro s hs
+      rw [getElem!_pos _ s (by simp [hs])]
+      rw [Array.getElem_replicate]
+      simp)
+    (by
+      intro i acc ⟨hAccSize, hRows⟩
+      cases hEntryEq : p.a[i.val] with
+      | mk r cv =>
+      cases cv with
+      | mk c v =>
+      refine ⟨by rw [applyDense_size, hAccSize], ?_⟩
+      intro s hs
+      have hsA : s < acc.size := by rw [hAccSize]; exact hs
+      have hrA : r.val < acc.size := by rw [hAccSize]; exact r.isLt
+      have hRowR : (acc[r.val]!).size = n := hRows r.val r.isLt
+      have hRowR' : (acc[r.val]'hrA).size = n := by
+        rw [getElem!_pos _ r.val hrA] at hRowR; exact hRowR
+      have hcR : c.val < (acc[r.val]'hrA).size := by rw [hRowR']; exact c.isLt
+      unfold applyDense
+      simp only [hrA, dite_true, hcR]
+      rw [getElem!_pos _ s (by rw [Array.size_set]; exact hsA)]
+      by_cases hrs : r.val = s
+      · subst hrs
+        rw [Array.getElem_set_self]
+        rw [Array.size_set, hRowR']
+      · rw [Array.getElem_set_ne hrA hsA hrs]
+        rw [← getElem!_pos _ s hsA]
+        exact hRows s hs)
+  exact hFold.2 t ht
+
+private theorem denseMatrix_dot_eq_sparsePrefix
+    {m n : Nat} (p : Problem m n) (x : Array Rat) (hx : x.size = n)
+    (s : Nat) (hs : s < m) :
+    dot ((denseMatrix p)[s]!) x =
+      sparsePrefix p.a (unitVector m s) x p.a.size := by
+  unfold denseMatrix
+  have hFold := Array.foldl_induction
+    (as := p.a) (init := Array.replicate m (Array.replicate n 0))
+    (f := applyDense)
+    (motive := fun i (acc : Array (Array Rat)) =>
+      acc.size = m ∧
+      (∀ t, t < m → (acc[t]!).size = n) ∧
+      (∀ t, t < m → dot (acc[t]!) x = sparsePrefix p.a (unitVector m t) x i))
+    (by
+      -- base case: replicate
+      refine ⟨by simp, ?_, ?_⟩
+      · intro t ht
+        rw [getElem!_pos _ t (by simp [ht])]
+        rw [Array.getElem_replicate]
+        simp
+      · intro t ht
+        rw [getElem!_pos _ t (by simp [ht])]
+        rw [Array.getElem_replicate]
+        rw [dot_replicate_left_zero x n hx]
+        rfl)
+    (by
+      intro i acc ⟨hAccSize, hRows, hDot⟩
+      cases hEntryEq : p.a[i.val] with
+      | mk r cv =>
+      cases cv with
+      | mk c v =>
+      have hrA : r.val < acc.size := by rw [hAccSize]; exact r.isLt
+      have hRowR : (acc[r.val]!).size = n := hRows r.val r.isLt
+      have hRowR' : (acc[r.val]'hrA).size = n := by
+        rw [getElem!_pos _ r.val hrA] at hRowR; exact hRowR
+      have hcR : c.val < (acc[r.val]'hrA).size := by rw [hRowR']; exact c.isLt
+      -- Three conjuncts of the new motive.
+      refine ⟨by rw [applyDense_size, hAccSize], ?_, ?_⟩
+      · -- row-size preservation
+        intro t ht
+        have htA : t < acc.size := by rw [hAccSize]; exact ht
+        unfold applyDense
+        simp only [hrA, dite_true, hcR]
+        rw [getElem!_pos _ t (by rw [Array.size_set]; exact htA)]
+        by_cases hrs : r.val = t
+        · subst hrs
+          rw [Array.getElem_set_self]
+          rw [Array.size_set, hRowR']
+        · rw [Array.getElem_set_ne hrA htA hrs]
+          rw [← getElem!_pos _ t htA]
+          exact hRows t ht
+      · -- dot equation
+        intro t ht
+        have htA : t < acc.size := by rw [hAccSize]; exact ht
+        unfold applyDense
+        simp only [hrA, dite_true, hcR]
+        rw [sparsePrefix]
+        simp only [Array.getElem?_eq_getElem, i.isLt, hEntryEq]
+        rw [getElem!_pos _ t (by rw [Array.size_set]; exact htA)]
+        by_cases hrt : r.val = t
+        · -- updated row: t = r.val
+          subst hrt
+          rw [Array.getElem_set_self]
+          -- LHS becomes dot of the updated row with x
+          rw [dot_set_left (acc[r.val]'hrA) x c.val
+            ((acc[r.val]'hrA)[c.val]'hcR + v) hcR
+            (by rw [hRowR', ← hx])]
+          -- substitute the row's dot with sparsePrefix
+          have hDotR := hDot r.val r.isLt
+          rw [getElem!_pos _ r.val hrA] at hDotR
+          rw [hDotR]
+          -- Simplify `acc[r.val][c.val] + v - acc[r.val][c.val]! = v`.
+          rw [show ((acc[r.val]'hrA)[c.val]'hcR + v - (acc[r.val]'hrA)[c.val]!) = v by
+                rw [getElem!_pos _ c.val hcR]
+                rw [Rat.add_comm ((acc[r.val]'hrA)[c.val]'hcR) v]
+                exact Rat.add_sub_cancel]
+          -- (unitVector m r.val)[r.val]! = 1
+          have huV : (unitVector m r.val)[r.val]! = 1 := by
+            rw [unitVector_get! m r.val r.val r.isLt]
+            simp
+          rw [huV]
+          rw [Rat.mul_one]
+          rw [Rat.mul_comm v]
+        · -- unchanged row: t ≠ r.val
+          rw [Array.getElem_set_ne hrA htA hrt]
+          have hDotT := hDot t ht
+          rw [getElem!_pos _ t htA] at hDotT
+          rw [hDotT]
+          have huV : (unitVector m t)[r.val]! = 0 := by
+            rw [unitVector_get! m t r.val r.isLt]
+            simp [hrt]
+          rw [huV]
+          rw [Rat.mul_zero, Rat.zero_mul, Rat.add_zero])
+  exact hFold.2.2 s hs
+
+theorem evalAx_get_eq_dot_denseMatrix
+    {m n : Nat} (p : Problem m n) (x : Array Rat) (hx : x.size = n) (i : Fin m) :
+    (evalAx p x)[i.val]! = dot ((denseMatrix p)[i.val]!) x := by
+  rw [← dot_unitVector_left (evalAx p x) m i.val (evalAx_size p x) i.isLt]
+  rw [dot_y_evalAx_eq_dot_evalATy_x p (unitVector m i.val) x
+    (unitVector_size m i.val) hx]
+  rw [dot_evalATy_eq_sparseBilinear p (unitVector m i.val) x
+    (unitVector_size m i.val) hx]
+  rw [sparseBilinear_eq_sparsePrefix]
+  exact (denseMatrix_dot_eq_sparsePrefix p x hx i.val i.isLt).symm
+
 theorem evalAx_addSmul_get!
     {m n : Nat} (p : Problem m n) (x r : Array Rat) (lam : Rat)
     (hx : x.size = n) (hr : r.size = n)
