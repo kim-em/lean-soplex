@@ -774,8 +774,7 @@ theorem denseMatrix_size {m n : Nat} (p : Problem m n) :
   · intro _ acc hAcc
     rw [applyDense_size, hAcc]
 
-/-- Auxiliary: every row of `denseMatrix p` has size `n`. -/
-theorem denseMatrix_row_size {m n : Nat} (p : Problem m n) (t : Nat) (ht : t < m) :
+private theorem denseMatrix_row_size {m n : Nat} (p : Problem m n) (t : Nat) (ht : t < m) :
     ((denseMatrix p)[t]!).size = n := by
   unfold denseMatrix
   have hFold := Array.foldl_induction

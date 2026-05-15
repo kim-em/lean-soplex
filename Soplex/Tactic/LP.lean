@@ -365,8 +365,9 @@ expression as plain data, then closes the proof obligation by a single
 application of `AffCert.sound_at` per row/objective rather than building a
 deep tree of `linEval_*_eq` applications.
 
-Constructors are minimal: subtraction lowers to `add a (smul (-1) b)` and
-negation lowers to `smul (-1) a`. -/
+The certificate language mirrors the supported affine grammar, while the
+semantic functions below compute the corresponding value, coefficient array,
+and constant offset. -/
 
 inductive AffCert where
   | lit  : Rat → AffCert
@@ -517,46 +518,15 @@ private theorem primalObj_eq_of_linEval {m n : Nat} (p : Problem m n) (y : Array
   unfold primalObj linEval
   rw [hCoeffs, hOffset]
 
-private theorem evalAx_get_eq_dot_of_evalATy_unit
-    {m n : Nat} (p : Problem m n) (x : Array Rat) (i : Fin m)
-    (coeffs : Array Rat)
-    (hX : x.size = n)
-    (hCoeffs : evalATy p (unitVector m i.val) = coeffs) :
-    (evalAx p x)[i.val]! = dot coeffs x := by
-  have hLeft :
-      dot (unitVector m i.val) (evalAx p x) = (evalAx p x)[i.val]! :=
-    dot_unitVector_left (evalAx p x) m i.val (evalAx_size p x) i.isLt
-  rw [← hLeft]
-  rw [dot_y_evalAx_eq_dot_evalATy_x p (unitVector m i.val) x
-    (unitVector_size m i.val) hX]
-  rw [hCoeffs]
-
 /-- Index-congruence for `Array.getElem!`. Used to project a single row's
 matrix fact out of one shared `(denseMatrix p = litMatrix)` proof. -/
 private theorem array_get!_congr {α : Type u} [Inhabited α] {a b : Array α}
     (h : a = b) (i : Nat) : a[i]! = b[i]! := by rw [h]
 
-/-- Bundle `AffCert.sound_at` + `evalAx_get_eq_dot_of_evalATy_unit` + `rowUpper_of_linEval`
-into one theorem application per row, halving the `mkAppM` work in `mkFeasProof`. -/
-private theorem rowUpper_of_AffCert
-    {m n : Nat} {p : Problem m n} {y : Array Rat} {bound : Rat} {e : Rat}
-    (cert : AffCert) (hValues : y.size = n) (i : Fin m)
-    (hCoeffs : evalATy p (unitVector m i.val) = cert.coeffs n)
-    (hBound : bound = -cert.offset)
-    (hRow : e ≤ 0) (hEval : e = cert.eval y) :
-    (evalAx p y)[i.val]! ≤ bound := by
-  have hAx : (evalAx p y)[i.val]! = dot (cert.coeffs n) y :=
-    evalAx_get_eq_dot_of_evalATy_unit p y i (cert.coeffs n) hValues hCoeffs
-  have hLinEval : e = linEval (cert.coeffs n) y cert.offset :=
-    AffCert.sound_at cert y n hValues hEval
-  exact rowUpper_of_linEval hRow hLinEval hAx hBound
-
-/-- Variant of `rowUpper_of_AffCert` that consumes a single dense-matrix row
-fact `hRowCoeffs : (denseMatrix p)[i.val]! = cert.coeffs n` instead of the
-expensive per-row `evalATy = cert.coeffs n` decidable equality. The caller
-should derive `hRowCoeffs` from one `mkDecideProof (denseMatrix p = litMatrix)`
-shared across all rows, eliminating the per-row matrix fold from kernel
-reduction. -/
+/-- Consume a dense-matrix row fact to turn a source row proof into the row
+upper-bound proof required by `RowBoundsSatisfied`. The caller derives
+`hRowCoeffs` from one shared `mkDecideProof (denseMatrix p = litMatrix)`,
+avoiding one `evalATy` sparse-matrix fold per row. -/
 private theorem rowUpper_of_AffCert_denseMatrix
     {m n : Nat} {p : Problem m n} {y : Array Rat} {bound : Rat} {e : Rat}
     (cert : AffCert) (hValues : y.size = n) (i : Fin m)
@@ -1014,9 +984,6 @@ private def mkAffCertNegExpr (a : Expr) : Expr :=
 
 private def mkAffCertSmulExpr (k a : Expr) : Expr :=
   mkApp2 (mkConst ``AffCert.smul) k a
-
-private def mkAffCertEvalExpr (values cert : Expr) : Expr :=
-  mkApp2 (mkConst ``AffCert.eval) values cert
 
 private def mkAffCertCoeffsExpr (n : Nat) (cert : Expr) : Expr :=
   mkApp2 (mkConst ``AffCert.coeffs) (toExpr n) cert
