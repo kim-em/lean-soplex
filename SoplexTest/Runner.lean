@@ -41,8 +41,14 @@ def main (args : List String) : IO UInt32 := do
     IO.eprintln s!"build failed (exit {buildCode})"
     return buildCode
   for probe in leanProbes do
-    IO.println s!"\n==> lake env lean {probe}"
-    let code ← run "lake" #["env", "lean", probe]
+    -- `--tstack=65536` (64 MB) raises the elaboration thread's stack
+    -- size. The `lp` tactic's reflective certificate for the dense
+    -- `LPScaling` cases recurses deeply during the `isDefEq` check of
+    -- the emitted proof term, overflowing the smaller default thread
+    -- stack on Windows (~2 MB suffices to fail, ~8 MB to pass).
+    let probeArgs := #["env", "lean", "--tstack=65536", probe]
+    IO.println s!"\n==> lake {String.intercalate " " probeArgs.toList}"
+    let code ← run "lake" probeArgs
     if code ≠ 0 then
       IO.eprintln s!"{probe} failed (exit {code})"
       return code

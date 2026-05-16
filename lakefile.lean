@@ -57,6 +57,15 @@ lean_lib Soplex where
   -- elaboration-time probes, so its shared-library link step must resolve
   -- the same platform libraries as the final executables.
   moreLinkArgs := soplexFFIRuntimeLinkArgs
+  -- Force the `SoplexFFI` native library to build before any module in
+  -- this library. With `precompileModules`, every module's `:dynlib`
+  -- link picks up `moreLinkArgs`, which on Windows names the staged
+  -- `vendor/mingw-libs/*.a` archives. Those archives are staged as a
+  -- side effect of the `SoplexFFI` native build. Pure-Lean modules such
+  -- as `Soplex.Tactic.RatLin.*` import nothing from `SoplexFFI`, so
+  -- without this dependency their dynlib link can run first and fail
+  -- with `no such file or directory` on the not-yet-staged archives.
+  needs := #[BuildKey.packageTarget `SoplexFFI `soplexffi]
 
 /-- Shared scaffolding for the `SoplexTest/` executables. Keeping it as
     a `lean_lib` lets each test exe pick up `SoplexTest.Common` and
