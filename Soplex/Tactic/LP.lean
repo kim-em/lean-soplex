@@ -1,6 +1,7 @@
 import Lean
 import Init.Data.Vector.Lemmas
 import Soplex.Basic
+import Soplex.Tactic.RatLin.Tactic
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
@@ -403,9 +404,20 @@ private def mkRatAdd (a b : Expr) : MetaM Expr :=
 private def mkRatSub (a b : Expr) : MetaM Expr :=
   mkAppM ``HSub.hSub #[a, b]
 
-/-- Build a `Rat` literal Expr. -/
-private def mkRatLit (r : Rat) : Expr :=
-  toExpr r
+/-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
+that the RatLin discharger's `Lin.eval` reduces to the same kernel term
+on both sides of the identity.  Closed `Rat.div`-form literals (which is
+what `toExpr Rat` produces for non-integer rationals) would not be
+definitionally equal to our `Rat.normalize`-form `eval` output. -/
+private def mkRatLit (r : Rat) : MetaM Expr := do
+  let numE : Expr := match r.num with
+    | .ofNat k => mkApp (mkConst ``Int.ofNat) (mkNatLit k)
+    | .negSucc k => mkApp (mkConst ``Int.negSucc) (mkNatLit k)
+  let denE : Expr := mkNatLit r.den
+  let denNeType ← mkAppM ``Ne #[denE, mkNatLit 0]
+  let denNeProof ← mkDecideProof denNeType
+  let qExpr := mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
+  return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qExpr
 
 /--
 Build a Lean expression representing the weighted sum
@@ -423,7 +435,7 @@ private def buildWeightedSumAndProof
     (entries : Array (Rat × Expr × Expr)) :
     MetaM (Expr × Expr) := do
   if entries.size = 0 then
-    let zero := mkRatLit 0
+    let zero ← mkRatLit 0
     let proof ← mkAppOptM ``Rat.le_refl #[some zero]
     return (zero, proof)
   -- Right-fold so the sum nests on the right and the proof is built
@@ -431,8 +443,8 @@ private def buildWeightedSumAndProof
   let n := entries.size
   let last := n - 1
   let (lamₖ, termₖ, hRowₖ) := entries[last]!
-  let lamₖExpr := mkRatLit lamₖ
-  let hLamₖ ← mkDecideProof (← mkAppM ``LE.le #[mkRatLit 0, lamₖExpr])
+  let lamₖExpr ← mkRatLit lamₖ
+  let hLamₖ ← mkDecideProof (← mkAppM ``LE.le #[(← mkRatLit 0), lamₖExpr])
   let sumₖ ← mkRatMul lamₖExpr termₖ
   let proofₖ ← mkAppM ``rat_smul_nonpos #[hRowₖ, hLamₖ]
   let mut sumExpr := sumₖ
@@ -440,8 +452,8 @@ private def buildWeightedSumAndProof
   for i in [0:last] do
     let idx := last - 1 - i
     let (lam, term, hRow) := entries[idx]!
-    let lamExpr := mkRatLit lam
-    let hLam ← mkDecideProof (← mkAppM ``LE.le #[mkRatLit 0, lamExpr])
+    let lamExpr ← mkRatLit lam
+    let hLam ← mkDecideProof (← mkAppM ``LE.le #[(← mkRatLit 0), lamExpr])
     let head ← mkRatMul lamExpr term
     let headProof ← mkAppM ``rat_smul_nonpos #[hRow, hLam]
     let newSum ← mkRatAdd head sumExpr
@@ -475,22 +487,20 @@ private def isLinExprClosed (e : LinExpr) : Bool :=
 
 /-! ## Discharger for the closed `Rat` algebraic identity.
 
-We feed `grobner` (the `grind` frontend with only the ring solver
-enabled) the identity `rhs - lhs + sum = c`. Each term in `sum` is a
-concrete `Rat` literal times a user-side `Rat` expression, and `c` is
-a `Rat` literal. The identity is a pure polynomial fact in user
-variables, so `grobner` closes it without seeing any `Problem` /
-`AffCert` / `Array` data. -/
+The identity has the form `(rhs - lhs) + Σ λᵢ * tᵢ = c` (or the Farkas
+shape `Σ λᵢ * tᵢ = c` for infeasible certificates).  Each `tᵢ` is a
+user-side `Rat` expression, each `λᵢ` and `c` is a closed `Rat` literal,
+and the identity is a pure polynomial fact in user variables.
 
-private def proveAlgebraicIdentity (target : Expr) : TacticM Expr := do
-  let mvar ← mkFreshExprSyntheticOpaqueMVar target
-  let goal := mvar.mvarId!
-  let stx ← `(tactic| grobner)
-  let goals ← run goal do
-    evalTactic stx
-  unless goals.isEmpty do
-    throwError "lp: grobner failed to close the certificate identity\n  goal: {target}"
-  instantiateMVars mvar
+We discharge it with a purpose-built reflective normaliser
+`Soplex.Tactic.RatLin.proveLinearIdentity`, whose work is bounded by
+the nonzero count of the identity (`O(nnz)`) and which produces a
+predictable proof term independent of the variable count.  See
+`Soplex/Tactic/RatLin/{Q,AST,NF,Tactic}.lean` for the implementation
+and soundness theorem. -/
+
+private def proveAlgebraicIdentity (target : Expr) : TacticM Expr :=
+  Soplex.Tactic.RatLin.proveLinearIdentity target
 
 /-! ## Per-goal driver.
 
@@ -525,15 +535,15 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
       let proof ← row.proof
       entries := entries.push (lam, row.term, proof)
   let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
-  let cExpr := mkRatLit c
+  let cExpr ← mkRatLit c
   let lhsId ← mkRatAdd rhsMinusLhs sumExpr
   let identType ← mkEq lhsId cExpr
   let identProof ← proveAlgebraicIdentity identType
   if strict then
-    let hC ← mkDecideProof (← mkAppM ``LT.lt #[mkRatLit 0, cExpr])
+    let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
     mkAppM ``direct_lt_close #[sumProof, hC, identProof]
   else
-    let hC ← mkDecideProof (← mkAppM ``LE.le #[mkRatLit 0, cExpr])
+    let hC ← mkDecideProof (← mkAppM ``LE.le #[(← mkRatLit 0), cExpr])
     mkAppM ``direct_le_close #[sumProof, hC, identProof]
 
 private def proveEntailed (rows : Array Row) (strict : Bool)
@@ -605,10 +615,10 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
           let proof ← row.proof
           entries := entries.push (lam, row.term, proof)
       let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
-      let cExpr := mkRatLit c
+      let cExpr ← mkRatLit c
       let identType ← mkEq sumExpr cExpr
       let identProof ← proveAlgebraicIdentity identType
-      let hC ← mkDecideProof (← mkAppM ``LT.lt #[mkRatLit 0, cExpr])
+      let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
       let hFalse ← mkAppM ``direct_infeasible_close #[sumProof, hC, identProof]
       let goalType ←
         if strict then mkAppM ``LT.lt #[lhs, rhs] else mkAppM ``LE.le #[lhs, rhs]
