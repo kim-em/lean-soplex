@@ -13,6 +13,8 @@
   * `Soplex.Verify.Bool`      — decidable `is*` / `check*` checks.
   * `Soplex.Verify.Budget`    — `certificateWithinBudget`: ceiling
                                     on rational coordinate bit lengths.
+  * `Soplex.Verify.CertStats` — rational-shape diagnostics for
+                                    exploratory certificate profiling.
   * `Soplex.Verify.Arith`     — Rat / Array toolkit and Bool-to-Prop
                                     lemmas used by the soundness layer.
   * `Soplex.Verify.Prop`      — mathematical `IsFeasible` etc.
@@ -31,6 +33,7 @@ import Soplex.Verify.Types
 import Soplex.Verify.Validate
 import Soplex.Verify.Bool
 import Soplex.Verify.Budget
+import Soplex.Verify.CertStats
 import Soplex.Verify.Arith
 import Soplex.Verify.Prop
 import Soplex.Verify.Sound

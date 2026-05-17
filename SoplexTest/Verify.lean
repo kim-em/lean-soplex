@@ -348,6 +348,35 @@ def tBudgetBitLenConvention : Outcome :=
   expect (r0.bitLen = 1 && r1.bitLen = 2 && r3.bitLen = 3 && rNeg.bitLen = 6)
     s!"Rat.bitLen pins: 0→{r0.bitLen} 1→{r1.bitLen} 3→{r3.bitLen} -7/4→{rNeg.bitLen}"
 
+/-! ## Certificate rational-shape diagnostics. -/
+
+def tPow2Exponent : Outcome :=
+  expect (pow2Exponent? 0 = none && pow2Exponent? 1 = some 0 &&
+      pow2Exponent? 8 = some 3 && pow2Exponent? 12 = none)
+    "unexpected power-of-two denominator classification"
+
+def tRatProfile : Outcome :=
+  let xs : Array Rat := #[0, 1, (1 : Rat) / 8, (2 : Rat) / 3, -7 / 4]
+  let p := profileRatArray xs
+  expect
+    (p.count = 5 && p.nonzero = 4 && p.integers = 2 &&
+      p.dyadic = 4 && p.nonDyadic = 1 && p.maxDen = 8 &&
+      p.lcmDen = 24 && p.maxDyadicExponent = 3 &&
+      !p.allDyadic && !p.allInteger)
+    s!"bad RatProfile: {repr p}"
+
+def tDualProfile : Outcome :=
+  match smallCertificate.dual with
+  | none => .fail "smallCertificate unexpectedly has no dual"
+  | some d =>
+      let p := profileDual d
+      expect
+        (p.rowLower.count = 2 && p.rowUpper.count = 2 &&
+          p.colLower.count = 3 && p.colUpper.count = 3 &&
+          p.all.count = 10 && p.all.nonzero = 2 &&
+          p.all.nonDyadic = 1 && p.all.lcmDen = 3)
+        s!"bad DualProfile: {repr p}"
+
 /-! ## Driver. -/
 
 def allTests : Array TestCase := #[
@@ -374,7 +403,10 @@ def allTests : Array TestCase := #[
   ⟨"budget: small certificate within 10000",        pure tBudgetSmallPasses⟩,
   ⟨"budget: none disables the check",               pure tBudgetNoneAlwaysPasses⟩,
   ⟨"budget: large rationals rejected at 5",         pure tBudgetLargeRejected⟩,
-  ⟨"budget: Rat.bitLen convention pinning",         pure tBudgetBitLenConvention⟩
+  ⟨"budget: Rat.bitLen convention pinning",         pure tBudgetBitLenConvention⟩,
+  ⟨"cert stats: power-of-two exponent",             pure tPow2Exponent⟩,
+  ⟨"cert stats: RatProfile",                        pure tRatProfile⟩,
+  ⟨"cert stats: DualProfile",                       pure tDualProfile⟩
 ]
 
 def main : IO UInt32 := runAll "verifier" allTests

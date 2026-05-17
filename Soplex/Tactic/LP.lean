@@ -1,12 +1,18 @@
 import Lean
 import Init.Data.Vector.Lemmas
 import Soplex.Basic
+import Soplex.Verify.CertStats
 import Soplex.Tactic.RatLin.Tactic
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
 
 namespace Soplex.Tactic.LP
+
+register_option soplex.lp.certificateStats : Bool := {
+  defValue := false
+  descr := "print denominator/dyadic/integer-scaling statistics for the SoPlex multiplier vector consumed by the lp tactic"
+}
 
 /-! # Direct certificate backend for the `lp` tactic.
 
@@ -392,6 +398,10 @@ private def buildProblem (rowDense : Array (Array Rat)) (rowConsts : Array Rat)
 private def ratList (xs : Array Rat) : String :=
   "[" ++ String.intercalate ", " (xs.toList.map (toString ·)) ++ "]"
 
+private def traceMultiplierStats (label : String) (mults : Array Rat) : TacticM Unit := do
+  if (← getOptions).getBool `soplex.lp.certificateStats false then
+    logInfo (Soplex.Verify.RatProfile.summary label (Soplex.Verify.profileRatArray mults))
+
 /-- Build a `Rat` `HMul.hMul a b` Expr. -/
 private def mkRatMul (a b : Expr) : MetaM Expr :=
   mkAppM ``HMul.hMul #[a, b]
@@ -595,6 +605,7 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   let some d := sol.certificate.dual
     | throwError "lp: SoPlex returned no dual certificate"
   let mults := d.rowUpper.toArray
+  traceMultiplierStats "lp.rowUpper" mults
   -- Verify multipliers are nonneg.
   unless mults.all (fun lam => 0 ≤ lam) do
     throwError "lp: SoPlex returned a negative upper-bound multiplier; refusing to build a proof"
