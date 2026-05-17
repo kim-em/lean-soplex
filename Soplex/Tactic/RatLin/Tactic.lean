@@ -402,16 +402,10 @@ def proveLinearIdentity (target : Expr) : MetaM Expr := Lean.withAtLeastMaxRecDe
   let rho ← mkRho st.atoms
   -- proofInternal : Lin.eval lhsAst ρ = Lin.eval rhsAst ρ
   --                ≡ lhsExpr = rhsExpr   (by `rfl` on the eval reductions)
-  -- `Lin.eval_eq_evalNF` has no implicits, so direct `mkApp2` skips `mkAppM`'s
-  -- `isDefEq` unification entirely.  `Lean.Meta.mkEqTrans`/`mkEqSymm` extract
-  -- the equation's type arguments by `Expr.eq?` pattern-matching rather than
-  -- `isDefEq`, deferring the middle-term reduction to the kernel (C++) where
-  -- per-step cost is much lower.  This is the dominant proveLinearIdentity
-  -- cost at N=80; see issue #74.
-  let pL := mkApp2 (mkConst ``Lin.eval_eq_evalNF) lhsAst rho
-  let pR := mkApp2 (mkConst ``Lin.eval_eq_evalNF) rhsAst rho
-  let pRsym ← mkEqSymm pR
-  let proofInternal ← mkEqTrans pL pRsym
+  let pL ← mkAppM ``Lin.eval_eq_evalNF #[lhsAst, rho]
+  let pR ← mkAppM ``Lin.eval_eq_evalNF #[rhsAst, rho]
+  let pRsym ← mkAppM ``Eq.symm #[pR]
+  let proofInternal ← mkAppM ``Eq.trans #[pL, pRsym]
   -- If a bridge was needed on either side, transport through the bridges:
   --   lhsExpr0 = lhsExpr (= rhsExpr via proofInternal) = rhsExpr0
   match lhsBridge?, rhsBridge? with
@@ -423,8 +417,8 @@ def proveLinearIdentity (target : Expr) : MetaM Expr := Lean.withAtLeastMaxRecDe
     let rhsBridge ← match rhsBridge? with
       | some p => pure p
       | none => mkEqRefl rhsExpr0
-    let rhsBridgeSym ← mkEqSymm rhsBridge
-    let step1 ← mkEqTrans lhsBridge proofInternal
-    mkEqTrans step1 rhsBridgeSym
+    let rhsBridgeSym ← mkAppM ``Eq.symm #[rhsBridge]
+    let step1 ← mkAppM ``Eq.trans #[lhsBridge, proofInternal]
+    mkAppM ``Eq.trans #[step1, rhsBridgeSym]
 
 end Soplex.Tactic.RatLin
