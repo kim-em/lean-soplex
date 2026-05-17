@@ -228,17 +228,6 @@ theorem eval_smul (q : Q) (a : NF) (ρ : Nat → Rat) :
 
 end NF
 
-/-- Look up a `Rat` in a list by `Nat` index, returning `default` on
-out-of-range.  Structurally recursive on both arguments; reduces in the
-kernel for closed inputs.  Used as the atom-decoder `ρ : Nat → Rat`
-emitted by the `RatLin` tactic — bound to a single `def` rather than
-nested `ite`s so that emitting `ρ` for N=100 atoms doesn't blow past
-`maxRecDepth`. -/
-def lookupAtom : Nat → List Rat → Rat → Rat
-  | _,     [],      default => default
-  | 0,     x :: _,  _       => x
-  | n + 1, _ :: xs, default => lookupAtom n xs default
-
 namespace Lin
 
 /-- Soundness: a `Lin` AST and its normal form agree everywhere. -/

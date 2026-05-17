@@ -12,11 +12,14 @@ with `m + n` rather than `m × n²`, so this file elaborates in seconds
 instead of timing out (or recursing past the kernel's limit).
 -/
 
--- The RatLin discharger's closed `Lin` AST takes many `whnf` steps at
--- N=80/100 (linear-scan atom lookup × O(N²) atom references); bump
--- heartbeats to absorb that.  `maxRecDepth` stays at its default — the
--- final-closer applications are constructed with explicit implicits so
--- they no longer trip the elaborator's recursion guard (see #71).
+-- The kernel typecheck at N=80/100 reduces `Lin.toNF` over a `Q` AST
+-- whose intermediate denominators grow large (deliberately un-gcd'd to
+-- stay kernel-reducible).  `maxRecDepth` is at its default thanks to
+-- the explicit-implicits trick in #72; the heartbeat bump is needed
+-- because `mkAppM ``Eq.trans` in the discharger forces the elaborator
+-- to reduce `Lin.toNF`, which dominates wall-clock.  Follow-ups:
+-- replacing `mkAppM` with direct constructors, and considering
+-- normalised Q (or dyadic) arithmetic — see issue #70's comments.
 set_option maxHeartbeats 16000000
 
 namespace Soplex.Tactic.LP.Scaling

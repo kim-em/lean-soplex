@@ -329,34 +329,36 @@ private partial def mkLinExpr (l : LinM) : MetaM Expr := do
   | .sub e₁ e₂ => return mkApp2 (mkConst ``Lin.sub) (← mkLinExpr e₁) (← mkLinExpr e₂)
   | .smul q e => return mkApp2 (mkConst ``Lin.smul) (← mkQExpr q) (← mkLinExpr e)
 
-/-- Build a `List Rat` Expr from the atom table. -/
-private def mkAtomList (atoms : Array FVarId) : MetaM Expr := do
-  let nil := mkApp (mkConst ``List.nil [.zero]) (mkConst ``Rat)
-  let mut acc : Expr := nil
-  for _h : k in [0:atoms.size] do
-    let revIdx := atoms.size - 1 - k
-    acc := mkApp3 (mkConst ``List.cons [.zero]) (mkConst ``Rat)
-            (Expr.fvar atoms[revIdx]!) acc
-  return acc
-
 /-- Emit an `Expr` of type `Nat → Rat` that decodes atom indices into the
-corresponding user `Rat` `FVarId`s, via `NF.lookupAtom`.  Out-of-range
-indices map to the first atom (a deliberately wrong default value that
-is never reached on goals produced by the LP tactic) or `0` when the
-atom table is empty. -/
+corresponding user `Rat` `FVarId`s.
+
+The decoder is `fun (i : Nat) => arr.get i` where `arr : Lean.RArray Rat`
+is a balanced binary search tree built at meta-time by `RArray.ofArray`
+and emitted as a closed `.leaf` / `.branch` constructor tree via
+`RArray.toExpr`.  The emitted ρ contains no `RArray.ofFn`: the meta-side
+`ofFn` only happens here, before `toExpr`, so the proof term shipped to
+the kernel has no well-founded-recursion machinery in it.  `RArray.get`
+is a reducible abbrev unfolding to `RArray.rec` + `Nat.ble`, which
+reduces in `O(log atoms.size)` per lookup.
+
+By construction every atom index that appears in a generated AST is
+in range, so the empty-table case is unreachable from the discharger
+itself; we still need to emit *some* `Nat → Rat`, and use `fun _ => 0`
+in that case. -/
 private def mkRho (atoms : Array FVarId) : MetaM Expr := do
-  let lst ← mkAtomList atoms
-  let default : Expr ←
-    if h : atoms.size > 0 then
-      pure (Expr.fvar atoms[0])
-    else
-      -- Fallback: `(0 : Rat)` materialised via `Rat.normalize 0 1` (kernel-reducible).
-      mkAppM ``Rat.normalize
-        #[mkApp (mkConst ``Int.ofNat) (mkNatLit 0), mkNatLit 1,
-          ← mkDecideProof (← mkAppM ``Ne #[mkNatLit 1, mkNatLit 0])]
-  withLocalDecl `i .default (mkConst ``Nat) fun iVar => do
-    let body := mkApp3 (mkConst ``Soplex.Tactic.RatLin.lookupAtom) iVar lst default
-    mkLambdaFVars #[iVar] body
+  if h : 0 < atoms.size then
+    let arr : Lean.RArray FVarId := Lean.RArray.ofArray atoms h
+    let arrExpr ← arr.toExpr (mkConst ``Rat) Expr.fvar
+    withLocalDecl `i .default (mkConst ``Nat) fun iVar => do
+      let body := mkApp3 (mkConst ``Lean.RArray.get [.zero])
+        (mkConst ``Rat) arrExpr iVar
+      mkLambdaFVars #[iVar] body
+  else
+    let zero ← mkAppM ``Rat.normalize
+      #[mkApp (mkConst ``Int.ofNat) (mkNatLit 0), mkNatLit 1,
+        ← mkDecideProof (← mkAppM ``Ne #[mkNatLit 1, mkNatLit 0])]
+    withLocalDecl `i .default (mkConst ``Nat) fun iVar => do
+      mkLambdaFVars #[iVar] zero
 
 /-! ## The discharger -/
 
