@@ -113,6 +113,10 @@ artefacts. Each parsed row carries:
 * `linexpr : LinExpr` — numerical coefficients on the parsed variables,
   used to build the LP problem fed to SoPlex and to compute the
   numerical residual after the dual comes back.
+
+The proof-facing artefacts are thunks: most parsed rows receive a zero
+dual multiplier, so their Lean-side term and proof are never demanded by
+the certificate.
 -/
 
 inductive Rel where
@@ -127,7 +131,7 @@ structure LinExpr where
   deriving Inhabited
 
 structure Row where
-  term : Expr
+  term : MetaM Expr
   expr : LinExpr
   proof : MetaM Expr
 
@@ -337,15 +341,21 @@ private partial def collectHypProof (origin : Name) (proof : Expr) :
       throwError "lp: strict hypothesis `{origin}` is not supported in Stage 1"
   | some (.le, lhsExpr, rhsExpr, lhs, rhs) =>
       let row := lhs.sub rhs
-      let term ← mkAppM ``HSub.hSub #[lhsExpr, rhsExpr]
-      return #[{ term := term, expr := row, proof := mkAppM ``rat_sub_nonpos_of_le #[proof] }]
+      return #[{
+        term := mkAppM ``HSub.hSub #[lhsExpr, rhsExpr],
+        expr := row,
+        proof := mkAppM ``rat_sub_nonpos_of_le #[proof] }]
   | some (.eq, lhsExpr, rhsExpr, lhs, rhs) =>
       let d := lhs.sub rhs
-      let term₁ ← mkAppM ``HSub.hSub #[lhsExpr, rhsExpr]
-      let term₂ ← mkAppM ``HSub.hSub #[rhsExpr, lhsExpr]
       return #[
-        { term := term₁, expr := d, proof := mkAppM ``rat_sub_nonpos_of_eq #[proof] },
-        { term := term₂, expr := d.neg, proof := do mkAppM ``rat_sub_nonpos_of_eq #[← mkEqSymm proof] }]
+        {
+          term := mkAppM ``HSub.hSub #[lhsExpr, rhsExpr],
+          expr := d,
+          proof := mkAppM ``rat_sub_nonpos_of_eq #[proof] },
+        {
+          term := mkAppM ``HSub.hSub #[rhsExpr, lhsExpr],
+          expr := d.neg,
+          proof := do mkAppM ``rat_sub_nonpos_of_eq #[← mkEqSymm proof] }]
 
 private def collectHyps : ParseM (Array Row) := do
   let mut rows := #[]
@@ -532,8 +542,9 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
     let lam := mults[i]!
     if lam ≠ 0 then
       let row := rows[i]
+      let term ← row.term
       let proof ← row.proof
-      entries := entries.push (lam, row.term, proof)
+      entries := entries.push (lam, term, proof)
   let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
   let cExpr ← mkRatLit c
   let lhsId ← mkRatAdd rhsMinusLhs sumExpr
@@ -555,9 +566,6 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
 
 private def proveEntailed (rows : Array Row) (strict : Bool)
     (vars : Array FVarId) (lhs rhs : Expr) : TacticM Expr := do
-  -- Numerical row data.
-  let rowDense := rows.map (·.expr.toDense vars)
-  let rowConsts := rows.map (·.expr.const)
   -- Objective: `rhs - lhs` as a `LinExpr`.
   let (objLin, _) ←
     (do
@@ -570,6 +578,11 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   if vars.size = 0 || isLinExprClosed objLin then
     let mults := Array.replicate rows.size (0 : Rat)
     return ← assembleLeProof rows strict objLin mults lhs rhs
+  -- Numerical row data is only needed once we know a solver call is
+  -- required; the closed-goal path above proves the goal with the empty
+  -- weighted sum.
+  let rowDense := rows.map (·.expr.toDense vars)
+  let rowConsts := rows.map (·.expr.const)
   let objCoeffs := objLin.toDense vars
   let objConst := objLin.const
   -- Build the LP.
@@ -619,8 +632,9 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
         let lam := mults[i]!
         if lam ≠ 0 then
           let row := rows[i]
+          let term ← row.term
           let proof ← row.proof
-          entries := entries.push (lam, row.term, proof)
+          entries := entries.push (lam, term, proof)
       let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
       let cExpr ← mkRatLit c
       let identType ← mkEq sumExpr cExpr
