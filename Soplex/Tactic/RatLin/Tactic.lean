@@ -402,9 +402,18 @@ def proveLinearIdentity (target : Expr) : MetaM Expr := Lean.withAtLeastMaxRecDe
   let rho ← mkRho st.atoms
   -- proofInternal : Lin.eval lhsAst ρ = Lin.eval rhsAst ρ
   --                ≡ lhsExpr = rhsExpr   (by `rfl` on the eval reductions)
-  let pL ← mkAppM ``Lin.eval_eq_evalNF #[lhsAst, rho]
-  let pR ← mkAppM ``Lin.eval_eq_evalNF #[rhsAst, rho]
-  let pRsym ← mkAppM ``Eq.symm #[pR]
+  -- `Lin.eval_eq_evalNF` has no implicit arguments, so `mkApp2` builds the
+  -- application directly and skips `mkAppM`'s inference. `mkEqSymm` reads the
+  -- equation's endpoints straight off the inferred type — no def-eq either.
+  -- The `Eq.trans` below MUST stay on `mkAppM`: its middle term is
+  -- `NF.eval (toNF lhsAst) ρ` vs `NF.eval (toNF rhsAst) ρ`, only definitionally
+  -- equal, and `mkAppM` performs that def-eq in the elaborator (bounded). The
+  -- typed `mkEqTrans` builder defers it to the kernel, which then reduces
+  -- `Lin.toNF` over the whole AST and overflows its stack — `(kernel) deep
+  -- recursion detected`. See issues #78/#79/#80/#81/#83.
+  let pL := mkApp2 (mkConst ``Lin.eval_eq_evalNF) lhsAst rho
+  let pR := mkApp2 (mkConst ``Lin.eval_eq_evalNF) rhsAst rho
+  let pRsym ← mkEqSymm pR
   let proofInternal ← mkAppM ``Eq.trans #[pL, pRsym]
   -- If a bridge was needed on either side, transport through the bridges:
   --   lhsExpr0 = lhsExpr (= rhsExpr via proofInternal) = rhsExpr0
@@ -417,7 +426,11 @@ def proveLinearIdentity (target : Expr) : MetaM Expr := Lean.withAtLeastMaxRecDe
     let rhsBridge ← match rhsBridge? with
       | some p => pure p
       | none => mkEqRefl rhsExpr0
-    let rhsBridgeSym ← mkAppM ``Eq.symm #[rhsBridge]
+    -- `mkEqSymm` is safe (endpoint-read only); the two `Eq.trans` calls keep
+    -- `mkAppM` for the same reason as above — their middle terms (`lhsExpr`,
+    -- `rhsExpr`) are only definitionally equal to the `Lin.eval _ ρ` endpoints
+    -- of `proofInternal`, and that def-eq must stay in the elaborator.
+    let rhsBridgeSym ← mkEqSymm rhsBridge
     let step1 ← mkAppM ``Eq.trans #[lhsBridge, proofInternal]
     mkAppM ``Eq.trans #[step1, rhsBridgeSym]
 
