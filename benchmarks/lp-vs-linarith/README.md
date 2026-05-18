@@ -14,7 +14,8 @@ benchmarks/lp-vs-linarith/
 ├── README.md                 — this file
 ├── lakefile.toml             — Lake config (path-requires soplex, requires Mathlib)
 ├── lean-toolchain            — pinned to the soplex toolchain
-├── run.sh                    — wall-clock benchmark runner
+├── run.sh                    — single-seed (seed = N) wall-clock runner
+├── run-multi-seed.sh         — 5-seed runner with mean / min / max summary
 ├── generators/               — Python generators for the test families
 │   ├── dense_integer.py
 │   ├── dense_rational.py
@@ -32,18 +33,24 @@ benchmarks/lp-vs-linarith/
 
 ```bash
 cd benchmarks/lp-vs-linarith
-lake exe cache get        # fetch Mathlib's olean cache
-lake build                # build the test files (and Mathlib oleans)
-./run.sh                  # wall-clock comparison, one row per (N, tactic)
+lake exe cache get          # fetch Mathlib's olean cache
+lake build                  # build the test files (and Mathlib oleans)
+./run.sh                    # single-seed (seed = N) timings, one row per (N, tactic)
+./run-multi-seed.sh         # 5 seeds × all (N, tactic) with mean/min/max summary at the end
 ```
 
 The first `lake build` will download the Mathlib cache (several thousand
 files). After that, individual examples elaborate in seconds.
 
-To regenerate the test files from the Python generators (e.g. for new
-sizes), edit the generator and run something like:
+Generators take an optional third `seed` argument (default = N). The
+committed `.lean` files use seed = N; the multi-seed runner generates
+into the gitignored `LPvsLinarith/Seeded/` subdir at seeds 1..5.
 
 ```bash
+# canonical (seed = N) file:
 python3 generators/dense_integer.py 120 lp       > LPvsLinarith/IntN120LP.lean
 python3 generators/dense_integer.py 120 linarith > LPvsLinarith/IntN120LA.lean
+
+# multi-seed (explicit seed):
+python3 generators/dense_integer.py 120 lp 3     > LPvsLinarith/Seeded/IntN120_lp_s3.lean
 ```

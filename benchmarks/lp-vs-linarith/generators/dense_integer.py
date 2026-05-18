@@ -16,8 +16,10 @@ def render(vars_, A, b, tactic):
     goal = " + ".join(vars_)
     return f"example ({' '.join(vars_)} : Rat) {nn} {rows_h} : {goal} ≤ {n} := by {tactic}"
 import sys
+# Usage: dense_integer.py <N> <lp|linarith> [seed]   (seed default = N)
 n = int(sys.argv[1]); tactic = sys.argv[2]
-vars_, A, b = gen_dense(n, seed=n)
+seed = int(sys.argv[3]) if len(sys.argv) > 3 else n
+vars_, A, b = gen_dense(n, seed=seed)
 print("import Soplex")
 print("import Mathlib.Tactic.Linarith")
 print("set_option maxHeartbeats 4000000")

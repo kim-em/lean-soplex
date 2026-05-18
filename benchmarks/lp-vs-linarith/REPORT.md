@@ -5,14 +5,19 @@ Mathlib's `linarith` on linear-arithmetic goals over `Rat`, on the soplex
 `main` at the time of writing (`8c8b215`).
 
 **Take-away in one paragraph.** On hand-written tactic-scale problems
-(N ≤ ~50 variables), `linarith` is faster — usually 2–3× — because `lp`
-pays a per-invocation overhead in metaprogram-side `Expr` construction
-that `linarith` largely avoids. Above N ≈ 60, `lp` catches up; above
-N ≈ 80, `lp` overtakes; and at N = 100 dense, `linarith` itself fails
-(`maximum recursion depth has been reached`) while `lp` completes. The
-demonstrable advantage is **scale robustness**, not a structural win on
-a particular problem class. SoPlex's actual LP solve is single-digit
-milliseconds throughout — it is not the bottleneck on either side.
+(N ≤ ~50 variables), `linarith` is faster — typically 2–3× — because
+`lp` pays a per-invocation overhead in metaprogram-side `Expr`
+construction that `linarith` largely avoids. The two reach parity
+around N = 60, and **at N = 80 dense integer `lp` is consistently faster
+than `linarith` across all five seeds we ran**. At N = 100 dense integer,
+`linarith` itself fails on every seed with `maximum recursion depth has
+been reached`, while `lp` completes in ~29 s. On dense rational
+instances, the two are closer to parity throughout and `lp` exhibits
+substantial per-instance variance (a 2.9× spread at N = 80). The
+demonstrable advantage is **scale robustness** for integer dense, not
+a structural win on a particular problem class. SoPlex's actual LP
+solve is single-digit milliseconds throughout — it is not the
+bottleneck on either side.
 
 ---
 
@@ -32,74 +37,105 @@ tactic. Wall-clock includes a ~3 s `import` baseline (each invocation
 re-imports the dependencies; the figures are total elapsed, not
 tactic-only).
 
-The seed is the same as the problem size, so a given N produces the same
-instance every run. There is real per-instance variance — see §3.
+The headline tables in §2 are means over **five random seeds per (family,
+N, tactic)**, with the per-seed min and max alongside as a measure of
+per-instance spread. The generators take an explicit seed argument
+(`dense_integer.py N tac [seed]`); the seed is the problem size for the
+committed canonical `.lean` files, and 1..5 for the multi-seed runs. The
+multi-seed runner is [`run-multi-seed.sh`](./run-multi-seed.sh); the
+generated files for multi-seed runs land under `LPvsLinarith/Seeded/`,
+which is gitignored.
 
 The generators (Python) live under [`generators/`](./generators/) and
-are committed alongside the generated `.lean` files so the harness is
-reproducible without re-running them.
+are committed alongside the canonical generated `.lean` files so the
+harness is reproducible without re-running them.
 
 ## 2. Results
 
 ### 2.1 Integer-coefficient dense LPs
 
-| N | `lp` | `linarith` |
-|---:|---:|---:|
-| 10 | 9.0 s | 3.4 s |
-| 20 | 5.3 s | 3.9 s |
-| 30 | 9.5 s | 4.8 s |
-| 40 | 16.1 s | 6.7 s |
-| 50 | 28.2 s | 9.0 s |
-| 60 | 13.7 s | 13.5 s |
-| 80 | **20.8 s** | 28.3 s |
-| 100 | **29.8 s** | **fails — `maximum recursion depth`** |
+Means of 5 random seeds; the `range` columns are the per-seed min and
+max.
 
-The N = 10 `lp` figure is a cold-cache outlier (first invocation; subsequent
-ones are ~3 s). The N = 60 dip below the N = 50 figure is instance-dependent
-— see §3.
+| N | `lp` mean | `lp` range | `linarith` mean | `linarith` range | notes |
+|---:|---:|:---:|---:|:---:|:---|
+| 10 | 5.7 s | 3.7 – 10.1 | 3.1 s | 3.0 – 3.4 | first-call cold cache inflates the high end |
+| 20 | 5.1 s | 4.9 – 5.2 | 3.6 s | 3.6 – 3.7 |  |
+| 30 | 9.1 s | 8.9 – 9.6 | 4.5 s | 4.4 – 4.8 |  |
+| 40 | 16.6 s | 16.3 – 16.9 | 6.3 s | 6.0 – 7.0 |  |
+| 50 | 29.3 s | 28.0 – 33.2 | 9.0 s | 8.6 – 9.5 |  |
+| 60 | 13.6 s | 13.2 – 14.1 | 12.8 s | 12.6 – 13.1 | parity |
+| 80 | **20.0 s** | 19.8 – 20.1 | 26.8 s | 26.4 – 27.0 | `lp` is consistently faster |
+| 100 | **28.5 s** | 27.2 – 29.0 | **fails (5/5)** | — | `linarith` exceeds `maximum recursion depth` on every seed |
+
+The N = 60 mean drops below the N = 50 mean across **every** seed
+(range 13.2–14.1 vs 28.0–33.2). The generator's seed-N construction
+evidently lands on instances at N = 60 whose Farkas certificates are
+significantly sparser than at N = 50 — see §3 for why this matters.
 
 ### 2.2 Rational-coefficient dense LPs
 
-Coefficients are `(k/d)` with `k ∈ {1,2,3}`, `d ∈ {2,3,5}` — so the
-constraint matrix has small rational entries throughout. `lp` and
-`linarith` track each other closely up to N ≈ 56, with `linarith`
-generally a hair faster. At N ≥ 64 they diverge in a noisy,
-instance-dependent way.
+Coefficients are `(k/d)` with `k ∈ {1,2,3}`, `d ∈ {2,3,5}` — small
+rational entries throughout. Means of 5 seeds.
 
-| N | `lp` | `linarith` |
-|---:|---:|---:|
-| 8 | 3.7 s | 3.8 s |
-| 16 | 4.3 s | 5.2 s |
-| 24 | 6.5 s | 7.2 s |
-| 32 | 9.6 s | 10.3 s |
-| 40 | 16.1 s | 14.9 s |
-| 48 | 19.8 s | 21.0 s |
-| 56 | 29.3 s | 27.4 s |
-| 64 | 45.6 s | 34.8 s |
-| 72 | 52.7 s | 41.3 s |
-| 80 | **24.8 s** | 53.4 s |
+| N | `lp` mean | `lp` range | `linarith` mean | `linarith` range | notes |
+|---:|---:|:---:|---:|:---:|:---|
+| 8 | 6.4 s | 3.2 – 13.4 | 3.9 s | 3.3 – 5.8 | cold cache inflates the high end |
+| 16 | 4.0 s | 3.9 – 4.3 | 4.7 s | 4.5 – 4.8 |  |
+| 24 | 5.8 s | 5.4 – 6.2 | 6.8 s | 6.6 – 6.9 |  |
+| 32 | 8.6 s | 7.9 – 9.1 | 9.7 s | 9.3 – 10.2 |  |
+| 40 | 13.1 s | 11.9 – 15.7 | 13.9 s | 12.9 – 14.9 |  |
+| 48 | 21.3 s | 20.5 – 22.2 | 19.0 s | 18.6 – 19.6 |  |
+| 56 | 29.7 s | 27.1 – 35.0 | 25.2 s | 23.9 – 26.9 |  |
+| 64 | 44.4 s | 42.4 – 48.5 | 33.0 s | 32.7 – 33.3 |  |
+| 72 | 58.0 s | 54.2 – 68.9 | 41.9 s | 40.4 – 43.0 |  |
+| 80 | 43.7 s | **25.1 – 72.2** | 52.2 s | 49.7 – 55.8 | huge `lp` instance spread; see §3 |
 
-The N = 80 row is the per-instance variance from §3 made manifest: the
-random instance at that size happens to admit an unusually sparse
-Farkas certificate (relatively few nonzero dual multipliers), so `lp`'s
-weighted-sum proof is short and the wall-clock collapses below the
-import baseline + a few seconds. `linarith`, whose cost grows with its
-internal Simplex iterations rather than with certificate sparsity, sees
-no equivalent break.
+Rational dense is closer to parity than integer dense, with `lp` and
+`linarith` trading slightly across N ≤ 40 and `linarith` pulling ahead
+from N = 48 up. The N = 80 row is the per-instance variance from §3
+made manifest in dramatic form: across five seeds, `lp`'s wall-clock at
+this single problem size ranges from **25 s to 72 s** (a 2.9× spread),
+while `linarith`'s ranges only from 50 s to 56 s. When the random
+instance happens to admit a sparse Farkas certificate, `lp`'s
+weighted-sum proof is short and it beats `linarith`; when the
+certificate is dense, the proof term grows and `lp` is slower. `linarith`,
+whose cost grows with its internal Simplex iterations rather than with
+certificate sparsity, doesn't see the same swing.
 
 ## 3. Instance variance
 
-The dense-LP timings are **not monotone in N**: the random-but-deterministic
-seed produces instances whose Farkas certificates SoPlex returns vary in
-sparsity. A sparser certificate means a shorter weighted-sum proof, which
-means less metaprogram-side `Expr` construction and less kernel
-type-checking — both costs grow with the number of nonzero dual
-multipliers, not directly with N. Hence N = 60 finishing faster than N = 50,
-or rational N = 80 finishing faster than N = 72.
+The dense-LP timings are **not monotone in N** and have real per-seed
+spread that no amount of averaging removes. The mechanism is the same in
+each case: `lp`'s wall-clock is dominated by the size of the weighted-sum
+proof term it builds, and the number of nonzero terms in that sum is
+the number of nonzero dual multipliers in the Farkas certificate SoPlex
+returns. That number depends on the *combinatorial structure* of the
+instance — which constraints are active at the optimal vertex — and
+varies discontinuously with random changes to the matrix. Two instances
+of the same N can produce a 2.9× swing in `lp`'s wall-clock (see the
+rational N = 80 row in §2.2), while `linarith`'s pure-Lean Simplex
+iteration count is comparatively stable across the same swing.
 
-For a smoother trend one would need to average over several seeds per N;
-this harness uses one seed per N so the data is reproducible without
-randomness in the report.
+This is *not* measurement noise. Re-running the same seed reproduces the
+same number to within a few percent (the spread inside a single (N,
+tactic, seed) row from re-runs is small). The variance in the tables is
+genuine variance in the problem instances themselves: different seeds at
+the same N are different LPs, and `lp`'s cost is sensitive to their
+certificate structure in a way `linarith`'s is not.
+
+Consequences:
+
+1. **Mean alone is misleading at large N.** The means in §2 are
+   accompanied by the per-seed range so the reader can see when one
+   instance is dragging the mean.
+2. **`lp` is not monotone in N**: the integer-dense N = 60 mean is less
+   than the N = 50 mean across all five seeds. The seed-N families don't
+   uniformly get harder with size; they sample a distribution whose
+   tail-mass at a given N depends on the construction.
+3. **For pedagogy or marketing**, picking favourable seeds is easy.
+   This report quotes 5-seed means and ranges so that case isn't being
+   made by accident.
 
 ## 4. Where the time goes
 

@@ -1,7 +1,10 @@
-"""Dense LPs with rational (1/k) coefficients, to time lp vs linarith on non-integer data."""
+"""Dense LPs with rational (1/k) coefficients, to time lp vs linarith on non-integer data.
+Usage: dense_rational.py <N> <lp|linarith> [seed]   (seed default = N)
+"""
 import random, sys
 n = int(sys.argv[1]); tactic = sys.argv[2]
-random.seed(n)
+seed = int(sys.argv[3]) if len(sys.argv) > 3 else n
+random.seed(seed)
 vars_ = [f"x{i+1}" for i in range(n)]
 # coeffs are c/d with small c,d; diagonal dominant
 def coeff(): return f"({random.randint(1,3)}/{random.choice([2,3,5])} : Rat)"
