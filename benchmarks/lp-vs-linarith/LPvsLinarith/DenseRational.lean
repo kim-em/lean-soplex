@@ -1,4 +1,3 @@
-/-! Rational-coefficient dense LPs, lp and linarith variants, N = 8..80. -/
 import LPvsLinarith.RatN8LP
 import LPvsLinarith.RatN8LA
 import LPvsLinarith.RatN16LP
@@ -19,3 +18,4 @@ import LPvsLinarith.RatN72LP
 import LPvsLinarith.RatN72LA
 import LPvsLinarith.RatN80LP
 import LPvsLinarith.RatN80LA
+-- Rational-coefficient dense LPs, lp and linarith variants, N = 8..80.
