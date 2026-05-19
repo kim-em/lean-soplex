@@ -1562,7 +1562,7 @@ fixed constant-zero objective (`max 0 subject to H`) so we are
 probing only the consistency of `H`. -/
 private def tryHypsInconsistent (rows : Array Row) (vars : Array FVarId) :
     MetaM (Option Expr) := do
-  if rows.size = 0 || vars.size = 0 then return none
+  if rows.size = 0 then return none
   let rowDense := rows.map (·.expr.toDense vars)
   let rowConsts := rows.map (·.expr.const)
   let objCoeffs := Array.replicate vars.size (0 : Rat)
