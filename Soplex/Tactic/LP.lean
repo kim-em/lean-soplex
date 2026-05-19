@@ -1239,7 +1239,7 @@ private def proveCertificateIdentity (vars : Array FVarId) (lhsId : Expr)
   unless L.const == cVal do
     throwError "lp(closeIdentity): normalised constant {L.const} does not match expected residual {cVal}"
   unless L.coeffs.isEmpty do
-    throwError "lp(closeIdentity): proveMerge invariant violated; {L.coeffs.size} surviving atom(s)"
+    throwError "lp(closeIdentity): normalization invariant violated; {L.coeffs.size} surviving atom(s)"
   -- `pfNorm : lhsId = rL` and `rL = mkRatLit cVal`, so `pfNorm` is the proof we want.
   let cExpr ← mkRatLit cVal
   let target ← mkEq lhsId cExpr
