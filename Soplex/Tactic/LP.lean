@@ -1,7 +1,7 @@
 import Lean
 import Init.Data.Vector.Lemmas
 import Soplex.Basic
-import Soplex.Tactic.RatLin.Tactic
+import Soplex.Tactic.RatLin.Q
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
@@ -14,9 +14,9 @@ namespace Soplex.Tactic.LP
 SoPlex is used as an untrusted oracle to find Farkas / dual multipliers.
 The proof term is a compact arithmetic certificate over the original
 hypotheses and goal: a weighted sum of hypothesis-side `≤ 0` facts plus
-a closed `Rat` algebraic identity, discharged by `grobner`. No
-`Problem` / `denseMatrix` / `AffCert` data reductions reach the
-kernel. -/
+a closed `Rat` algebraic identity, discharged by an explicit-proof-term
+construction (`proveCertificateIdentity`). No `Problem` / `denseMatrix` /
+`AffCert` data reductions reach the kernel. -/
 
 /-! ## Small `Rat` helpers and closing lemmas -/
 
@@ -64,7 +64,7 @@ theorem rat_add_nonpos {a b : Rat} (ha : a ≤ 0) (hb : b ≤ 0) : a + b ≤ 0 :
 Given a nonpositive sum `s ≤ 0`, a nonnegative residual `c`, and the
 algebraic identity `(rhs - lhs) + s = c`, we get `lhs ≤ rhs`. The
 identity is a pure `Rat` polynomial fact in the user expressions and is
-discharged by `grobner` at tactic time. -/
+discharged by the explicit-proof-term construction at tactic time. -/
 theorem direct_le_close {lhs rhs s c : Rat}
     (hSum : s ≤ 0) (hC : 0 ≤ c) (hIdent : rhs - lhs + s = c) :
     lhs ≤ rhs := by
@@ -106,9 +106,10 @@ theorem direct_infeasible_close {s c : Rat}
 /-! ## Explicit-proof-term discharger lemmas (issue #87)
 
 These lemmas are the fixed-arity building blocks for the `normalize` /
-`proveMerge` proof-term construction that replaces the reflective
-`RatLin.proveLinearIdentity` on the `lp` tactic's optimal path. Each lemma
-is applied by the metaprogram with `mkAppN` and explicit arguments; the
+`proveMerge` proof-term construction that discharges the closed `Rat`
+algebraic identities on both the optimal and infeasible branches of the
+`lp` tactic. Each lemma is applied by the metaprogram with `mkAppN` and
+explicit arguments; the
 kernel only structurally typechecks the resulting term, never reducing a
 recursive function over the certificate. Numeral side conditions on `Q`
 denominators reduce via GMP `Int` arithmetic — the only kernel *reduction*
@@ -696,10 +697,9 @@ private def mkQLit (r : Rat) : MetaM Expr := do
   return mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
 
 /-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
-that the RatLin discharger's `Lin.eval` reduces to the same kernel term
-on both sides of the identity, and so the explicit-proof-term discharger
-(issue #87) can apply `Q.toRat_add`/`toRat_mul`/`toRat_neg` without
-bridging through `Rat.div`-form literals. -/
+that the explicit-proof-term discharger (issue #87) can apply
+`Q.toRat_add`/`toRat_mul`/`toRat_neg` without bridging through
+`Rat.div`-form literals. -/
 private def mkRatLit (r : Rat) : MetaM Expr := do
   return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) (← mkQLit r)
 
@@ -755,8 +755,8 @@ private def LinExpr.coeffOf (e : LinExpr) (v : FVarId) : Rat := Id.run do
 /-- Compute the numerical residual `c = (rhs - lhs) + Σ λᵢ * eᵢ`
 expressed as a `LinExpr`. The caller verifies that the variable
 coefficients all vanish; what remains is the closed `Rat` constant
-that gets fed to `decide` for the sign check and to `grobner` for the
-algebraic identity proof. -/
+that gets fed to `decide` for the sign check and to
+`proveCertificateIdentity` for the algebraic identity proof. -/
 private def computeResidual (objLin : LinExpr) (rowLins : Array LinExpr)
     (mults : Array Rat) : LinExpr := Id.run do
   let mut acc : LinExpr := objLin
@@ -1263,23 +1263,6 @@ private def proveCertificateIdentity (vars : Array FVarId) (lhsId : Expr)
   let pf ← mkEqTrans pfNorm pEval
   mkExpectedTypeHint pf target
 
-/-! ## Discharger for the closed `Rat` algebraic identity.
-
-The identity has the form `(rhs - lhs) + Σ λᵢ * tᵢ = c` (or the Farkas
-shape `Σ λᵢ * tᵢ = c` for infeasible certificates).  Each `tᵢ` is a
-user-side `Rat` expression, each `λᵢ` and `c` is a closed `Rat` literal,
-and the identity is a pure polynomial fact in user variables.
-
-We discharge it with a purpose-built reflective normaliser
-`Soplex.Tactic.RatLin.proveLinearIdentity`, whose work is bounded by
-the nonzero count of the identity (`O(nnz)`) and which produces a
-predictable proof term independent of the variable count.  See
-`Soplex/Tactic/RatLin/{Q,AST,NF,Tactic}.lean` for the implementation
-and soundness theorem. -/
-
-private def proveAlgebraicIdentity (target : Expr) : TacticM Expr :=
-  Soplex.Tactic.RatLin.proveLinearIdentity target
-
 /-! ## Per-goal driver.
 
 Given a parsed atomic `Rat` goal `lhs op rhs` and the collected `≤`/`=`
@@ -1317,9 +1300,7 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
   let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
   let cExpr ← mkRatLit c
   let lhsId ← mkRatAdd rhsMinusLhs sumExpr
-  -- Explicit-proof-term discharge of `lhsId = c` (issue #87). The
-  -- previous reflective `proveAlgebraicIdentity` is retained for the
-  -- infeasible branch only.
+  -- Explicit-proof-term discharge of `lhsId = c` (issue #87).
   let identProof ← proveCertificateIdentity vars lhsId c
   -- Build the final closer by explicit-argument application instead of
   -- `mkAppM`. The four implicits (`lhs`, `rhs`, `s`, `c`) are already in
@@ -1408,8 +1389,10 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
           entries := entries.push (lam, term, proof)
       let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
       let cExpr ← mkRatLit c
-      let identType ← mkEq sumExpr cExpr
-      let identProof ← proveAlgebraicIdentity identType
+      -- Explicit-proof-term discharge of the Farkas identity
+      -- `sumExpr = c` (issue #91), sharing `proveCertificateIdentity`
+      -- with the optimal branch.
+      let identProof ← proveCertificateIdentity vars sumExpr c
       let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
       -- Explicit-argument construction; see comment in `assembleLeProof`.
       let hFalse := mkAppN (mkConst ``direct_infeasible_close)

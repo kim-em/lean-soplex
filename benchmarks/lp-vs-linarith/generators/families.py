@@ -44,6 +44,25 @@ elif family == "hilbert":
     goal = f"{' + '.join(vs)} ≤ {n}"
     emit(binders, hyps, goal)
 
+elif family == "infeas_geom":
+    # Infeasible variant of `geom`: same chain `3 x_{i+1} ≤ 2 x_i`,
+    # nonneg bounds, and `x_0 ≤ 1`, plus a contradictory lower bound
+    # `3^n x_n ≥ 2^n + 1`. The Farkas certificate uses denominators up
+    # to 3^{n+1}, matching `geom`'s certificate size. Goal is `0 = 1`
+    # (any goal, closed via `False.elim`).
+    vs = [f"x{i}" for i in range(n+1)]
+    binders = " ".join(vs) + " : Rat"
+    hyps = [f"(_p{i} : 0 ≤ {vs[i]})" for i in range(n+1)]
+    hyps.append(f"(_h0 : {vs[0]} ≤ 1)")
+    for i in range(1, n+1):
+        hyps.append(f"(_h{i} : 3 * {vs[i]} ≤ 2 * {vs[i-1]})")
+    hyps.append(f"(_hC : {2**n + 1} ≤ {3**n} * {vs[n]})")
+    # Goal has a free variable so the `lp` tactic actually calls SoPlex
+    # (the closed-goal short-circuit fires when the goal is a closed
+    # `Rat` comparison and never sees the infeasible branch).
+    goal = f"{vs[0]} ≤ -1"
+    emit(binders, hyps, goal)
+
 elif family == "bigcoeff":
     # Dense LP with large pairwise-ish coprime coefficients (4-6 digit).
     random.seed(n)
