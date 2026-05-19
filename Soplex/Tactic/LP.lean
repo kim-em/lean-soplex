@@ -5,6 +5,7 @@ import Soplex.Tactic.RatLin.Tactic
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
+open Soplex.Tactic.RatLin (Q)
 
 namespace Soplex.Tactic.LP
 
@@ -102,6 +103,135 @@ theorem direct_infeasible_close {s c : Rat}
   rw [hIdent] at hSum
   exact Rat.not_le.mpr hC hSum
 
+/-! ## Explicit-proof-term discharger lemmas (issue #87)
+
+These lemmas are the fixed-arity building blocks for the `normalize` /
+`proveMerge` proof-term construction that replaces the reflective
+`RatLin.proveLinearIdentity` on the `lp` tactic's optimal path. Each lemma
+is applied by the metaprogram with `mkAppN` and explicit arguments; the
+kernel only structurally typechecks the resulting term, never reducing a
+recursive function over the certificate. Numeral side conditions on `Q`
+denominators reduce via GMP `Int` arithmetic — the only kernel *reduction*
+in the produced proof.
+
+`⟦L⟧` for a sorted `LinExpr` `{const := r, coeffs := [(x₀,c₀), …]}` is
+rendered right-nested with the constant innermost:
+`c₀ * x₀ + (c₁ * x₁ + (… + (cₙ₋₁ * xₙ₋₁ + r) …))`. -/
+
+/-- Atom normal form: `x = 1 * x + 0`. Used at fvar leaves of `normalize`. -/
+theorem atom_norm (x : Rat) : x = 1 * x + 0 := by
+  rw [Rat.one_mul, Rat.add_zero]
+
+/-- Merge step "take left": at this position the smaller atom is on the
+left side. Peel its head and thread the recursive result. -/
+theorem take_left (h ta b res : Rat) (e : ta + b = res) :
+    (h + ta) + b = h + res := by
+  subst e; exact Rat.add_assoc h ta b
+
+/-- Merge step "take right": at this position the smaller atom is on the
+right side. Float that head past the left operand and thread the recursive
+result. -/
+theorem take_right (a h tb res : Rat) (e : a + tb = res) :
+    a + (h + tb) = h + res := by
+  subst e
+  rw [Rat.add_comm a (h + tb), Rat.add_assoc, Rat.add_comm tb a]
+
+/-- Merge step "combine": shared atom; coefficients `c'` and `c` combine
+to `m = c' + c`. Emit a single `m * x` head and thread the recursive
+result. -/
+theorem combine (x ta tb res c' c m : Rat)
+    (e : ta + tb = res) (hm : c' + c = m) :
+    (c' * x + ta) + (c * x + tb) = m * x + res := by
+  subst e; subst hm
+  grind [Rat.add_mul, Rat.add_assoc, Rat.add_comm, Rat.add_left_comm]
+
+/-- Merge step "combine to zero": shared atom whose merged coefficient is
+zero. Drop the head entirely. -/
+theorem combine_zero (x ta tb res c' c : Rat)
+    (e : ta + tb = res) (hm : c' + c = 0) :
+    (c' * x + ta) + (c * x + tb) = res := by
+  subst e
+  have hzero : c' * x + c * x = 0 := by
+    rw [← Rat.add_mul, hm, Rat.zero_mul]
+  grind [Rat.add_assoc, Rat.add_comm, Rat.add_left_comm, Rat.add_zero, Rat.zero_add]
+
+/-- `smul` walk step: scaling pushes `k` through one rendered head. -/
+theorem smul_cons (k x c m rest rest' : Rat)
+    (hm : k * c = m) (e : k * rest = rest') :
+    k * (c * x + rest) = m * x + rest' := by
+  subst hm; subst e
+  rw [Rat.mul_add, Rat.mul_assoc]
+
+/-- `neg` walk step: negation pushes through one rendered head. -/
+theorem neg_cons (x c m rest rest' : Rat)
+    (hm : -c = m) (e : -rest = rest') :
+    -(c * x + rest) = m * x + rest' := by
+  subst hm; subst e
+  rw [Rat.neg_add, Rat.neg_mul]
+
+/-- Drop a zero-coefficient head when closing the final identity. Used in
+Phase 2 if a stray zero coefficient survives (post-merge they should not). -/
+theorem render_zero_head (x rest : Rat) : 0 * x + rest = rest := by
+  rw [Rat.zero_mul, Rat.zero_add]
+
+/-! ### Mini-`norm_num` for `Q`-shaped `Rat` numeral leaves.
+
+Each leaf proves a closed `Rat` arithmetic fact between three `Q.toRat`
+literals. The side condition is a closed `Int` equality discharged by
+`mkDecideProof` — the kernel reduces it via GMP `Int` multiply + `decEq`.
+This is the only kernel reduction in the produced certificate proof. -/
+
+theorem ratlit_add (qa qb qm : Q)
+    (h : (Q.add qa qb).num * (qm.den : Int)
+         = qm.num * ((Q.add qa qb).den : Int)) :
+    qa.toRat + qb.toRat = qm.toRat := by
+  rw [← Q.toRat_add]; exact Q.toRat_eq_of_cross h
+
+theorem ratlit_mul (qa qb qm : Q)
+    (h : (Q.mul qa qb).num * (qm.den : Int)
+         = qm.num * ((Q.mul qa qb).den : Int)) :
+    qa.toRat * qb.toRat = qm.toRat := by
+  rw [← Q.toRat_mul]; exact Q.toRat_eq_of_cross h
+
+theorem ratlit_neg (qa qm : Q)
+    (h : (Q.neg qa).num * (qm.den : Int)
+         = qm.num * ((Q.neg qa).den : Int)) :
+    -qa.toRat = qm.toRat := by
+  rw [← Q.toRat_neg]; exact Q.toRat_eq_of_cross h
+
+/-! ### Congruence lemmas used at `normalize`'s syntax-node boundaries.
+
+Each is one application per `+`/`-`/`*`/`-` syntax node — O(N) total per
+row, not the inner O(N²) hot path. Stated with explicit `Rat` arguments
+so the metaprogram applies them via `mkAppN`. -/
+
+theorem add_congr_eq (a A b B : Rat) (ha : a = A) (hb : b = B) :
+    a + b = A + B := by subst ha; subst hb; rfl
+
+theorem sub_congr_eq (a A b B : Rat) (ha : a = A) (hb : b = B) :
+    a - b = A - B := by subst ha; subst hb; rfl
+
+theorem mul_congr_eq_r (k a A : Rat) (e : a = A) : k * a = k * A := by
+  subst e; rfl
+
+theorem neg_congr_eq (a A : Rat) (e : a = A) : -a = -A := by subst e; rfl
+
+theorem sub_to_add_neg (a b : Rat) : a - b = a + (-b) := Rat.sub_eq_add_neg a b
+
+/-- Fast-path normaliser lemma for the `coefficient * atom` pattern that
+dominates dense rows: `k * x = k * x + 0`. Stated with `kU`/`kL` separate
+so the metaprogram can supply the user's coefficient Expr on the left and
+the canonical `Q.toRat` form on the right; the equality is `rfl` once
+both reduce, but stating it explicitly lets the rest of the proof keep
+`Q.toRat` form uniformly. -/
+theorem mul_atom_norm (k x : Rat) : k * x = k * x + 0 := by
+  rw [Rat.add_zero]
+
+/-- Fast-path normaliser lemma for the unary `-atom` pattern:
+`-x = -1 * x + 0`. -/
+theorem neg_atom_norm (x : Rat) : -x = -1 * x + 0 := by
+  rw [Rat.add_zero, Rat.neg_mul, Rat.one_mul]
+
 /-! ## Parsing affine `Rat` expressions and `≤`/`=` hypotheses.
 
 The parsing layer is unchanged in spirit from the previous verifier
@@ -197,10 +327,100 @@ private def fvarLetValue? (id : FVarId) : MetaM (Option Expr) := do
   | .cdecl .. => return none
   | .ldecl (value := value) .. => return some value
 
+/-- Read a `Nat` literal Expr — either `Expr.lit (.natVal n)` or
+`OfNat.ofNat n` for a `Nat`-typed `OfNat`. -/
+private def parseNatLit? (e : Expr) : MetaM (Option Nat) := do
+  let e ← whnfR e
+  match e with
+  | .lit (.natVal n) => return some n
+  | _ =>
+      let fn := e.getAppFn
+      let args := e.getAppArgs
+      if fn.isConstOf ``OfNat.ofNat && args.size == 3 then
+        match args[1]! with
+        | .lit (.natVal n) => return some n
+        | _ => return none
+      else
+        return none
+
+/-- Read an `Int` literal Expr in `Int.ofNat n` / `Int.negSucc n` form. -/
+private def parseIntLit? (e : Expr) : MetaM (Option Int) := do
+  let e ← whnfR e
+  let fn := e.getAppFn
+  let args := e.getAppArgs
+  if fn.isConstOf ``Int.ofNat && args.size == 1 then
+    return (← parseNatLit? args[0]!).map (Int.ofNat ·)
+  else if fn.isConstOf ``Int.negSucc && args.size == 1 then
+    return (← parseNatLit? args[0]!).map (Int.negSucc ·)
+  else
+    return none
+
+/-- Try to recognise `e` as `Q.toRat ⟨n, d, _⟩` for closed `Int`/`Nat`
+literals `n`, `d`. Inspected BEFORE `whnfR` so the `@[inline]` `Q.toRat`
+isn't unfolded out of the parse. -/
+private def tryQToRat? (e : Expr) : MetaM (Option Rat) := do
+  let fn := e.getAppFn
+  let args := e.getAppArgs
+  unless fn.isConstOf ``Soplex.Tactic.RatLin.Q.toRat && args.size == 1 do
+    return none
+  let q ← whnfR args[0]!
+  let qFn := q.getAppFn
+  let qArgs := q.getAppArgs
+  unless qFn.isConstOf ``Soplex.Tactic.RatLin.Q.mk && qArgs.size == 3 do
+    return none
+  let some n ← parseIntLit? qArgs[0]! | return none
+  let some d ← parseNatLit? qArgs[1]! | return none
+  if h : d = 0 then return none
+  else return some (Rat.normalize n d h)
+
+/-- Scalar recogniser for the `lp` explicit-proof-term discharger.
+Recognises `Q.toRat ⟨…⟩`, `@OfNat.ofNat Rat n _`, `let`-bound scalars,
+and `Neg`/`HMul`/`HDiv` *of scalars* — but deliberately does **not**
+descend into `HAdd`/`HSub` operands. The full `parseScalar?` recurses
+through `+`/`-` trees to fold compound closed scalars like `2 - 1`;
+calling that at every syntax node of a dense row was an O(N²) blow-up
+in tactic-side work. Skipping `HAdd`/`HSub` keeps every call bounded by
+the maximal *scalar-only* subtree: a row body (`HAdd` head) is rejected
+in O(1), and a coefficient like `1/3` or `c` is still recognised. A
+genuinely compound `(2+3) * x` is not short-circuited here, but
+`normalize` still handles it via its structural `HAdd` path. -/
+private partial def quickScalarLit? (e : Expr) : MetaM (Option Rat) := do
+  if let some v ← tryQToRat? e then return some v
+  match e with
+  | .fvar id =>
+      match ← fvarLetValue? id with
+      | some value => quickScalarLit? value
+      | none => return none
+  | _ =>
+    let fn := e.getAppFn
+    let args := e.getAppArgs
+    if fn.isConstOf ``OfNat.ofNat && args.size == 3 then
+      match args[1]! with
+      | .lit (.natVal n) => return some (OfNat.ofNat n)
+      | _ => return none
+    if fn.isConstOf ``Neg.neg && args.size == 3 then
+      return (← quickScalarLit? args[2]!).map (fun x => -x)
+    if fn.isConstOf ``HMul.hMul && args.size == 6 then
+      match ← quickScalarLit? args[4]!, ← quickScalarLit? args[5]! with
+      | some a, some b => return some (a * b)
+      | _, _ => return none
+    if fn.isConstOf ``HDiv.hDiv && args.size == 6 then
+      match ← quickScalarLit? args[4]!, ← quickScalarLit? args[5]! with
+      | some _, some 0 => return none
+      | some a, some b => return some (a / b)
+      | _, _ => return none
+    return none
+
 /-- Recognise an expression as a reducibly-closed `Rat` scalar (matches
-  the previous backend's scalar-recogniser policy exactly). -/
+  the previous backend's scalar-recogniser policy exactly), with an added
+  pre-`whnfR` check for `Q.toRat ⟨…⟩` literals so the explicit-proof-term
+  discharger's `mkRatLit` outputs are recognised as scalars. -/
 private partial def parseScalar? (e : Expr) : MetaM (Option Rat) := do
+  if let some v ← tryQToRat? e then
+    return some v
   let e ← withReducible <| whnfR e
+  if let some v ← tryQToRat? e then
+    return some v
   match e with
   | .fvar id =>
       match ← fvarLetValue? id with
@@ -402,32 +622,86 @@ private def buildProblem (rowDense : Array (Array Rat)) (rowConsts : Array Rat)
 private def ratList (xs : Array Rat) : String :=
   "[" ++ String.intercalate ", " (xs.toList.map (toString ·)) ++ "]"
 
-/-- Build a `Rat` `HMul.hMul a b` Expr. -/
+/-! ## Cached `Rat`-arithmetic operator templates (issue #87).
+
+The explicit-proof-term discharger calls `mkRatAdd`/`mkRatMul`/`mkRatLit`
+O(N²) times per certificate. Each call previously routed through
+`mkAppM`, which re-ran typeclass inference for `HAdd`/`HMul`/`HSub`/`Ne`
+every time — collectively the dominant tactic-side cost at N=40. We
+pre-build the fully-applied instance Exprs once below (constant Exprs,
+no metavariables) and use them via raw `mkApp2`/`mkApp` in the hot
+path. -/
+
+/-- `@HAdd.hAdd Rat Rat Rat instHAdd_Rat_Rat_Rat` — partially-applied,
+takes the two `Rat` arguments. -/
+private def addRatFn : Expr :=
+  let inst := mkApp2 (mkConst ``instHAdd [Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat.instAdd)
+  mkApp4 (mkConst ``HAdd.hAdd [Level.zero, Level.zero, Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat) (mkConst ``Rat) inst
+
+/-- `@HMul.hMul Rat Rat Rat _` partially applied. -/
+private def mulRatFn : Expr :=
+  let inst := mkApp2 (mkConst ``instHMul [Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat.instMul)
+  mkApp4 (mkConst ``HMul.hMul [Level.zero, Level.zero, Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat) (mkConst ``Rat) inst
+
+/-- `@HSub.hSub Rat Rat Rat _` partially applied. -/
+private def subRatFn : Expr :=
+  let inst := mkApp2 (mkConst ``instHSub [Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat.instSub)
+  mkApp4 (mkConst ``HSub.hSub [Level.zero, Level.zero, Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat) (mkConst ``Rat) inst
+
+/-- `@Neg.neg Rat Rat.instNeg` partially applied. -/
+private def negRatFn : Expr :=
+  mkApp2 (mkConst ``Neg.neg [Level.zero])
+    (mkConst ``Rat) (mkConst ``Rat.instNeg)
+
+/-- Build `-a : Rat` Expr without typeclass inference. -/
+private def mkRatNeg (a : Expr) : Expr := mkApp negRatFn a
+
+/-- Build a `Rat` `HMul.hMul a b` Expr without typeclass inference. -/
 private def mkRatMul (a b : Expr) : MetaM Expr :=
-  mkAppM ``HMul.hMul #[a, b]
+  return mkApp2 mulRatFn a b
 
-/-- Build a `Rat` `HAdd.hAdd a b` Expr. -/
+/-- Build a `Rat` `HAdd.hAdd a b` Expr without typeclass inference. -/
 private def mkRatAdd (a b : Expr) : MetaM Expr :=
-  mkAppM ``HAdd.hAdd #[a, b]
+  return mkApp2 addRatFn a b
 
-/-- Build a `Rat` `HSub.hSub a b` Expr. -/
+/-- Build a `Rat` `HSub.hSub a b` Expr without typeclass inference. -/
 private def mkRatSub (a b : Expr) : MetaM Expr :=
-  mkAppM ``HSub.hSub #[a, b]
+  return mkApp2 subRatFn a b
 
-/-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
-that the RatLin discharger's `Lin.eval` reduces to the same kernel term
-on both sides of the identity.  Closed `Rat.div`-form literals (which is
-what `toExpr Rat` produces for non-integer rationals) would not be
-definitionally equal to our `Rat.normalize`-form `eval` output. -/
-private def mkRatLit (r : Rat) : MetaM Expr := do
+/-- The standing proof `Nat.one_ne_zero : (1 : Nat) ≠ 0`, used as the
+denominator-nonzero proof for every integer-denominator `Q` payload. -/
+private def den1NeZeroProof : Expr := mkConst ``Nat.one_ne_zero
+
+/-- Emit a `Q.mk num den den_ne` Expr for the `Rat` value `r`. For the
+overwhelmingly common `r.den = 1` case (integer coefficients) we use the
+cached `Nat.one_ne_zero` proof instead of running `mkDecideProof`. -/
+private def mkQLit (r : Rat) : MetaM Expr := do
   let numE : Expr := match r.num with
     | .ofNat k => mkApp (mkConst ``Int.ofNat) (mkNatLit k)
     | .negSucc k => mkApp (mkConst ``Int.negSucc) (mkNatLit k)
   let denE : Expr := mkNatLit r.den
-  let denNeType ← mkAppM ``Ne #[denE, mkNatLit 0]
-  let denNeProof ← mkDecideProof denNeType
-  let qExpr := mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
-  return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qExpr
+  let denNeProof ←
+    if r.den == 1 then
+      pure den1NeZeroProof
+    else
+      let denNeType : Expr := mkApp3 (mkConst ``Ne [Level.succ Level.zero])
+        (mkConst ``Nat) denE (mkNatLit 0)
+      mkDecideProof denNeType
+  return mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
+
+/-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
+that the RatLin discharger's `Lin.eval` reduces to the same kernel term
+on both sides of the identity, and so the explicit-proof-term discharger
+(issue #87) can apply `Q.toRat_add`/`toRat_mul`/`toRat_neg` without
+bridging through `Rat.div`-form literals. -/
+private def mkRatLit (r : Rat) : MetaM Expr := do
+  return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) (← mkQLit r)
 
 /--
 Build a Lean expression representing the weighted sum
@@ -495,6 +769,500 @@ private def computeResidual (objLin : LinExpr) (rowLins : Array LinExpr)
 private def isLinExprClosed (e : LinExpr) : Bool :=
   e.coeffs.all (fun (_, c) => c == 0)
 
+/-! ## Explicit-proof-term discharger machinery (issue #87).
+
+`normalize` walks the affine grammar of a `Rat` expression and returns
+`(L : LinExpr, pf : e = ⟦L⟧)` with `L.coeffs` strictly sorted by atom
+position in the global `vars` array. `⟦L⟧` is a concrete `Expr`
+right-nested rendering with the constant innermost. The proof `pf` is
+built from fixed-arity lemmas; the kernel only structurally typechecks
+the resulting term, reducing only closed `Int` literal arithmetic inside
+the `ratlit_*` side conditions. -/
+
+/-- Position of `v` in the global `vars` array. The caller guarantees
+membership; on lookup failure we return `vars.size` so the result is
+still a valid total order (the unknown atom sorts last). -/
+private def varIdx (vars : Array FVarId) (v : FVarId) : Nat :=
+  vars.idxOf? v |>.getD vars.size
+
+/-- Render a sorted `LinExpr` into the canonical right-nested `Rat`
+Expr `c₀*x₀ + (c₁*x₁ + (… + (cₙ₋₁*xₙ₋₁ + r) …))`. -/
+private def render (L : LinExpr) : MetaM Expr := do
+  let mut acc ← mkRatLit L.const
+  let n := L.coeffs.size
+  for i in [0:n] do
+    let idx := n - 1 - i
+    let (v, c) := L.coeffs[idx]!
+    let cE ← mkRatLit c
+    let head ← mkRatMul cE (Expr.fvar v)
+    acc ← mkRatAdd head acc
+  return acc
+
+/-! ### Cached side-condition templates for the numeral leaves.
+
+`proveRatlit{Add,Mul,Neg}` are called O(N²) times per certificate. Each
+call previously ran `inferType` on the partial lemma application to
+extract the `(Q.add qa qb).num * (qm.den : Int) = …` side-condition Expr.
+We compute that side-condition template just once per `lp` invocation,
+keyed in an `IO.Ref`, and instantiate `qa`/`qb`/`qm` per leaf. -/
+
+initialize ratlitAddDomainRef : IO.Ref (Option Expr) ← IO.mkRef none
+initialize ratlitMulDomainRef : IO.Ref (Option Expr) ← IO.mkRef none
+initialize ratlitNegDomainRef : IO.Ref (Option Expr) ← IO.mkRef none
+
+/-- Walk past `n` `Pi` binders and return the body. -/
+private def stripForalls (n : Nat) (e : Expr) : Expr :=
+  match n with
+  | 0 => e
+  | n + 1 => stripForalls n e.bindingBody!
+
+/-- Compute / fetch the cached side-condition template of `ratlit_add`,
+i.e. the type of its 4th explicit argument with the first three
+arguments left as bvars `#2, #1, #0` (referring to `qa, qb, qm`). -/
+private def getRatlitAddDomain : MetaM Expr := do
+  if let some t ← ratlitAddDomainRef.get then return t
+  let typ ← inferType (mkConst ``ratlit_add)
+  -- typ : ∀ qa qb qm, hType → conclusion
+  let body3 := stripForalls 3 typ
+  let dom := body3.bindingDomain!
+  ratlitAddDomainRef.set (some dom)
+  return dom
+
+private def getRatlitMulDomain : MetaM Expr := do
+  if let some t ← ratlitMulDomainRef.get then return t
+  let typ ← inferType (mkConst ``ratlit_mul)
+  let dom := (stripForalls 3 typ).bindingDomain!
+  ratlitMulDomainRef.set (some dom)
+  return dom
+
+private def getRatlitNegDomain : MetaM Expr := do
+  if let some t ← ratlitNegDomainRef.get then return t
+  let typ ← inferType (mkConst ``ratlit_neg)
+  let dom := (stripForalls 2 typ).bindingDomain!
+  ratlitNegDomainRef.set (some dom)
+  return dom
+
+/-- Build an `Eq.refl`-shaped proof of a closed `Int` literal equality.
+The two sides are kernel-reducible to the same numeric value (this is
+what makes the leaf valid in the first place), so `Eq.refl LHS` typechecks
+where `LHS = RHS` is expected — moving the literal arithmetic work from
+the tactic-side `mkDecideProof` into a single kernel reduction. -/
+private def mkEqReflProof (hType : Expr) : Expr :=
+  -- hType has shape `@Eq Int LHS RHS`; extract LHS and emit `Eq.refl LHS`.
+  let lhs := hType.appFn!.appArg!
+  mkApp2 (mkConst ``Eq.refl [Level.succ Level.zero]) (mkConst ``Int) lhs
+
+/-- Numeral leaf builder: build a proof of `qaE.toRat + qbE.toRat = qmE.toRat`
+where `qmE` is the `Q` payload of `(qaVal + qbVal : Rat)`. -/
+private def proveRatlitAdd (qaE qbE : Expr) (qaVal qbVal : Rat) :
+    MetaM (Rat × Expr × Expr) := do
+  let mVal := qaVal + qbVal
+  let qmE ← mkQLit mVal
+  let template ← getRatlitAddDomain
+  let hType := template.instantiate #[qmE, qbE, qaE]
+  let hProof := mkEqReflProof hType
+  let lemmaApp := mkApp4 (mkConst ``ratlit_add) qaE qbE qmE hProof
+  return (mVal, qmE, lemmaApp)
+
+/-- Numeral leaf builder: build a proof of `qaE.toRat * qbE.toRat = qmE.toRat`. -/
+private def proveRatlitMul (qaE qbE : Expr) (qaVal qbVal : Rat) :
+    MetaM (Rat × Expr × Expr) := do
+  let mVal := qaVal * qbVal
+  let qmE ← mkQLit mVal
+  let template ← getRatlitMulDomain
+  let hType := template.instantiate #[qmE, qbE, qaE]
+  let hProof := mkEqReflProof hType
+  let lemmaApp := mkApp4 (mkConst ``ratlit_mul) qaE qbE qmE hProof
+  return (mVal, qmE, lemmaApp)
+
+/-- Numeral leaf builder: build a proof of `-qaE.toRat = qmE.toRat`. -/
+private def proveRatlitNeg (qaE : Expr) (qaVal : Rat) :
+    MetaM (Rat × Expr × Expr) := do
+  let mVal := -qaVal
+  let qmE ← mkQLit mVal
+  let template ← getRatlitNegDomain
+  let hType := template.instantiate #[qmE, qaE]
+  let hProof := mkEqReflProof hType
+  let lemmaApp := mkApp3 (mkConst ``ratlit_neg) qaE qmE hProof
+  return (mVal, qmE, lemmaApp)
+
+/-- Precompute a "spine" of a sorted `LinExpr`: an array of head Exprs
+`c_k * x_k`, an array of `Q.mk` payloads for each coefficient (for the
+numeral leaves), and an array of suffix renderings where
+`suffix[k] = ⟦{coeffs.drop k, const}⟧`. Suffix Exprs are built once and
+shared by reference across the whole proof, avoiding the O(N³)
+re-rendering of every merge step. -/
+private def precomputeSpine (L : LinExpr) :
+    MetaM (Array Expr × Array Expr × Array Expr) := do
+  let n := L.coeffs.size
+  let mut heads : Array Expr := Array.mkEmpty n
+  let mut qs : Array Expr := Array.mkEmpty n
+  for k in [0:n] do
+    let (v, c) := L.coeffs[k]!
+    let qE ← mkQLit c
+    qs := qs.push qE
+    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qE
+    heads := heads.push (← mkRatMul cE (Expr.fvar v))
+  -- Suffix renderings, built right-to-left so each entry references the next.
+  let mut suffix : Array Expr := Array.mkEmpty (n + 1)
+  suffix := suffix.push (← mkRatLit L.const)
+  for k in [0:n] do
+    -- The k-th iteration produces `suffix[k+1]` ... no wait, we build from
+    -- right to left so suffix[i] is built when k = n - i.
+    let _ := k
+    let idx := suffix.size  -- next slot
+    let cur := suffix[suffix.size - 1]!
+    let h := heads[n - idx]!  -- correct head to prepend
+    suffix := suffix.push (← mkRatAdd h cur)
+  -- `suffix` now has size n+1, with suffix[0] = mkRatLit const (the
+  -- innermost) and suffix[n] = full ⟦L⟧. Reverse so suffix[k] is the
+  -- rendering starting at coeff k.
+  return (heads, qs, suffix.reverse)
+
+/-- The linear ordered merge primitive — the one core proof primitive.
+
+Given two `LinExpr`s `La` and `Lb` whose `coeffs` are sorted ascending by
+`varIdx vars`, produce the sorted merge `L = La ⊕ Lb` together with a
+proof `pf : ⟦La⟧ + ⟦Lb⟧ = ⟦L⟧`. Linear in `|La.coeffs| + |Lb.coeffs|`,
+with all suffix Exprs precomputed and shared by reference. -/
+private partial def proveMerge (vars : Array FVarId) (La Lb : LinExpr) :
+    MetaM (LinExpr × Expr) := do
+  let (headA, qA, suffA) ← precomputeSpine La
+  let (headB, qB, suffB) ← precomputeSpine Lb
+  let (L, pf, _resE) ← go headA qA suffA headB qB suffB 0 0
+  return (L, pf)
+where
+  /-- Returns `(L, pf, ⟦L⟧)` where `pf : ⟦La⟧.suffix i + ⟦Lb⟧.suffix j = ⟦L⟧`
+  and `⟦L⟧` is the result-side spine built incrementally (each step
+  prepends a single head Expr to the shared previous tail). -/
+  go (headA qA suffA headB qB suffB : Array Expr) (i j : Nat) :
+      MetaM (LinExpr × Expr × Expr) := do
+    let aDone := i ≥ La.coeffs.size
+    let bDone := j ≥ Lb.coeffs.size
+    if aDone && bDone then
+      -- Base: pure constants. The leaf expects bare `Q` payloads.
+      let qaE ← mkQLit La.const
+      let qbE ← mkQLit Lb.const
+      let (mVal, _qmE, pf) ← proveRatlitAdd qaE qbE La.const Lb.const
+      let resE ← mkRatLit mVal
+      return ({const := mVal}, pf, resE)
+    if aDone then
+      let (vB, cB) := Lb.coeffs[j]!
+      let h := headB[j]!
+      let (restL, pRest, resPrev) ← go headA qA suffA headB qB suffB i (j+1)
+      let aE := suffA[i]!  -- bare const since i = La.coeffs.size
+      let tbE := suffB[j+1]!
+      let resE ← mkRatAdd h resPrev
+      let pf := mkAppN (mkConst ``take_right) #[aE, h, tbE, resPrev, pRest]
+      return ({ restL with coeffs := #[(vB, cB)] ++ restL.coeffs }, pf, resE)
+    if bDone then
+      let (vA, cA) := La.coeffs[i]!
+      let h := headA[i]!
+      let (restL, pRest, resPrev) ← go headA qA suffA headB qB suffB (i+1) j
+      let taE := suffA[i+1]!
+      let bE := suffB[j]!
+      let resE ← mkRatAdd h resPrev
+      let pf := mkAppN (mkConst ``take_left) #[h, taE, bE, resPrev, pRest]
+      return ({ restL with coeffs := #[(vA, cA)] ++ restL.coeffs }, pf, resE)
+    let (vA, cA) := La.coeffs[i]!
+    let (vB, cB) := Lb.coeffs[j]!
+    let iA := varIdx vars vA
+    let iB := varIdx vars vB
+    -- Descending-varIdx convention: coeffs[0] is the largest varIdx, which
+    -- the render places outermost. The overall next-outermost head comes
+    -- from whichever side has the strictly larger varIdx at its current
+    -- position; equal varIdx triggers the `combine` rule.
+    if iA > iB then
+      let h := headA[i]!
+      let (restL, pRest, resPrev) ← go headA qA suffA headB qB suffB (i+1) j
+      let taE := suffA[i+1]!
+      let bE := suffB[j]!
+      let resE ← mkRatAdd h resPrev
+      let pf := mkAppN (mkConst ``take_left) #[h, taE, bE, resPrev, pRest]
+      return ({ restL with coeffs := #[(vA, cA)] ++ restL.coeffs }, pf, resE)
+    else if iA < iB then
+      let h := headB[j]!
+      let (restL, pRest, resPrev) ← go headA qA suffA headB qB suffB i (j+1)
+      let aE := suffA[i]!
+      let tbE := suffB[j+1]!
+      let resE ← mkRatAdd h resPrev
+      let pf := mkAppN (mkConst ``take_right) #[aE, h, tbE, resPrev, pRest]
+      return ({ restL with coeffs := #[(vB, cB)] ++ restL.coeffs }, pf, resE)
+    else
+      let (mVal, qmE, hm) ← proveRatlitAdd qA[i]! qB[j]! cA cB
+      let xE := Expr.fvar vA
+      let (restL, pRest, resPrev) ←
+        go headA qA suffA headB qB suffB (i+1) (j+1)
+      let taE := suffA[i+1]!
+      let tbE := suffB[j+1]!
+      let cAE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
+      let cBE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qB[j]!
+      let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+      if mVal = 0 then
+        let pf := mkAppN (mkConst ``combine_zero)
+          #[xE, taE, tbE, resPrev, cAE, cBE, pRest, hm]
+        return (restL, pf, resPrev)
+      else
+        let newHead ← mkRatMul mE xE
+        let resE ← mkRatAdd newHead resPrev
+        let pf := mkAppN (mkConst ``combine)
+          #[xE, taE, tbE, resPrev, cAE, cBE, mE, pRest, hm]
+        return ({ restL with coeffs := #[(vA, mVal)] ++ restL.coeffs }, pf, resE)
+
+/-- Scale a sorted `LinExpr` by a closed nonzero `Rat` literal `k`, with
+proof `k * ⟦La⟧ = ⟦L⟧`. Linear walk; preserves sortedness. -/
+private partial def proveSmul (kE : Expr) (kVal : Rat) (La : LinExpr) :
+    MetaM (LinExpr × Expr) := do
+  let (_headA, qA, suffA) ← precomputeSpine La
+  let qkE ← mkQLit kVal
+  let (L, pf, _) ← go qA suffA qkE 0
+  return (L, pf)
+where
+  go (qA suffA : Array Expr) (qkE : Expr) (i : Nat) :
+      MetaM (LinExpr × Expr × Expr) := do
+    if i ≥ La.coeffs.size then
+      let qaE ← mkQLit La.const
+      let (mVal, _qmE, pf) ← proveRatlitMul qkE qaE kVal La.const
+      let resE ← mkRatLit mVal
+      return ({const := mVal}, pf, resE)
+    let (v, c) := La.coeffs[i]!
+    let (mVal, qmE, hm) ← proveRatlitMul qkE qA[i]! kVal c
+    let xE := Expr.fvar v
+    let (restL, pRest, resPrev) ← go qA suffA qkE (i+1)
+    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
+    let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+    let restE := suffA[i+1]!
+    let pf := mkAppN (mkConst ``smul_cons)
+      #[kE, xE, cE, mE, restE, resPrev, hm, pRest]
+    if mVal = 0 then
+      return (restL, pf, resPrev)
+    else
+      let newHead ← mkRatMul mE xE
+      let resE ← mkRatAdd newHead resPrev
+      return ({ restL with coeffs := #[(v, mVal)] ++ restL.coeffs }, pf, resE)
+
+/-- Negate a sorted `LinExpr`, with proof `-⟦La⟧ = ⟦L⟧`. Linear walk;
+preserves sortedness. -/
+private partial def proveNeg (La : LinExpr) : MetaM (LinExpr × Expr) := do
+  let (_headA, qA, suffA) ← precomputeSpine La
+  let (L, pf, _) ← go qA suffA 0
+  return (L, pf)
+where
+  go (qA suffA : Array Expr) (i : Nat) :
+      MetaM (LinExpr × Expr × Expr) := do
+    if i ≥ La.coeffs.size then
+      let qaE ← mkQLit La.const
+      let (mVal, _qmE, pf) ← proveRatlitNeg qaE La.const
+      let resE ← mkRatLit mVal
+      return ({const := mVal}, pf, resE)
+    let (v, c) := La.coeffs[i]!
+    let (mVal, qmE, hm) ← proveRatlitNeg qA[i]! c
+    let xE := Expr.fvar v
+    let (restL, pRest, resPrev) ← go qA suffA (i+1)
+    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
+    let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+    let restE := suffA[i+1]!
+    let pf := mkAppN (mkConst ``neg_cons)
+      #[xE, cE, mE, restE, resPrev, hm, pRest]
+    if mVal = 0 then
+      return (restL, pf, resPrev)
+    else
+      let newHead ← mkRatMul mE xE
+      let resE ← mkRatAdd newHead resPrev
+      return ({ restL with coeffs := #[(v, mVal)] ++ restL.coeffs }, pf, resE)
+
+/-- Build `Eq.refl` typed as `lhs = rhs` for two `Rat` Exprs which are
+defeq under kernel reduction. Used at literal leaves and atoms, where
+`mkRatLit r` and the user's literal Expr (or `1*x + 0` from `atom_norm`)
+agree under closed-`Rat` reduction. -/
+private def mkRatEqByDefeq (lhs rhs : Expr) : MetaM Expr := do
+  mkExpectedTypeHint (← mkEqRefl rhs) (← mkEq lhs rhs)
+
+/-- Build `Eq.trans` directly via `mkApp` on the `Eq.trans` constant,
+without `Lean.Meta.mkEqTrans`'s `isDefEq` middle-term unification, which
+is unnecessary when the two halves agree syntactically by construction. -/
+private def mkEqTransFast (α aE bE cE p q : Expr) : Expr :=
+  mkApp6 (mkConst ``Eq.trans [Level.succ Level.zero]) α aE bE cE p q
+
+/-- Like `proveNeg`, `proveSmul`, `proveMerge` — except this also returns
+the rendered `⟦L⟧` Expr alongside the proof, so callers can chain without
+re-rendering. The rendered Expr is built incrementally, sharing tails. -/
+private partial def proveNegR (La : LinExpr) : MetaM (LinExpr × Expr × Expr) := do
+  let (L, pf) ← proveNeg La
+  return (L, pf, ← render L)
+
+/-- Structural-recursion normaliser. Returns `(L, pf, rL)` with
+`pf : e = rL` and `rL = ⟦L⟧`. The rendered `rL` is threaded through the
+recursion so the proof terms reference shared spine Exprs instead of
+re-rendering them at every syntax node. -/
+private partial def normalizeR (vars : Array FVarId) (e : Expr) :
+    MetaM (LinExpr × Expr × Expr) := do
+  -- Quick scalar-literal check (no recursion through `HAdd`/etc.). The
+  -- full recursive `parseScalar?` is far more expensive — calling it at
+  -- every syntax node dominated tactic-side typeclass inference.
+  if let some r ← quickScalarLit? e then
+    let lit ← mkRatLit r
+    let pf ← mkRatEqByDefeq e lit
+    return ({const := r}, pf, lit)
+  let eW := e   -- skip `whnfR`: dense rows from `parseExpr` are already in
+                -- the recognised head-symbol shape.
+  match eW with
+  | .fvar id =>
+      -- `parseExpr` has already type-checked the atoms in this row/goal
+      -- (only `Rat`-typed fvars survive into `vars`), so we skip the
+      -- per-atom `inferType + isDefEq ty Rat` check that previously
+      -- accounted for nearly all the tactic-side typeclass inference work.
+      let L : LinExpr := {coeffs := #[(id, 1)]}
+      let pf := mkApp (mkConst ``atom_norm) eW
+      let rL ← render L
+      return (L, pf, rL)
+  | _ =>
+      let fn := eW.getAppFn
+      let args := eW.getAppArgs
+      match fn with
+      | .const ``HAdd.hAdd _ =>
+          unless args.size == 6 do
+            throwError "lp(normalize): malformed HAdd in{indentExpr eW}"
+          let aE := args[4]!
+          let bE := args[5]!
+          let (La, pa, rA) ← normalizeR vars aE
+          let (Lb, pb, rB) ← normalizeR vars bE
+          let step1 := mkAppN (mkConst ``add_congr_eq) #[aE, rA, bE, rB, pa, pb]
+          if Lb.coeffs.size == 1 && Lb.const == 0 then
+            let (vB, cB) := Lb.coeffs[0]!
+            if !La.coeffs.any (·.1 == vB) then
+              let h := rB.appFn!.appArg!  -- extract `cB*vB` from `cB*vB + 0`
+              let zeroE ← mkRatLit 0
+              let addZeroProof := mkApp (mkConst ``Rat.add_zero) rA
+              let pm := mkAppN (mkConst ``take_right)
+                #[rA, h, zeroE, rA, addZeroProof]
+              let rAddRB ← mkRatAdd rA rB
+              let rL ← mkRatAdd h rA
+              let pf := mkEqTransFast ratType eW rAddRB rL step1 pm
+              let L : LinExpr := { La with coeffs := #[(vB, cB)] ++ La.coeffs }
+              return (L, pf, rL)
+          let (L, pm) ← proveMerge vars La Lb
+          let rL ← render L
+          let rAddRB ← mkRatAdd rA rB
+          let pf := mkEqTransFast ratType eW rAddRB rL step1 pm
+          return (L, pf, rL)
+      | .const ``HSub.hSub _ =>
+          unless args.size == 6 do
+            throwError "lp(normalize): malformed HSub in{indentExpr eW}"
+          let aE := args[4]!
+          let bE := args[5]!
+          let (La, pa, rA) ← normalizeR vars aE
+          let (Lb, pb, rB) ← normalizeR vars bE
+          let (Lnb, pn, rLnb) ← proveNegR Lb
+          let (L, pm) ← proveMerge vars La Lnb
+          let rL ← render L
+          let negBExpr := mkRatNeg bE
+          let negRB := mkRatNeg rB
+          let midSub ← mkRatAdd aE negBExpr
+          let midAdd ← mkRatAdd rA rLnb
+          let step1 := mkAppN (mkConst ``sub_to_add_neg) #[aE, bE]
+          let step_neg := mkAppN (mkConst ``neg_congr_eq) #[bE, rB, pb]
+          let step_neg_full := mkEqTransFast ratType negBExpr negRB rLnb step_neg pn
+          let step2 := mkAppN (mkConst ``add_congr_eq)
+            #[aE, rA, negBExpr, rLnb, pa, step_neg_full]
+          let chained1 := mkEqTransFast ratType eW midSub midAdd step1 step2
+          let pf := mkEqTransFast ratType eW midAdd rL chained1 pm
+          return (L, pf, rL)
+      | .const ``Neg.neg _ =>
+          unless args.size == 3 do
+            throwError "lp(normalize): malformed Neg.neg in{indentExpr eW}"
+          let aE := args[2]!
+          if aE.isFVar then
+            let xFVar := aE.fvarId!
+            let L : LinExpr := {coeffs := #[(xFVar, -1)]}
+            let pf := mkApp (mkConst ``neg_atom_norm) aE
+            let rL ← render L
+            return (L, pf, rL)
+          let (La, pa, rA) ← normalizeR vars aE
+          let (L, pn, rL) ← proveNegR La
+          let negRA := mkRatNeg rA
+          let step1 := mkAppN (mkConst ``neg_congr_eq) #[aE, rA, pa]
+          let pf := mkEqTransFast ratType eW negRA rL step1 pn
+          return (L, pf, rL)
+      | .const ``HMul.hMul _ =>
+          unless args.size == 6 do
+            throwError "lp(normalize): malformed HMul in{indentExpr eW}"
+          let lhsE := args[4]!
+          let rhsE := args[5]!
+          if let some kVal ← quickScalarLit? lhsE then
+            -- Fast path: `k * fvar x` directly to {coeffs:[(x, k)]}.
+            if kVal ≠ 0 && rhsE.isFVar then
+              let xFVar := rhsE.fvarId!
+              let L : LinExpr := {coeffs := #[(xFVar, kVal)]}
+              let pf := mkAppN (mkConst ``mul_atom_norm) #[lhsE, rhsE]
+              let rL ← render L
+              return (L, pf, rL)
+            let (Lr, pr, rLr) ← normalizeR vars rhsE
+            if kVal = 0 then
+              let L : LinExpr := {}
+              let zeroE ← mkRatLit 0
+              let zeroMulPf ← mkAppM ``Rat.zero_mul #[rhsE]
+              return (L, zeroMulPf, zeroE)
+            let (L, ps) ← proveSmul lhsE kVal Lr
+            let rL ← render L
+            let step1 := mkAppN (mkConst ``mul_congr_eq_r)
+              #[lhsE, rhsE, rLr, pr]
+            let kMulRLr ← mkRatMul lhsE rLr
+            let pf := mkEqTransFast ratType eW kMulRLr rL step1 ps
+            return (L, pf, rL)
+          else if let some kVal ← quickScalarLit? rhsE then
+            let (Lr, pr, rLr) ← normalizeR vars lhsE
+            let kE := rhsE
+            if kVal = 0 then
+              let L : LinExpr := {}
+              let zeroE ← mkRatLit 0
+              let mulZeroPf ← mkAppM ``Rat.mul_zero #[lhsE]
+              return (L, mulZeroPf, zeroE)
+            let (L, ps) ← proveSmul kE kVal Lr
+            let rL ← render L
+            let mulComm ← mkAppM ``Rat.mul_comm #[lhsE, kE]
+            let step1 := mkAppN (mkConst ``mul_congr_eq_r)
+              #[kE, lhsE, rLr, pr]
+            let kMulLhs ← mkRatMul kE lhsE
+            let kMulRLr ← mkRatMul kE rLr
+            let pf := mkEqTransFast ratType eW kMulLhs rL mulComm
+              (mkEqTransFast ratType kMulLhs kMulRLr rL step1 ps)
+            return (L, pf, rL)
+          else
+            throwError "lp(normalize): nonlinear multiplication; one side of `*` must be a reducibly-closed Rat scalar"
+      | _ =>
+          throwError "lp(normalize): unsupported Rat expression{indentExpr eW}"
+
+/-- Phase 2 closer: given `lhsId : Expr` and a closed `Rat` value `cVal`,
+build a proof `lhsId = mkRatLit cVal`. Normalises `lhsId` and, since the
+algebraic identity already holds numerically, the resulting `LinExpr` has
+no surviving coefficients and the constant matches `cVal` — closing by a
+`rfl` step at the rendered constant. -/
+private def proveCertificateIdentity (vars : Array FVarId) (lhsId : Expr)
+    (cVal : Rat) : MetaM Expr := do
+  let (L, pfNorm, rL) ← normalizeR vars lhsId
+  unless L.const == cVal do
+    throwError "lp(closeIdentity): normalised constant {L.const} does not match expected residual {cVal}"
+  -- Peel any zero-coeff heads. In practice `proveMerge` drops them, so
+  -- this loop is a no-op; we keep it as a defensive fallback.
+  let mut acc := L
+  let mut accRender := rL
+  let mut pEval ← mkEqRefl rL
+  while acc.coeffs.size > 0 do
+    let (v, c) := acc.coeffs[0]!
+    unless c == 0 do
+      throwError "lp(closeIdentity): residual has a nonzero coefficient on {v.name}"
+    let rest : LinExpr := { acc with coeffs := acc.coeffs.extract 1 acc.coeffs.size }
+    let restR ← render rest
+    let step := mkAppN (mkConst ``render_zero_head) #[Expr.fvar v, restR]
+    pEval ← mkEqTrans step pEval
+    acc := rest
+    accRender := restR
+  let cExpr ← mkRatLit cVal
+  let target ← mkEq lhsId cExpr
+  let pf ← mkEqTrans pfNorm pEval
+  mkExpectedTypeHint pf target
+
 /-! ## Discharger for the closed `Rat` algebraic identity.
 
 The identity has the form `(rhs - lhs) + Σ λᵢ * tᵢ = c` (or the Farkas
@@ -523,7 +1291,8 @@ multipliers and the parsed rows. Shared between the SoPlex-driven path
 and the trivial closed-goal short-circuit (where multipliers are all
 zero and `c = objLin.const`). -/
 private def assembleLeProof (rows : Array Row) (strict : Bool)
-    (objLin : LinExpr) (mults : Array Rat) (lhs rhs : Expr) : TacticM Expr := do
+    (objLin : LinExpr) (mults : Array Rat) (vars : Array FVarId)
+    (lhs rhs : Expr) : TacticM Expr := do
   let rowLins := rows.map (·.expr)
   let residual := computeResidual objLin rowLins mults
   unless isLinExprClosed residual do
@@ -548,8 +1317,10 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
   let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
   let cExpr ← mkRatLit c
   let lhsId ← mkRatAdd rhsMinusLhs sumExpr
-  let identType ← mkEq lhsId cExpr
-  let identProof ← proveAlgebraicIdentity identType
+  -- Explicit-proof-term discharge of `lhsId = c` (issue #87). The
+  -- previous reflective `proveAlgebraicIdentity` is retained for the
+  -- infeasible branch only.
+  let identProof ← proveCertificateIdentity vars lhsId c
   -- Build the final closer by explicit-argument application instead of
   -- `mkAppM`. The four implicits (`lhs`, `rhs`, `s`, `c`) are already in
   -- hand here, so making `mkAppM` rediscover them by `isDefEq` over the
@@ -577,7 +1348,7 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   -- certificate is enough.
   if vars.size = 0 || isLinExprClosed objLin then
     let mults := Array.replicate rows.size (0 : Rat)
-    return ← assembleLeProof rows strict objLin mults lhs rhs
+    return ← assembleLeProof rows strict objLin mults vars lhs rhs
   -- Numerical row data is only needed once we know a solver call is
   -- required; the closed-goal path above proves the goal with the empty
   -- weighted sum.
@@ -615,7 +1386,7 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   let rowLins := rows.map (·.expr)
   match sol.status with
   | .optimal =>
-      assembleLeProof rows strict objLin mults lhs rhs
+      assembleLeProof rows strict objLin mults vars lhs rhs
   | .infeasible =>
       -- Build a Farkas-style sum and turn the goal into anything via `False.elim`.
       let zeroLin : LinExpr := {}

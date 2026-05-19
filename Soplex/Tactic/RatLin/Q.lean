@@ -70,6 +70,15 @@ theorem toRat_eq_zero_of_num_zero {a : Q} (h : a.num = 0) : a.toRat = 0 := by
 theorem toRat_sub (a b : Q) : (Q.add a (Q.neg b)).toRat = a.toRat - b.toRat := by
   rw [toRat_add, toRat_neg, Rat.sub_eq_add_neg]
 
+/-- Two `Q` payloads materialise to the same `Rat` whenever their numerators
+and denominators agree under cross-multiplication.  The side condition is a
+closed `Int` equality, so the explicit-proof-term discharger in the `lp`
+tactic can build it with `decide` over GMP-backed `Int` arithmetic — the only
+kernel reduction it ever incurs. -/
+theorem toRat_eq_of_cross {x y : Q}
+    (h : x.num * (y.den : Int) = y.num * (x.den : Int)) : x.toRat = y.toRat :=
+  (Rat.normalize_eq_iff x.den_ne y.den_ne).mpr h
+
 /-- A `Q.mk`-form literal equals the same value built as a `Rat` division
 of its two casts.  Used as a bridge lemma by the `RatLin` tactic when the
 user writes scalar literals as `(n / d : Rat)`. -/
