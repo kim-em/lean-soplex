@@ -4,6 +4,13 @@
 # and run it with `/usr/bin/time -p`. Print one row per run; a Python
 # summarize step at the end reports mean / min / max per (family, N, tactic).
 #
+# Individual runs are expected to fail at large N — `linarith` hits
+# `maximum recursion depth` on the dense integer family — so the per-run
+# invocation below is `|| true`: a failed run is recorded (with its error)
+# and the sweep continues. The summary step reports errored runs
+# separately. `set -e` still guards genuine setup errors (cd, mkdir,
+# generator failures).
+#
 # The Seeded/ dir is gitignored — multi-seed runs are not committed.
 set -e
 cd "$(dirname "$0")"
@@ -18,7 +25,7 @@ for seed in $SEEDS; do
     for t in lp linarith; do
       f="LPvsLinarith/Seeded/IntN${n}_${t}_s${seed}.lean"
       python3 generators/dense_integer.py $n $t $seed > "$f"
-      r=$( { /usr/bin/time -p lake env lean "$f" ; } 2>&1 )
+      r=$( { /usr/bin/time -p lake env lean "$f" ; } 2>&1 ) || true
       real=$(echo "$r" | grep -E "^real" | awk '{print $2}')
       err=$(echo "$r" | grep -oE "error:.*" | head -1 | cut -c1-40)
       tac=$([ "$t" = "lp" ] && echo "lp     " || echo "linarith")
@@ -29,7 +36,7 @@ for seed in $SEEDS; do
     for t in lp linarith; do
       f="LPvsLinarith/Seeded/RatN${n}_${t}_s${seed}.lean"
       python3 generators/dense_rational.py $n $t $seed > "$f"
-      r=$( { /usr/bin/time -p lake env lean "$f" ; } 2>&1 )
+      r=$( { /usr/bin/time -p lake env lean "$f" ; } 2>&1 ) || true
       real=$(echo "$r" | grep -E "^real" | awk '{print $2}')
       err=$(echo "$r" | grep -oE "error:.*" | head -1 | cut -c1-40)
       tac=$([ "$t" = "lp" ] && echo "lp     " || echo "linarith")
