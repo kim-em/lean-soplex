@@ -2058,7 +2058,7 @@ private def canonicaliseCut (cut : LinExpr) : CutCanon := Id.run do
   let nz := cut.coeffs.filter (fun (_, c) => c ≠ 0)
   let sorted := nz.qsort (fun (a, _) (b, _) => fvarLt a b)
   if sorted.isEmpty then
-    -- `0 ≤ const` form.
+    -- Pure-constant `const ≤ 0` form.
     if cut.const ≤ 0 then return .tautology
     else return .contradiction
   -- Step 2: clear denominators by multiplying by LCM of all denominators
@@ -2167,21 +2167,31 @@ private partial def runBendersLoop (xBinders : Array FVarId)
           let cut := computeBendersCut u lam
           match canonicaliseCut cut with
           | .tautology =>
-              -- Cut is redundant; doesn't help. Treat as no-progress
-              -- for this candidate (we know the universal is violated
-              -- but our chosen dual doesn't yield a separating cut).
+              -- At a violating candidate, an optimal dual must satisfy
+              --   cut.evalAt(x*) = M + bodyX.evalAt(x*) > 0,
+              -- so a tautological cut here means the dual returned by
+              -- SoPlex failed an invariant (stationarity / nonnegativity)
+              -- or we computed the cut with the wrong sign. Surface it
+              -- distinctly from a routine "weak cut" outcome.
               return .error (some
                 ("Stage 4a (Benders): derived a tautological cut at a violating " ++
-                 "candidate. This indicates the dual returned by SoPlex was not " ++
-                 "extreme; extreme-dual selection is required for completeness."))
+                 "candidate. The dual certificate from SoPlex appears not to be " ++
+                 "optimal — this is an invariant violation, not a routine " ++
+                 "non-extreme-dual outcome."))
           | .contradiction =>
               -- Cut-augmented master would be inconsistent. Caller
               -- falls back to inconsistency probe on H.
               return .error none
           | .normal key cutLin =>
               if state.cutKeys.any (keyEq key) then
+                -- The previous identical cut is already in the master,
+                -- so `x*` should not have been master-feasible. Hitting
+                -- this branch implies the master LP returned a vertex
+                -- the cut set already excludes — again an invariant
+                -- violation rather than non-extreme-dual fallout.
                 return .error (some
-                  "Stage 4a (Benders): duplicate cut detected — search cannot make progress.")
+                  ("Stage 4a (Benders): duplicate cut produced for a candidate " ++
+                   "the existing cut should already exclude — invariant violation."))
               state := { state with
                 cutKeys := state.cutKeys.push key
                 masterRows := state.masterRows.push cutLin }
