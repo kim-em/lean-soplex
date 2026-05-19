@@ -170,11 +170,6 @@ theorem neg_cons (x c m rest rest' : Rat)
   subst hm; subst e
   rw [Rat.neg_add, Rat.neg_mul]
 
-/-- Drop a zero-coefficient head when closing the final identity. Used in
-Phase 2 if a stray zero coefficient survives (post-merge they should not). -/
-theorem render_zero_head (x rest : Rat) : 0 * x + rest = rest := by
-  rw [Rat.zero_mul, Rat.zero_add]
-
 /-! ### Mini-`norm_num` for `Q`-shaped `Rat` numeral leaves.
 
 Each leaf proves a closed `Rat` arithmetic fact between three `Q.toRat`
@@ -1240,28 +1235,15 @@ no surviving coefficients and the constant matches `cVal` — closing by a
 `rfl` step at the rendered constant. -/
 private def proveCertificateIdentity (vars : Array FVarId) (lhsId : Expr)
     (cVal : Rat) : MetaM Expr := do
-  let (L, pfNorm, rL) ← normalizeR vars lhsId
+  let (L, pfNorm, _rL) ← normalizeR vars lhsId
   unless L.const == cVal do
     throwError "lp(closeIdentity): normalised constant {L.const} does not match expected residual {cVal}"
-  -- Peel any zero-coeff heads. In practice `proveMerge` drops them, so
-  -- this loop is a no-op; we keep it as a defensive fallback.
-  let mut acc := L
-  let mut accRender := rL
-  let mut pEval ← mkEqRefl rL
-  while acc.coeffs.size > 0 do
-    let (v, c) := acc.coeffs[0]!
-    unless c == 0 do
-      throwError "lp(closeIdentity): residual has a nonzero coefficient on {v.name}"
-    let rest : LinExpr := { acc with coeffs := acc.coeffs.extract 1 acc.coeffs.size }
-    let restR ← render rest
-    let step := mkAppN (mkConst ``render_zero_head) #[Expr.fvar v, restR]
-    pEval ← mkEqTrans step pEval
-    acc := rest
-    accRender := restR
+  unless L.coeffs.isEmpty do
+    throwError "lp(closeIdentity): normalization invariant violated; {L.coeffs.size} surviving atom(s)"
+  -- `pfNorm : lhsId = rL` and `rL = mkRatLit cVal`, so `pfNorm` is the proof we want.
   let cExpr ← mkRatLit cVal
   let target ← mkEq lhsId cExpr
-  let pf ← mkEqTrans pfNorm pEval
-  mkExpectedTypeHint pf target
+  mkExpectedTypeHint pfNorm target
 
 /-! ## Per-goal driver.
 
