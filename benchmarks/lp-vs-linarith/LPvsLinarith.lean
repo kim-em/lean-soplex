@@ -1,2 +1,3 @@
 import LPvsLinarith.DenseInteger
 import LPvsLinarith.DenseRational
+import LPvsLinarith.InfeasibleGeom
