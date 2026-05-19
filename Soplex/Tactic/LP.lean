@@ -1403,6 +1403,294 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   | s =>
       throwError "lp: solver outcome was unchecked: {repr s}"
 
+/-! ## Stage 2: closed existential goals (`∃ x₁ … xₙ : Rat, B`).
+
+Stage 2 closes goals of the form `∃ x₁ … xₙ : Rat, B` where `B` is a
+flat conjunction of atomic non-strict (in)equality constraints over
+the existential binders and reducibly-closed numeric constants only.
+
+The algorithm:
+
+1. Strip nested `∃ x : Rat, …` binders into a single block (entered via
+   one `lambdaBoundedTelescope` per binder so the body is canonicalised
+   in the same environment Stage 1's extractor sees).
+2. Parse the body as a flat conjunction of atomic Rat (in)equalities;
+   reject strict constraints, nested quantifiers, or non-atomic shapes.
+3. Verify the **closed-body invariant over the canonicalised atoms**:
+   every free `Rat` local appearing in any extracted `LinExpr` must be
+   an existential binder. Locals that hide behind reducible
+   abbreviations, `let`-bindings, projections, or coercions are
+   canonicalised by `parseExpr`'s `withReducible <| whnfR` before the
+   check, so the check sees the post-canonicalisation atoms.
+4. Build a witness LP: `max 0 subject to A x ≤ b` (objective `c = 0`).
+   Any feasible point is optimal at value `0`.
+5. Run SoPlex via `solveExact` and branch:
+   - `.optimal x*` → splice the primal as `Rat` literals into an
+     `Exists.intro` chain; recurse on the now-closed residual body.
+   - `.infeasible` → fall back to a Stage-1-style inconsistency probe
+     on the outer hypotheses alone. If that certifies `H` inconsistent,
+     close by `absurd`. Otherwise surface a "body infeasible, context
+     consistent" error.
+   - anything else → surface the underlying solver status.
+6. The residual after splicing is a closed `And`/`Eq`/`LE` conjunction
+   in `Rat`; `solveGoal` discharges each conjunct via the Stage 1
+   closed-goal short-circuit (no SoPlex call, empty weighted sum).
+
+Soundness comes from Lean reconstructing each primal value as a `Rat`
+literal and rebuilding the residual proof — solver row activities and
+objective values are not trusted. -/
+
+/-- Is `e` of the form `∃ x : Rat, …`? Used as the Stage 2 dispatch
+predicate. -/
+private def isExistsRat? (e : Expr) : MetaM Bool := do
+  let e ← whnf e
+  let fn := e.getAppFn
+  let args := e.getAppArgs
+  unless fn.isConstOf ``Exists && args.size == 2 do return false
+  let α ← whnf args[0]!
+  return α.isConstOf ``Rat
+
+/-- Peel an outer chain of `∃ x : Rat, …` binders into a single block.
+Calls `k` with the array of binder fvars and the body (with binders
+substituted as fvars). The fvars are only valid inside `k`. -/
+private partial def peelExistsRat (target : Expr) (acc : Array FVarId)
+    (k : Array FVarId → Expr → MetaM α) : MetaM α := do
+  -- `whnf` may unfold `LE.le` for `Rat` into `Rat.blt _ _ = false`, so
+  -- preserve the original `target` to pass into `k`; only the `whnf`
+  -- form is consulted to decide whether the head is `Exists`.
+  let targetW ← whnf target
+  let fn := targetW.getAppFn
+  let args := targetW.getAppArgs
+  if fn.isConstOf ``Exists && args.size == 2 then
+    let α ← whnf args[0]!
+    if α.isConstOf ``Rat then
+      let pred := args[1]!
+      return ← Meta.lambdaBoundedTelescope pred 1 fun xs body => do
+        peelExistsRat body (acc.push xs[0]!.fvarId!) k
+  k acc target
+
+/-- Collect atomic non-strict Rat (in)equalities from the body of a
+Stage 2 existential, descending only through `And`. Throws on strict
+inequalities, nested quantifiers, or any non-atomic shape. -/
+private partial def collectExistsAtoms (body : Expr) :
+    ParseM (Array (Rel × LinExpr × LinExpr)) := do
+  -- Detect `And` on a `whnfR`-reduced form (matching Stage 1's
+  -- top-level `And` dispatch in `solveGoal`). The non-reduced `body`
+  -- is what we pass to `parseAtomic?`: reducible whnf can unfold
+  -- `LE.le` into `Rat.blt _ _ = false`, which `parseAtomic?` wouldn't
+  -- recognise.
+  let bodyW ← whnfR body
+  if let some (left, right) := isAnd? bodyW then
+    return (← collectExistsAtoms left) ++ (← collectExistsAtoms right)
+  match ← parseAtomic? body with
+  | none =>
+      throwError
+        "lp: existential body must be a flat conjunction of atomic non-strict {
+          ""}Rat (in)equality constraints; got{indentExpr body}"
+  | some (.lt, _, _, _, _) =>
+      throwError "lp: strict inequalities are not supported in existential bodies (Stage 2)"
+  | some (rel, _, _, lhs, rhs) =>
+      return #[(rel, lhs, rhs)]
+
+/-- Closed-body invariant check, post-canonicalisation.
+
+For each extracted `LinExpr`, every free `Rat` local in `.coeffs` must
+be an existential binder. Outer parameters (or `let`-bindings that
+canonicalise to non-binder fvars) are rejected here with a precise
+message identifying the offending local. -/
+private def checkClosedBody (atoms : Array (Rel × LinExpr × LinExpr))
+    (binders : Array FVarId) : MetaM Unit := do
+  let isBinder (v : FVarId) : Bool := binders.any (· == v)
+  let checkLin (L : LinExpr) : MetaM Unit := do
+    for (v, _) in L.coeffs do
+      unless isBinder v do
+        let decl ← v.getDecl
+        throwError "lp(stage2): existential body references non-binder `Rat` local `{
+          decl.userName}` after canonicalisation; Stage 2 requires every linear {
+          ""}expression in the body to depend only on the existential binders. {
+          ""}This case may be handled by Stage 3 (uniform strengthening); not in scope here."
+  for (_, lhs, rhs) in atoms do
+    checkLin lhs
+    checkLin rhs
+
+/-- Solve a witness LP (constant-zero objective) for the existential
+binders. On success returns the primal `Array Rat` of size `binders.size`.
+On infeasibility returns `Except.error none`; on any non-`.optimal`,
+non-`.infeasible` outcome returns `Except.error (some msg)`.
+
+Pre: `lpRows` is in `≤ 0` form (`coeffsᵀ x + const ≤ 0`). -/
+private def solveWitnessLP (lpRows : Array LinExpr) (binders : Array FVarId) :
+    MetaM (Except (Option String) (Array Rat)) := do
+  if lpRows.size = 0 then
+    -- No constraints: any witness works; pick `0` for each binder.
+    return .ok (Array.replicate binders.size (0 : Rat))
+  let rowDense := lpRows.map (·.toDense binders)
+  let rowConsts := lpRows.map (·.const)
+  let objCoeffs := Array.replicate binders.size (0 : Rat)
+  have hSize : rowDense.size = rowConsts.size := by
+    simp [rowDense, rowConsts]
+  let p := buildProblem rowDense rowConsts objCoeffs 0 binders.size hSize
+  let opts : Options := { ({} : Options) with sense := .maximize, presolve := false }
+  let normalized ←
+    match validate p with
+    | .error e => return .error (some s!"invalid generated problem: {repr e}")
+    | .ok p => pure p
+  let sol ←
+    match solveExact opts normalized with
+    | .error e => return .error (some s!"solveExact failed: {repr e}")
+    | .ok sol => pure sol
+  match sol.status with
+  | .optimal =>
+      let some pr := sol.certificate.primal
+        | return .error (some "SoPlex reported optimal but returned no primal certificate")
+      return .ok pr.toArray
+  | .infeasible => return .error none
+  | .unbounded =>
+      -- Cannot arise for a constant-zero objective. Treat as a
+      -- solver/verifier invariant violation.
+      return .error (some "SoPlex reported `unbounded` for a constant-zero objective; treating as an unchecked invariant violation")
+  | s => return .error (some s!"solver outcome was unchecked: {repr s}")
+
+/-- Try to certify that the outer hypotheses `rows` (over `vars`) are
+inconsistent. Returns `some pf` with `pf : False` on success, or `none`
+if the inconsistency probe doesn't fire (no rows, unchecked status, or
+the LP says feasible).
+
+This is the Stage 2 inconsistency-probe fallback: it reuses the Stage 1
+infeasibility branch's Farkas certificate construction, but with a
+fixed constant-zero objective (`max 0 subject to H`) so we are
+probing only the consistency of `H`. -/
+private def tryHypsInconsistent (rows : Array Row) (vars : Array FVarId) :
+    MetaM (Option Expr) := do
+  if rows.size = 0 || vars.size = 0 then return none
+  let rowDense := rows.map (·.expr.toDense vars)
+  let rowConsts := rows.map (·.expr.const)
+  let objCoeffs := Array.replicate vars.size (0 : Rat)
+  have hSize : rowDense.size = rowConsts.size := by
+    simp [rowDense, rowConsts]
+  let p := buildProblem rowDense rowConsts objCoeffs 0 vars.size hSize
+  let opts : Options := { ({} : Options) with sense := .maximize, presolve := false }
+  let normalized ←
+    match validate p with
+    | .error _ => return none
+    | .ok p => pure p
+  let sol ←
+    match solveExact opts normalized with
+    | .error _ => return none
+    | .ok sol => pure sol
+  match sol.status with
+  | .infeasible =>
+      let some d := sol.certificate.dual | return none
+      let mults := d.rowUpper.toArray
+      unless mults.all (fun lam => 0 ≤ lam) do return none
+      let rowLins := rows.map (·.expr)
+      let zeroLin : LinExpr := {}
+      let residual := computeResidual zeroLin rowLins mults
+      unless isLinExprClosed residual do return none
+      let c := residual.const
+      unless decide (0 < c) do return none
+      let mut entries : Array (Rat × Expr × Expr) := #[]
+      for h : i in [0:rows.size] do
+        let lam := mults[i]!
+        if lam ≠ 0 then
+          let row := rows[i]
+          let term ← row.term
+          let proof ← row.proof
+          entries := entries.push (lam, term, proof)
+      let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
+      let cExpr ← mkRatLit c
+      let identProof ← proveCertificateIdentity vars sumExpr c
+      let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
+      let hFalse := mkAppN (mkConst ``direct_infeasible_close)
+        #[sumExpr, cExpr, sumProof, hC, identProof]
+      return some hFalse
+  | _ => return none
+
+/-- Apply `Exists.intro` with the given witness to `g`, returning the
+metavariable for the body proof obligation. The witness must be a
+`Rat` expression. -/
+private def introExistsRat (g : MVarId) (witness : Expr) : MetaM MVarId := do
+  g.withContext do
+    let ty ← instantiateMVars (← g.getType)
+    let tyW ← whnf ty
+    let fn := tyW.getAppFn
+    let args := tyW.getAppArgs
+    unless fn.isConstOf ``Exists && args.size == 2 do
+      throwError "lp(introExistsRat): expected `∃ x : Rat, _`, got{indentExpr ty}"
+    let level := match fn with
+      | .const _ (u :: _) => u
+      | _ => Level.succ Level.zero
+    let αE := args[0]!
+    let predE := args[1]!
+    -- Only beta-reduce the predicate applied to the witness; do not
+    -- `whnf` further (it may unfold `LE.le` into `Rat.blt _ _ = false`
+    -- and block the residual proof's atomic-comparison dispatch).
+    let bodyTy := (mkApp predE witness).headBeta
+    let newMVar ← mkFreshExprSyntheticOpaqueMVar bodyTy (tag := `lp_stage2_body)
+    let proof := mkApp4 (mkConst ``Exists.intro [level]) αE predE witness newMVar
+    g.assign proof
+    return newMVar.mvarId!
+
+/-- Stage 2 driver. Pre: `g`'s goal type is `∃ x : Rat, …`. -/
+private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
+    (g : MVarId) : TacticM Unit := do
+  -- Collect outer hypotheses (visible before entering the binders); used
+  -- only by the inconsistency-probe fallback on `.infeasible`.
+  let (hypRows, hypState) ← g.withContext do
+    (collectHyps).run {}
+  -- Enter the existential telescope, parse the body, solve the witness
+  -- LP, and pop the primal back out as an `Array Rat` (closed values
+  -- remain valid outside the telescope).
+  let result : Except (Option String) (Array Rat) ← g.withContext do
+    let target ← instantiateMVars (← g.getType)
+    peelExistsRat target #[] fun binders body => do
+      if binders.size = 0 then
+        throwError "lp(stage2): expected at least one `∃ x : Rat, _` binder"
+      -- Parse the body. Seed the parser state with the binders so the
+      -- column ordering is stable and Stage 1's variable-discovery side
+      -- effect lines up with `binders`.
+      let (atoms, _) ← (collectExistsAtoms body).run { vars := binders }
+      if atoms.size = 0 then
+        throwError "lp(stage2): existential body has no atomic Rat constraints"
+      -- Closed-body invariant check (post-canonicalisation).
+      checkClosedBody atoms binders
+      -- Encode each atomic constraint as `lhs - rhs ≤ 0` (an `=` atom
+      -- expands to a `≤ 0` row in each direction).
+      let mut lpRows : Array LinExpr := #[]
+      for (rel, lhs, rhs) in atoms do
+        let d := lhs.sub rhs
+        match rel with
+        | .le => lpRows := lpRows.push d
+        | .eq =>
+            lpRows := lpRows.push d
+            lpRows := lpRows.push d.neg
+        | .lt =>
+            throwError "lp(stage2): strict inequalities are not supported"
+      solveWitnessLP lpRows binders
+  match result with
+  | .ok primal =>
+      -- Splice the primal as `Rat` literals into an `Exists.intro` chain.
+      let mut curG := g
+      for v in primal do
+        let wExpr ← mkRatLit v
+        curG ← introExistsRat curG wExpr
+      -- Residual: closed `And`/`Eq`/`LE` conjunction in `Rat`. Discharge
+      -- via the Stage 1 closed-goal short-circuit.
+      solveGoal curG
+  | .error none =>
+      -- Witness LP infeasible: probe whether outer hyps are inconsistent.
+      match ← tryHypsInconsistent hypRows hypState.vars with
+      | some hFalse =>
+          let goalType ← g.getType
+          let proof ← mkAppOptM ``False.elim #[some goalType, some hFalse]
+          g.assign proof
+      | none =>
+          throwError "lp(stage2): existential body is infeasible and the {
+            ""}tactic could not certify that the outer hypotheses are {
+            ""}inconsistent. The goal may still be provable by other means."
+  | .error (some msg) =>
+      throwError "lp(stage2): {msg}"
+
 private def solveAtomic (g : MVarId) : TacticM Unit := do
   g.withContext do
     let target ← instantiateMVars (← g.getType)
@@ -1429,7 +1717,9 @@ private partial def solveGoal (g : MVarId) : TacticM Unit := do
   let (_, g) ← g.intros
   g.withContext do
     let target ← whnfR (← g.getType)
-    if let some (left, right) := isAnd? target then
+    if ← isExistsRat? target then
+      solveExistential solveGoal g
+    else if let some (left, right) := isAnd? target then
       let leftProof ← mkFreshExprMVar left
       let rightProof ← mkFreshExprMVar right
       let proof ← mkAppM ``And.intro #[leftProof, rightProof]
