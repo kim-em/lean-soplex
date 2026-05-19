@@ -1,0 +1,20 @@
+# Self-contained Lake project for the `lp` vs `linarith` comparison.
+# Lives under the soplex repo but is NOT built by default CI — it pulls in
+# Mathlib for `linarith`, which the main soplex package deliberately does not
+# depend on. To run it: `cd benchmarks/lp-vs-linarith && lake exe cache get &&
+# lake build`. See REPORT.md for the methodology and findings.
+
+name = "lp-vs-linarith"
+defaultTargets = ["LPvsLinarith"]
+
+[[require]]
+name = "Soplex"
+path = "../.."
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.29.1"
+
+[[lean_lib]]
+name = "LPvsLinarith"
