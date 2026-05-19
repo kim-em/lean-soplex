@@ -23,6 +23,7 @@ def leanProbes : Array String := #[
   "SoplexTest/LPStage2.lean",
   "SoplexTest/LPStage3.lean",
   "SoplexTest/LPMaximize.lean",
+  "SoplexTest/LPStage4a.lean",
   "SoplexTest/LPScaling.lean"
 ]
 
