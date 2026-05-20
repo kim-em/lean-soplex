@@ -233,9 +233,12 @@ failures harmless.
 ```
 Soplex.lean                   # top-level import
 Soplex/Basic.lean             # high-level API + `solveVerified`
+Soplex/LP/Core.lean           # backend abstraction + registry
+Soplex/Backend/SoplexFFI.lean # SoPlex FFI backend adapter
 Soplex/Tactic/                # `lp` and `maximize` tactics
   LP.lean                     #   tactic frontend (elaboration + dispatch)
-  Q.lean                      #   kernel-reducible rational payload
+  Q.lean                      #   kernel-reducible rational literals for tactic proofs
+Soplex/Verify.lean            # verifier re-export module
 Soplex/Verify/                # pure-Lean certificate checker
   Types.lean                  #   `Problem`, `Certificate`, `Verified`
   Validate.lean               #   input normalisation
@@ -244,14 +247,25 @@ Soplex/Verify/                # pure-Lean certificate checker
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
   Arith.lean, Budget.lean     #   rational arithmetic + denominator budget
 Main.lean                     # `ffi-check` executable
+QuickstartExample.lean        # quickstart example executable
 SoplexTest/                   # test suite (run via `lake test`)
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
   FFIProbe.lean               #   elaboration-time FFI loading regression probe
+  LP*.lean                    #   tactic frontend and proof-term tests
+  Solve*.lean, Verify.lean    #   solver and verifier regression tests
+  AccessorGoldens.lean        #   accessor documentation golden tests
+  FileIo.lean                 #   LP/MPS file-input tests
+  Runner.lean                 #   `lake test` driver
   fixtures/                   #   MPS / LP test inputs
 docs/accessors.md             # row-sense × column-status accessor reference
+docs/backend-abstraction.md   # backend split and registry notes
+docs/lp-expr-construction-inventory.md
+                              # tactic expression construction notes
 lakefile.lean                 # depends on `SoplexFFI`
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer
+scripts/install-sanitizer-runtime.sh
+                              # CI sanitizer runtime installer
 .github/workflows/ci.yml      # Linux + macOS + Windows CI matrix
 ```
 
