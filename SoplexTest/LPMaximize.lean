@@ -5,21 +5,11 @@ set_option linter.unusedVariables false
 /-!
 `maximize` forward-direction tactic probes.
 
-`maximize <expr>` runs a sup-LP over the local non-strict linear
-hypotheses and injects `have hbound : <expr> ≤ N := <proof>` into the
-local context. `maximize h : <expr>` uses `h` as the hypothesis name.
-
-The translation from the verified-optimal LP outcome to the injected
-`expr ≤ N` is shared with the atomic-goal `proveEntailed` discharger:
-the forward proof is reproved against `rhs := mkRatLit N` rather than
-added into a witness LP. This carries the canonicalise/sign-flip,
-constant offset, and reflection-equality obligations through the
-existing machinery.
+These tests cover the injected bound, the named-hypothesis form, failure
+policy, and regressions where `maximize` must fall back through
+inconsistency rather than introducing a vacuous bound.
 -/
 
--- Bounded LP: max (3 x₀ + 5 x₁) s.t. {0 ≤ x₀, 0 ≤ x₁, x₀ ≤ 4,
--- 2 x₁ ≤ 12, 3 x₀ + 2 x₁ ≤ 18} gives N = 36. The tactic injects
--- `hbound : 3 * x₀ + 5 * x₁ ≤ 36`.
 example (x₀ x₁ : Rat) (_h₁ : 0 ≤ x₀) (_h₂ : 0 ≤ x₁) (_h₃ : x₀ ≤ 4)
     (_h₄ : 2 * x₁ ≤ 12) (_h₅ : 3 * x₀ + 2 * x₁ ≤ 18) :
     3 * x₀ + 5 * x₁ ≤ 36 := by
@@ -33,41 +23,30 @@ example (x₀ x₁ : Rat) (_h₁ : 0 ≤ x₀) (_h₂ : 0 ≤ x₁) (_h₃ : x�
   maximize h : 3 * x₀ + 5 * x₁
   exact h
 
--- Constant offset baked into N. Same hypotheses cap `3 * x` at 12;
--- offset adds 7, so N = 19.
 example (x : Rat) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) : 3 * x + 7 ≤ 19 := by
   maximize 3 * x + 7
   exact hbound
 
--- Negative objective exercises the canonicalization sign-flip
--- non-trivially: `max (-x) s.t. 0 ≤ x = 0`, so N = 0.
+-- Negative objective exercises the canonicalization sign-flip.
 example (x : Rat) (_h : 0 ≤ x) : -x ≤ 0 := by
   maximize -x
   exact hbound
 
--- `maximize` does not solve the surrounding goal — here the goal is
--- `True`, completely unrelated to the LP. After `maximize`, the goal is
--- still `True`; we need a separate step to close it.
+-- `maximize` only injects a bound; it does not solve unrelated goals.
 example (x : Rat) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) : True := by
   maximize 3 * x
   trivial
 
--- Surrounding goal is a slack inequality `expr ≤ N'` with `N' > N`.
--- `maximize` injects the tight bound; the user uses transitivity.
 example (x : Rat) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) : 3 * x ≤ 100 := by
   maximize 3 * x
-  -- hbound : 3 * x ≤ 12
   exact Rat.le_trans hbound (by decide)
 
--- Hypothesis-name collision: an existing `hbound` is shadowed; the new
--- `hbound` shadows it (matches `have`'s standard behavior).
+-- Name collisions follow `have`: the injected `hbound` shadows the old one.
 example (x : Rat) (hbound : True) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) :
     3 * x ≤ 12 := by
   maximize 3 * x
-  -- The new `hbound : 3 * x ≤ 12` shadows the old `hbound : True`.
   exact hbound
 
--- Explicit-name form sidesteps any collision concern.
 example (x : Rat) (hbound : True) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) :
     3 * x ≤ 12 := by
   maximize h : 3 * x
@@ -110,8 +89,6 @@ example (x y : Rat) (_h : 0 ≤ x ∧ x ≤ 1 ∧ 0 ≤ y ∧ y ≤ 1) : True :=
   fail_if_success (maximize x * y)
   trivial
 
--- Closed scalar (no Rat locals, no hypotheses): `maximize 5` injects
--- `hbound : 5 ≤ 5` via the closed-goal short-circuit.
 example : True := by
   maximize (5 : Rat)
   trivial
@@ -127,15 +104,12 @@ example (_h : (1 : Rat) ≤ 0) : False := by
 example (_h : (1 : Rat) ≤ 0) : 42 = 7 := by
   maximize (0 : Rat)
 
--- Two-binder bounded LP with a non-trivial dual certificate.
 example (x₀ x₁ : Rat) (_h₁ : 0 ≤ x₀) (_h₂ : 0 ≤ x₁) (_h₃ : x₀ ≤ 4)
     (_h₄ : 2 * x₁ ≤ 12) (_h₅ : 3 * x₀ + 2 * x₁ ≤ 18) :
     2 * x₀ + 4 * x₁ ≤ 28 := by
   maximize 2 * x₀ + 4 * x₁
   exact hbound
 
--- Rational coefficients with a tight bound. The emitted `N` is
--- `mkRatLit 1`, which is defEq to the goal's `1 : Rat`.
 example (x : Rat) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 2) : (1/2 : Rat) * x ≤ 1 := by
   maximize (1/2 : Rat) * x
   exact hbound
