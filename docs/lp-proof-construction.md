@@ -1,12 +1,13 @@
-# `lp` Expr Construction Inventory
+# `lp` Proof Construction
 
-This inventory covers the proof-facing `Expr` construction sites in
-`Soplex/Tactic/LP.lean`, with emphasis on whether a construction is
-always consumed on a successful `lp` path.
+This document describes where the `lp` tactic constructs Lean
+proof-facing `Expr` values in `Soplex/Tactic/LP.lean`, and which
+construction sites are intentionally delayed until a successful
+certificate needs them.
 
 ## `Soplex/Tactic/LP.lean`
 
-| Site | Need | Cost estimate | Action |
+| Site | Role | Construction cost | Design |
 | --- | --- | --- | --- |
 | `collectHypProof`: `And.left` / `And.right` projections | Needed to inspect conjunctive hypotheses. | One projection per conjunct edge; small and proportional to parsed context shape. | Left eager. |
 | `collectHypProof`: row `lhs - rhs` terms | Needed only for rows whose dual/Farkas multiplier is nonzero. Rows ignored by the certificate do not need the term. | One `HSub.hSub` elaboration per parsed row; noticeable on dense contexts with many unused rows. | Made lazy as `Row.term : MetaM Expr`. |
@@ -19,7 +20,6 @@ always consumed on a successful `lp` path.
 | `proveEntailed` unbounded branch: diagnostic strings | Needed only for the unbounded error. | String-only, no proof `Expr`. | Left branch-local. |
 | `solveGoal`: `And.intro` and child metavariables | Needed only for conjunctive goals. | Small per goal split. | Left branch-local. |
 
-The main systematic laziness invariant after this pass is that parsed
-rows carry only numeric data eagerly. Lean proof-side row artefacts are
-forced at certificate assembly time and only for rows with nonzero
-multipliers.
+The key proof-construction invariant is that parsed rows carry only
+numeric data eagerly. Lean proof-side row artefacts are forced at
+certificate assembly time and only for rows with nonzero multipliers.

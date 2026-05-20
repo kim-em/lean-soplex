@@ -240,9 +240,8 @@ SoplexTest/                   # test suite (run via `lake test`)
   fixtures/                   #   MPS / LP test inputs
 docs/accessors.md             # row-sense × column-status accessor reference
 docs/backend-abstraction.md   # backend split and registry notes
-docs/lp-expr-construction-inventory.md
-                              # tactic expression construction notes
 docs/verification.md          # detailed verified-solve trust model
+docs/lp-proof-construction.md # `lp` tactic proof construction notes
 lakefile.lean                 # depends on `SoplexFFI`
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer
 scripts/install-sanitizer-runtime.sh
