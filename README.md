@@ -183,8 +183,8 @@ itself.
 `SoplexTest/FFIProbe.lean`, which calls `solveVerified` from inside a
 tactic and checks the elaboration-time FFI loading path used by future
 tactics. For a lower-level FFI-only check
-(SoPlex version, throw/catch ABI, toy LP via the direct binding) use
-`lake exe ffi-check`.
+(SoPlex version, throw/catch ABI, small LP sanity check via the direct
+binding) use `lake exe ffi-check`.
 
 The first Lake build is slow (~1–3 min) because the `SoplexFFI`
 dependency configures and compiles vendored SoPlex with CMake.

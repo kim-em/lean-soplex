@@ -3,7 +3,8 @@
 
   Prints `SOPLEX_VERSION`, runs a cross-stdlib C++ throw/catch round
   trip on non-macOS (libstdc++ vs libc++ mismatches otherwise corrupt
-  exception handling silently), and solves a toy LP via `ffiCheckSolve`.
+  exception handling silently), and runs a small LP sanity check via
+  `ffiCheckSolve`.
   Exits 0 on success; non-zero (1/2/3) tags which step failed.
 -/
 

@@ -13,7 +13,7 @@ The translation is *untrusted*: the verification layer catches
 mistakes here as non-verifying certificates. The exhaustive
 row-sense × column-status × min/max golden tests in
 `SoplexTest/AccessorGoldens.lean` pin down the conventions below by running one
-tiny LP per cell and asserting the resulting `DualBundle` exactly. A
+minimal LP per cell and asserting the resulting `DualBundle` exactly. A
 SoPlex bump that changes any convention will break those goldens
 before it can mis-translate a real certificate.
 
