@@ -2,9 +2,10 @@
   User-facing verified-solve driver: the `Verified` / `VerifiedSolve`
   data types and the pure `Solution → Verified` mapping `verifyOutcome`.
 
-  Stays FFI-free: `Soplex.Basic` calls SoPlex and feeds the resulting
-  `Solution` into `verifyOutcome`, so the full soundness story lives
-  inside the pure-Lean `SoplexVerify` library.
+  Stays FFI-free logically: `Soplex.Basic` calls SoPlex and feeds the
+  resulting `Solution` into `verifyOutcome`, so the soundness argument
+  is pure Lean even though the current package layout still builds this
+  module through the main `Soplex` dependency graph.
 -/
 
 import Soplex.Verify.Prop
