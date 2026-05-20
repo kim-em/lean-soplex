@@ -95,3 +95,40 @@ example (h : (1 : Rat) ≤ 0) : ∃ x : Rat, 0 ≤ x ∧ x ≤ -1 ∧
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
     (∀ y : Rat, 0 ≤ y → y ≤ 1 → y ≤ x + 1) ∧
     (∀ z : Rat, x ≤ z → z ≤ x + 2 → z ≤ x + 2) := by lp
+
+-- Nonzero `λᵀ B` in the optimal-point cut. At the initial candidate
+-- `x = 0`, the active dual on the x-dependent upper guard `y ≤ x + 1`
+-- contributes a nonzero `x`-coefficient to `cutLin = bodyX − λ · guardX`:
+-- `cutLin = (−3x − 1) − 2 · (−x − 1) = −x + 1`, giving the cut `x ≥ 1`.
+-- At `x = 1` the body `2 · y ≤ 3 · x + 1 = 4` is tight at `y = 2`. Two
+-- iterations.
+example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
+    ∀ y : Rat, x ≤ y → y ≤ x + 1 → 2 * y ≤ 3 * x + 1 := by lp
+
+-- Three-iteration Benders convergence. At `x = 0`, U1's body
+-- `2y ≤ 3x + 1` is violated (max `2y = 2 > 1`); cut `x ≥ 1`. At `x = 1`,
+-- U1 is satisfied but U2's body `3z ≤ x + 1 = 2` is violated by
+-- `max 3z = 3`; cut `x ≥ 2`. At `x = 2` both universals are tight and
+-- accept. The exact iteration count is sensitive to SoPlex's vertex
+-- choice on the witness LP — the test simply asserts convergence, not
+-- a specific iteration count.
+example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
+    (∀ y : Rat, x ≤ y → y ≤ x + 1 → 2 * y ≤ 3 * x + 1) ∧
+    (∀ z : Rat, x - 1 ≤ z → z ≤ 1 → 3 * z ≤ x + 1) := by lp
+
+-- Equality body — splits into two `BendersUniversal` entries (one per
+-- direction of `y = x`). Both subproblems must succeed for the
+-- universal to be accepted at the candidate. Guards force `y = x`, so
+-- the body is satisfied identically.
+example : ∃ x : Rat, ∀ y : Rat, x ≤ y → y ≤ x → y = x := by lp
+
+-- Unbounded Stage 4a subproblem at the initial candidate: the
+-- x-dependent lower bound `x ≤ y` routes the universal through
+-- Stage 4a, but with no upper bound on `y` the sup-LP at any candidate
+-- is `+∞`. v1 policy is to fail fast with a precise message rather
+-- than emit an `x`-independent ray cut (the corresponding cut on `x`
+-- would require a Farkas projection over the guard polyhedron,
+-- deferred).
+example : True := by
+  fail_if_success (have : ∃ x : Rat, ∀ y : Rat, x ≤ y → y ≤ 0 := by lp)
+  trivial
