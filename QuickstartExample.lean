@@ -30,14 +30,19 @@ def main : IO Unit := do
     | .unchecked s     => IO.println s!"unchecked: {repr s}"
 
 /--
+  The same optimum bound can be stated directly as a rational linear
+  arithmetic theorem. Use `lp` for these pure `Rat` goals; use
+  `solveVerified` when you want the explicit solver result and its
+  certificate-carrying API.
+-/
+example (x₀ x₁ : Rat) (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18)
+    (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) : 3 * x₀ + 5 * x₁ ≤ 36 := by lp
+
+/--
   Whenever `solveVerified lp` returns `.optimal x h`, the witness `x`
   is a certified feasible and optimal point of the normalised LP. The
   proof is built into the `.optimal` constructor itself; this lemma
-  just exposes the API contract.
-
-  See https://github.com/kim-em/soplex/issues/40 for an `lp` tactic
-  that would let us state and prove a fully pure-`Rat` version of this
-  in a single line.
+  just exposes the API contract for code that consumes `solveVerified`.
 -/
 theorem lp_optimum_correct {r x h}
     (_hr : solveVerified (opts := { sense := .maximize }) lp = .ok r)
