@@ -5,8 +5,8 @@ import Soplex
 hypotheses.
 -/
 
--- Regression for two-row certificates: after the solver returns `optimal`,
--- these constants should verify instead of falling through as
+-- Two-row optimal certificates verify after the solver returns `optimal`,
+-- including constant-only objectives that must not fall through as
 -- `.unchecked .optimal`.
 example (a b : Rat) (_h₁ : 2 * a + b ≤ 5) (_h₂ : a - b ≤ 1) : 3 * a ≤ 6 := by
   lp

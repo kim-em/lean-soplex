@@ -1,30 +1,29 @@
 import Soplex
 
 /-!
-Dense regression for the `lp` tactic at sizes where the previous
-verifier backend hit a `(kernel) deep recursion detected` wall
-(see issues #61 and #63).
+Dense `lp` tactic probes at sizes large enough to exercise the
+verifier backend's kernel recursion and elaboration costs.
 
 `m = n` here (square diagonally-dominant integer matrix); the goal is
 `x₀ + ... + xₙ₋₁ ≤ n`, tight at `x = 1ₙ`. The direct certificate
-backend produces a flat weighted-sum proof whose kernel work scales
+backend must produce a flat weighted-sum proof whose kernel work scales
 with `m + n` rather than `m × n²`, so this file elaborates in seconds
 instead of timing out (or recursing past the kernel's limit).
 -/
 
 -- The kernel typecheck at N=80/100 emits a flat explicit-proof-term
 -- certificate; intermediate `Q` payloads stay un-gcd'd so denominator
--- arithmetic reduces to closed `Int`/`Nat` literal ops.  `maxRecDepth`
--- is at its default thanks to the explicit-implicits trick in #72; the
--- heartbeat bump is needed because the discharger's `mkAppM` rebuilds
--- still drive elaborator reductions.
+-- arithmetic reduces to closed `Int`/`Nat` literal ops. `maxRecDepth`
+-- stays at its default because the certificate exposes explicit
+-- implicits; the heartbeat bump is needed because the discharger's
+-- `mkAppM` rebuilds still drive elaborator reductions.
 set_option maxHeartbeats 16000000
 
 namespace Soplex.Tactic.LP.Scaling
 
--- Dense N=20 regression: roughly the size at which the verifier backend
--- exhibited its `m × n²` slowdown. With the direct certificate backend
--- the kernel work is sparse in `m + n` so this and N=40 finish quickly.
+-- Dense N=20: roughly the size where quadratic verifier work becomes
+-- visible. With the direct certificate backend the kernel work is
+-- sparse in `m + n`, so this and N=40 finish quickly.
 example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 : Rat)
     (_h1 : 43 * x0 - 3 * x1 - 3 * x2 + 2 * x3 - x4 - 2 * x5 - 2 * x6 - 2 * x7 + 2 * x8 - 3 * x9 + 2 * x10 + 2 * x11 + x12 - 3 * x13 + x14 - 3 * x16 - 3 * x17 - 3 * x18 - 2 * x19 ≤ 23)
     (_h2 : - 2 * x0 + 37 * x1 + x2 - 3 * x3 + x4 - 2 * x5 + 2 * x6 + 2 * x7 + 2 * x8 + x9 - 2 * x11 + x13 - x14 + 3 * x15 + 3 * x16 - 3 * x17 + 3 * x18 + 3 * x19 ≤ 46)
@@ -49,7 +48,8 @@ example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 :
     : x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19 ≤ 20 := by
   lp
 
--- Dense N=40: keeps the explicit proof-term path below kernel recursion limits.
+-- Dense N=40: exercises kernel recursion depth for the flat
+-- certificate backend.
 example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 : Rat)
     (_h1 : 66 * x0 - x1 + 2 * x2 + 3 * x3 - 2 * x4 - x6 + 2 * x7 + 2 * x8 + 3 * x9 - 3 * x10 + x12 + x14 - 3 * x15 + x16 + x18 - x19 + x20 + 3 * x21 + x22 + 3 * x23 - 2 * x26 - 3 * x27 + 3 * x28 - 3 * x29 + 3 * x30 - 3 * x31 - 2 * x33 - 3 * x34 - 2 * x35 + x36 + 3 * x37 - 2 * x39 ≤ 69)
     (_h2 : 3 * x0 + 75 * x1 + x2 + x3 - x4 + x5 - 2 * x6 - 3 * x8 - 3 * x9 + x10 - 3 * x11 - 2 * x12 - 3 * x13 + 3 * x14 - 2 * x15 - x16 - x17 - 3 * x18 + x19 + x20 - 3 * x21 + 3 * x22 + 3 * x23 + x24 + 2 * x25 + 2 * x26 + 2 * x27 - 3 * x28 - 3 * x29 + 3 * x30 + x31 + 3 * x33 + 2 * x34 + 2 * x35 - x36 - x37 + x38 + 2 * x39 ≤ 79)
@@ -94,7 +94,7 @@ example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x
     : x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19 + x20 + x21 + x22 + x23 + x24 + x25 + x26 + x27 + x28 + x29 + x30 + x31 + x32 + x33 + x34 + x35 + x36 + x37 + x38 + x39 ≤ 40 := by
   lp
 
--- Dense N=80 regression.
+-- Dense N=80: large certificate with many sparse weighted rows.
 example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 x40 x41 x42 x43 x44 x45 x46 x47 x48 x49 x50 x51 x52 x53 x54 x55 x56 x57 x58 x59 x60 x61 x62 x63 x64 x65 x66 x67 x68 x69 x70 x71 x72 x73 x74 x75 x76 x77 x78 x79 : Rat)
     (_h1 : 130 * x0 + x7 - 2 * x10 + 2 * x11 + 2 * x13 - 2 * x14 - x15 - x24 + x30 - 2 * x33 - 2 * x40 - 3 * x41 - 3 * x42 - x47 + x53 - 3 * x55 - 2 * x56 - 2 * x65 + 3 * x74 - 2 * x76 ≤ 114)
     (_h2 : 140 * x1 - 2 * x4 - 2 * x5 + 3 * x11 - 3 * x15 + 3 * x16 - x25 + x29 + 3 * x33 - x34 - x39 + 3 * x46 - x50 + 2 * x51 + x53 - 3 * x56 - x60 + x63 - x64 - 3 * x68 - 3 * x70 + x73 - 3 * x76 - 2 * x78 ≤ 131)
@@ -179,7 +179,7 @@ example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x
     : x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19 + x20 + x21 + x22 + x23 + x24 + x25 + x26 + x27 + x28 + x29 + x30 + x31 + x32 + x33 + x34 + x35 + x36 + x37 + x38 + x39 + x40 + x41 + x42 + x43 + x44 + x45 + x46 + x47 + x48 + x49 + x50 + x51 + x52 + x53 + x54 + x55 + x56 + x57 + x58 + x59 + x60 + x61 + x62 + x63 + x64 + x65 + x66 + x67 + x68 + x69 + x70 + x71 + x72 + x73 + x74 + x75 + x76 + x77 + x78 + x79 ≤ 80 := by
   lp
 
--- Dense N=100 regression.
+-- Dense N=100: largest dense scaling probe in this test file.
 example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 x40 x41 x42 x43 x44 x45 x46 x47 x48 x49 x50 x51 x52 x53 x54 x55 x56 x57 x58 x59 x60 x61 x62 x63 x64 x65 x66 x67 x68 x69 x70 x71 x72 x73 x74 x75 x76 x77 x78 x79 x80 x81 x82 x83 x84 x85 x86 x87 x88 x89 x90 x91 x92 x93 x94 x95 x96 x97 x98 x99 : Rat)
     (_h1 : 157 * x0 + x3 + x8 - 2 * x12 - 2 * x15 - x16 + 2 * x27 - 3 * x31 + x33 - 2 * x39 + 3 * x62 - x65 - 3 * x67 + 3 * x72 + 2 * x79 + x80 + 3 * x82 + x89 - 2 * x91 - 3 * x93 + 3 * x94 - x95 + 3 * x96 ≤ 161)
     (_h2 : 207 * x1 + 2 * x8 - 2 * x13 - 3 * x22 + 3 * x24 - 3 * x33 + 2 * x34 + 3 * x38 + 3 * x39 - x40 + x42 - 2 * x44 + x48 + 2 * x50 - 3 * x54 + x56 + x61 + 2 * x70 - x72 + x76 + x78 - 3 * x84 - 3 * x85 + 3 * x87 ≤ 212)
