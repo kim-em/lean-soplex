@@ -96,7 +96,7 @@ private def tVerboseLogCaptured (_ : Unit) : Outcome :=
   match solveExact opts p with
   | .error e => .fail s!"solveExact failed: {repr e}"
   | .ok s =>
-    -- Verbose mode must produce a non-empty log containing a recognisable
+    -- Verbose mode must produce a non-empty log containing a recognizable
     -- SoPlex signature substring. `"SoPlex"` (the banner / version line)
     -- and `"Optimal"` (the optimization-summary marker) are both stable
     -- across v8.0.x; either is accepted. `splitOn s` returns at least

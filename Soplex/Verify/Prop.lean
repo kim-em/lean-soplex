@@ -1,7 +1,7 @@
 /-
   Mathematical (Prop-level) LP predicates.
 
-  These are stated in minimisation form. The sense-aware wrappers
+  These are stated in minimization form. The sense-aware wrappers
   `IsOptimal` and `IsUnbounded` defer to the min-canonical versions
   after negating the objective.
 
@@ -45,12 +45,12 @@ def IsFeasible {m n : Nat} (p : Problem m n) (x : Array Rat) : Prop :=
 def IsInfeasible {m n : Nat} (p : Problem m n) : Prop :=
   ¬ ∃ x, IsFeasible p x
 
-/-- `x` minimises `c·x + objOffset` over the feasible region. -/
+/-- `x` minimizes `c·x + objOffset` over the feasible region. -/
 def IsOptimalMin {m n : Nat} (p : Problem m n) (x : Array Rat) : Prop :=
   IsFeasible p x ∧
     ∀ y, IsFeasible p y → primalObj p x ≤ primalObj p y
 
-/-- The minimisation problem is unbounded below. -/
+/-- The minimization problem is unbounded below. -/
 def IsUnboundedMin {m n : Nat} (p : Problem m n) : Prop :=
   (∃ x, IsFeasible p x) ∧
     ∀ M : Rat, ∃ y, IsFeasible p y ∧ primalObj p y < M

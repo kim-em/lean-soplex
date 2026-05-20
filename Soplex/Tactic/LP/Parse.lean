@@ -40,7 +40,7 @@ def parseIntLit? (e : Expr) : MetaM (Option Int) := do
   else
     return none
 
-/-- Try to recognise `e` as `Q.toRat ⟨n, d, _⟩` for closed `Int`/`Nat`
+/-- Try to recognize `e` as `Q.toRat ⟨n, d, _⟩` for closed `Int`/`Nat`
 literals `n`, `d`. Inspected BEFORE `whnfR` so the `@[inline]` `Q.toRat`
 isn't unfolded out of the parse. -/
 def tryQToRat? (e : Expr) : MetaM (Option Rat) := do
@@ -58,7 +58,7 @@ def tryQToRat? (e : Expr) : MetaM (Option Rat) := do
   if h : d = 0 then return none
   else return some (Rat.normalize n d h)
 
-/-- Scalar recogniser for the `lp` explicit-proof-term discharger.
+/-- Scalar recognizer for the `lp` explicit-proof-term discharger.
 Recognises `Q.toRat ⟨…⟩`, `@OfNat.ofNat Rat n _`, `let`-bound scalars,
 and `Neg`/`HMul`/`HDiv` *of scalars* — but deliberately does **not**
 descend into `HAdd`/`HSub` operands. The full `parseScalar?` recurses
@@ -66,7 +66,7 @@ through `+`/`-` trees to fold compound closed scalars like `2 - 1`;
 calling that at every syntax node of a dense row was an O(N²) blow-up
 in tactic-side work. Skipping `HAdd`/`HSub` keeps every call bounded by
 the maximal *scalar-only* subtree: a row body (`HAdd` head) is rejected
-in O(1), and a coefficient like `1/3` or `c` is still recognised. A
+in O(1), and a coefficient like `1/3` or `c` is still recognized. A
 genuinely compound `(2+3) * x` is not short-circuited here, but
 `normalize` still handles it via its structural `HAdd` path. -/
 partial def quickScalarLit? (e : Expr) : MetaM (Option Rat) := do
@@ -98,7 +98,7 @@ partial def quickScalarLit? (e : Expr) : MetaM (Option Rat) := do
 
 /-- Recognise an expression as a reducibly-closed `Rat` scalar, with a
   pre-`whnfR` check for `Q.toRat ⟨…⟩` literals so the explicit-proof-term
-  discharger's `mkRatLit` outputs are recognised as scalars. -/
+  discharger's `mkRatLit` outputs are recognized as scalars. -/
 partial def parseScalar? (e : Expr) : MetaM (Option Rat) := do
   if let some v ← tryQToRat? e then
     return some v

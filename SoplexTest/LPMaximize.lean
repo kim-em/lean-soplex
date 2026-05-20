@@ -39,7 +39,7 @@ example (x : Rat) (_h₁ : 0 ≤ x) (_h₂ : x ≤ 4) : 3 * x + 7 ≤ 19 := by
   maximize 3 * x + 7
   exact hbound
 
--- Negative objective exercises the canonicalisation sign-flip
+-- Negative objective exercises the canonicalization sign-flip
 -- non-trivially: `max (-x) s.t. 0 ≤ x = 0`, so N = 0.
 example (x : Rat) (_h : 0 ≤ x) : -x ≤ 0 := by
   maximize -x

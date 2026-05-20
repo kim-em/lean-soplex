@@ -11,10 +11,10 @@ form whose internal arithmetic uses ordinary `+`/`*` on `Rat` leaves stuck
 terms inside the kernel and the closing `rfl` fails.  We sidestep this by
 working with a thin `(Int, Nat)`-payload `Q` whose addition, multiplication,
 and negation use only `Int`/`Nat` arithmetic (which is transparent) and only
-materialise a `Rat` value via `Rat.normalize` at the leaves of the
+materialize a `Rat` value via `Rat.normalize` at the leaves of the
 evaluation.
 
-Used by `Soplex.Tactic.LP` to materialise scalar literals into
+Used by `Soplex.Tactic.LP` to materialize scalar literals into
 kernel-reducible form while constructing explicit proof terms.  The module
 lives directly under `Soplex.Tactic` because it is an implementation detail
 of the tactic proof backend rather than part of the verified solver API. -/
@@ -59,7 +59,7 @@ kernel, so closed `Q.toRat` calls reduce to canonical `Rat.mk'` literals. -/
 @[simp] theorem toRat_neg (a : Q) : (Q.neg a).toRat = -a.toRat := by
   simp [Q.neg, Q.toRat, Rat.neg_normalize]
 
-/-- Two `Q` payloads materialise to the same `Rat` whenever their numerators
+/-- Two `Q` payloads materialize to the same `Rat` whenever their numerators
 and denominators agree under cross-multiplication.  The side condition is a
 closed `Int` equality, so the explicit-proof-term discharger in the `lp`
 tactic can build it with `decide` over GMP-backed `Int` arithmetic — the only

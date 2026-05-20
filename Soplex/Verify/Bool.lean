@@ -133,7 +133,7 @@ def dot (a b : Array Rat) : Rat :=
 
 /-! ## Primal feasibility. -/
 
-/-- Decide whether `x` is primal-feasible for the (normalised) `p`. -/
+/-- Decide whether `x` is primal-feasible for the (normalized) `p`. -/
 def isPrimalFeasible {m n : Nat} (p : Problem m n) (x : Vector Rat n) : Bool :=
   (Vector.finRange n).all (fun j =>
        let (lo, hi) := p.colBounds[j]

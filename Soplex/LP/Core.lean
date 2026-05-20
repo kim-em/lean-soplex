@@ -26,7 +26,7 @@ namespace Soplex.LP
 
 /-- Concrete LP solver backend.
 
-    A backend takes a normalised `Problem` (and the `Options` that
+    A backend takes a normalized `Problem` (and the `Options` that
     came with it) and returns either an error or a `Solution` whose
     `Certificate` the pure-Lean verifier (`Soplex.Verify.verifyOutcome`)
     can check.
@@ -56,7 +56,7 @@ structure LPBackend where
   /-- Solve a validated LP and return its certificate. The argument is
       the post-`validate` problem; backends should not re-run
       `validate`. Backends are responsible for any solver-side
-      canonicalisation (`negateObjective` etc.). -/
+      canonicalization (`negateObjective` etc.). -/
   solveExact : {m n : Nat} → Options → Problem m n →
                IO (Except SolveError (Solution m n))
   /-- Lazy pre-flight probe: is this backend usable in the current

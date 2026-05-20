@@ -20,18 +20,18 @@ before it can mis-translate a real certificate.
 ## Conventions and notation
 
 All accessors below act on the LP `solveExact` sends to SoPlex —
-i.e. the **minimisation** form produced by
+i.e. the **minimization** form produced by
 `Soplex.Verify.canonicalize`. For `Options.sense := .maximize`,
 `canonicalize` negates `c` before the LP reaches the C++ bridge, so
-SoPlex always sees a minimisation LP and every accessor convention
-below is stated relative to that minimisation form. The
+SoPlex always sees a minimization LP and every accessor convention
+below is stated relative to that minimization form. The
 user-facing `Solution.objective` is then flipped back into the
 caller's sense by `mapObjectiveForSense`.
 
 The canonical LP is
 
 ```
-  minimise   c · x + objOffset
+  minimize   c · x + objOffset
   subject to lo_rᵢ ≤ (Ax)ᵢ ≤ hi_rᵢ      (rowBounds[i] = (lo_r, hi_r))
              lo_cⱼ ≤ xⱼ    ≤ hi_cⱼ      (colBounds[j] = (lo_c, hi_c))
 ```
@@ -56,10 +56,10 @@ cost is `z = colLower − colUpper`.
 | `getPrimalRational`           | `numVars`       | Optimal primal `x` (or feasible base point if unbounded). Signed values, satisfying all bounds. | Stored verbatim into `Solution.certificate.primal`. |
 | `getPrimalRayRational`        | `numVars`       | A recession ray `r` along which the objective improves (decreases for min). | Stored verbatim into `Solution.certificate.ray`. |
 | `getDualRational`             | `numConstraints`| Signed row dual `y`. `y > 0` ⇒ row lower bound active; `y < 0` ⇒ row upper bound active; `y = 0` for free rows or rows whose multiplier is zero at optimum. | Split: `rowLower = max(y, 0)`, `rowUpper = max(−y, 0)` (`split_pos`). |
-| `getRedCostRational`          | `numVars`       | Signed reduced cost `z = c − Aᵀy` (post-canonicalisation). `z > 0` ⇒ column at lower bound; `z < 0` ⇒ column at upper bound; `z = 0` for basic / free columns. | Split: `colLower = max(z, 0)`, `colUpper = max(−z, 0)` (`split_pos`). |
-| `getDualFarkasRational`       | `numConstraints`| Signed Farkas multiplier `y`. SoPlex's sign convention here can flip depending on which side certifies infeasibility; the bridge canonicalises so that the bound combination `Σᵢ lo_rᵢ·y⁺ − hi_rᵢ·y⁻ + Σⱼ lo_cⱼ·z⁺ − hi_cⱼ·z⁻` is **strictly positive** (the Farkas certificate the verifier wants). | Compute `−Aᵀy` (the implied column-side multiplier), check `bound_combination_sign`; if negative, negate both `y` and `Aᵀy` first. Then `split_pos` into the four arrays exactly as for the optimal case. |
+| `getRedCostRational`          | `numVars`       | Signed reduced cost `z = c − Aᵀy` (post-canonicalization). `z > 0` ⇒ column at lower bound; `z < 0` ⇒ column at upper bound; `z = 0` for basic / free columns. | Split: `colLower = max(z, 0)`, `colUpper = max(−z, 0)` (`split_pos`). |
+| `getDualFarkasRational`       | `numConstraints`| Signed Farkas multiplier `y`. SoPlex's sign convention here can flip depending on which side certifies infeasibility; the bridge canonicalizes so that the bound combination `Σᵢ lo_rᵢ·y⁺ − hi_rᵢ·y⁻ + Σⱼ lo_cⱼ·z⁺ − hi_cⱼ·z⁻` is **strictly positive** (the Farkas certificate the verifier wants). | Compute `−Aᵀy` (the implied column-side multiplier), check `bound_combination_sign`; if negative, negate both `y` and `Aᵀy` first. Then `split_pos` into the four arrays exactly as for the optimal case. |
 
-## Per-cell sign behaviour
+## Per-cell sign behavior
 
 The 17 cells of the row-sense × column-status matrix below are each
 exercised by `SoplexTest/AccessorGoldens.lean` in both senses. The "signed
@@ -110,7 +110,7 @@ slack (`x = 2` is interior), so `z = 0` in every row.
 
 ### Lower-only row (`rowBounds = (some lo, none)`)
 
-The lower row bound binds at the minimisation optimum; SoPlex
+The lower row bound binds at the minimization optimum; SoPlex
 returns `y > 0`, which the bridge splits into `rowLower`. The
 column bound is slack, so `z = 0`.
 
@@ -148,7 +148,7 @@ table above.
 | boxed (`0 ≤ x ≤ 5`)  | `c = 1`                         | `1`         | `+1`       | `0`        | `[1] / [0] / [0] / [0]`           |
 
 † Supplemental `C_ranged_upper_binding` case; the in-matrix
-upper-bound-binding behaviour is otherwise covered by the upper-only
+upper-bound-binding behavior is otherwise covered by the upper-only
 row table above.
 
 ### Non-unit `A`
@@ -207,7 +207,7 @@ end-to-end max-sense user-API path with an asymmetric LP.
 `getPrimalRayRational` and `getDualFarkasRational` are exercised by
 `SoplexTest/SolveExact.lean` rather than by this matrix (the
 row-sense × column-status pattern only makes sense for an LP whose
-optimum exists). Bridge behaviour for those accessors:
+optimum exists). Bridge behavior for those accessors:
 
 | Accessor                  | Test fixture                           | LP                                                  | What the bridge does |
 |---------------------------|----------------------------------------|------------------------------------------------------|----------------------|
