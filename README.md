@@ -216,7 +216,7 @@ failures harmless.
   and `.unchecked` covers undecided solver statuses and failed checks.
 * Direct `solveExact` calls may use SoPlex presolve; the verified
   path forces it off. Reconstructing certificates for the original
-  problem from presolve output is tracked separately.
+  problem from presolve output is outside this verified path.
 * Dual multipliers are stored as a nonnegative lower/upper split per
   row and column. This is more explicit than a signed dual vector
   and handles ranged rows and boxed columns uniformly.

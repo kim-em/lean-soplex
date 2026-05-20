@@ -231,7 +231,7 @@ private def tMissingFile : IO Outcome := do
   | .error (.parseError _ _) => return .ok
   | .error e => return .fail s!"expected .parseError, got {repr e}"
 
-/-! ## Verify-corpus round-trip (issue #20).
+/-! ## Verify-corpus round-trip.
 
   Each `Problem` below appears in `SoplexTest/Verify.lean`'s hand-rolled
   certificate corpus. We assert that writing it to MPS, reading it back,

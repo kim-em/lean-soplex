@@ -9,11 +9,11 @@ Soplex as a dependency (e.g. due to FFI dylib resolution differences,
 stale `.lake/packages/SoplexFFI` artefacts on a bump, or any other
 in-tree-vs-downstream divergence).
 
-The set of `(2*a+b ≤ k, a-b ≤ 1, 3*a ≤ k+1)` instances below is the
-issue #56 sweep: small two-row LPs whose Farkas certificate is the
-trivial `h₁ + h₂` combination. Several specific constants previously
-fell through as `.unchecked .optimal` when called from a downstream
-package even though the in-tree CI was green.
+The set of `(2*a+b ≤ k, a-b ≤ 1, 3*a ≤ k+1)` instances below covers
+small two-row LPs whose Farkas certificate is the trivial `h₁ + h₂`
+combination. These constants should verify from a downstream package,
+matching the in-tree behavior instead of falling through as
+`.unchecked .optimal`.
 -/
 
 example (a b : Rat) (_h₁ : 2 * a + b ≤ 5) (_h₂ : a - b ≤ 1) : 3 * a ≤ 6 := by lp
