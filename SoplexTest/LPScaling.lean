@@ -49,7 +49,7 @@ example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 :
     : x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19 ≤ 20 := by
   lp
 
--- Dense N=40: previously hit `(kernel) deep recursion detected`.
+-- Dense N=40: keeps the explicit proof-term path below kernel recursion limits.
 example (x0 x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18 x19 x20 x21 x22 x23 x24 x25 x26 x27 x28 x29 x30 x31 x32 x33 x34 x35 x36 x37 x38 x39 : Rat)
     (_h1 : 66 * x0 - x1 + 2 * x2 + 3 * x3 - 2 * x4 - x6 + 2 * x7 + 2 * x8 + 3 * x9 - 3 * x10 + x12 + x14 - 3 * x15 + x16 + x18 - x19 + x20 + 3 * x21 + x22 + 3 * x23 - 2 * x26 - 3 * x27 + 3 * x28 - 3 * x29 + 3 * x30 - 3 * x31 - 2 * x33 - 3 * x34 - 2 * x35 + x36 + 3 * x37 - 2 * x39 ≤ 69)
     (_h2 : 3 * x0 + 75 * x1 + x2 + x3 - x4 + x5 - 2 * x6 - 3 * x8 - 3 * x9 + x10 - 3 * x11 - 2 * x12 - 3 * x13 + 3 * x14 - 2 * x15 - x16 - x17 - 3 * x18 + x19 + x20 - 3 * x21 + 3 * x22 + 3 * x23 + x24 + 2 * x25 + 2 * x26 + 2 * x27 - 3 * x28 - 3 * x29 + 3 * x30 + x31 + 3 * x33 + 2 * x34 + 2 * x35 - x36 - x37 + x38 + 2 * x39 ≤ 79)

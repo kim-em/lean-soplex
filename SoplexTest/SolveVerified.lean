@@ -116,8 +116,8 @@ private def tBudgetExceeded (_ : Unit) : Outcome :=
   runVerified noPresolve p (denomBudget := some 1)
     (k := fun _ v => wantsUnchecked .budgetExceeded v)
 
-/-- Budget regression from issue #20: a tiny
-    LP solved with the absurdly low cap `some 5`. The optimum is the
+/-- Budget regression for a tiny LP solved with the absurdly low cap
+    `some 5`. The optimum is the
     integer vertex `x = 100` (`bitLen 100 + bitLen 1 = 7 + 1 = 8`),
     over the 5-bit cap, so the budget-check short-circuits to
     `.budgetExceeded` before any `check*` runs. -/
@@ -225,7 +225,7 @@ def allTests : Array TestCase := #[
   .ofPure "unbounded: ray proof carried"                tUnbounded,
   .ofPure "maximize: IsOptimal _ .maximize transport"   tMaximize,
   .ofPure "budget too small short-circuits"             tBudgetExceeded,
-  .ofPure "budget=5 short-circuits (issue #20)"         tBudget5Exceeded,
+  .ofPure "budget=5 short-circuits"                     tBudget5Exceeded,
   .ofPure "default budget accepts the same LP"          tDefaultBudgetPasses,
   .ofPure "budget=none disables the check"              tBudgetNoneDisables,
   .ofPure "verifyOutcome: optimal missing primal/dual"  tMissingCertOptimal,
