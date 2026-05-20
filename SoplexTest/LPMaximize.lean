@@ -17,9 +17,9 @@ constant offset, and reflection-equality obligations through the
 existing machinery.
 -/
 
--- Bounded LP: max (3 x₀ + 5 x₁) s.t. {0 ≤ x₀, 0 ≤ x₁,
--- x₀ ≤ 4, 2 x₁ ≤ 12, 3 x₀ + 2 x₁ ≤ 18} → N = 36. Tactic injects
--- `hbound : 3 * x₀ + 5 * x₁ ≤ 36`; we then close by `exact hbound`.
+-- Bounded LP: max (3 x₀ + 5 x₁) s.t. {0 ≤ x₀, 0 ≤ x₁, x₀ ≤ 4,
+-- 2 x₁ ≤ 12, 3 x₀ + 2 x₁ ≤ 18} gives N = 36. The tactic injects
+-- `hbound : 3 * x₀ + 5 * x₁ ≤ 36`.
 example (x₀ x₁ : Rat) (_h₁ : 0 ≤ x₀) (_h₂ : 0 ≤ x₁) (_h₃ : x₀ ≤ 4)
     (_h₄ : 2 * x₁ ≤ 12) (_h₅ : 3 * x₀ + 2 * x₁ ≤ 18) :
     3 * x₀ + 5 * x₁ ≤ 36 := by
@@ -116,9 +116,9 @@ example : True := by
   maximize (5 : Rat)
   trivial
 
--- Regression for the closed-row inconsistency bypass: a hypothesis like
--- `(1 : Rat) ≤ 0` is itself `False`, and the closed-objective path must
--- probe inconsistency before injecting the vacuous `0 ≤ 0` bound.
+-- Closed-row inconsistency bypass: a hypothesis like `(1 : Rat) ≤ 0`
+-- is itself `False`, and the `vars.size = 0` short-circuit must probe
+-- inconsistency before injecting the vacuous `0 ≤ 0` bound.
 example (_h : (1 : Rat) ≤ 0) : False := by
   maximize (0 : Rat)
 
@@ -127,8 +127,7 @@ example (_h : (1 : Rat) ≤ 0) : False := by
 example (_h : (1 : Rat) ≤ 0) : 42 = 7 := by
   maximize (0 : Rat)
 
--- Two-binder textbook LP, same shape as the issue's worked example.
--- Tests the bounded-case goldening end-to-end on a non-trivial dual.
+-- Two-binder bounded LP with a non-trivial dual certificate.
 example (x₀ x₁ : Rat) (_h₁ : 0 ≤ x₀) (_h₂ : 0 ≤ x₁) (_h₃ : x₀ ≤ 4)
     (_h₄ : 2 * x₁ ≤ 12) (_h₅ : 3 * x₀ + 2 * x₁ ≤ 18) :
     2 * x₀ + 4 * x₁ ≤ 28 := by
