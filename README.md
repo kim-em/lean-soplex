@@ -81,7 +81,7 @@ Key shape:
 
 This example is kept in [`Examples/Quickstart.lean`](./Examples/Quickstart.lean)
 and built as `lake exe quickstart-example` so it stays in sync with
-the API.
+the API. See [`Examples/`](./Examples/) for the examples index.
 
 ## Tactics
 
@@ -230,7 +230,9 @@ Soplex/Verify/                # pure-Lean certificate checker
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
   Arith.lean, Budget.lean     #   rational arithmetic + denominator budget
 Main.lean                     # `ffi-check` executable
-Examples/Quickstart.lean      # quickstart example executable
+Examples/
+  README.md                   # examples index
+  Quickstart.lean             # quickstart example executable
 SoplexTest/                   # test suite (run via `lake test`)
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
