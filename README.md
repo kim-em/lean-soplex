@@ -76,7 +76,7 @@ Key shape:
   `.unchecked status` when SoPlex was undecided or the certificate
   failed to check.
 
-This example is kept in [`QuickstartExample.lean`](./QuickstartExample.lean)
+This example is kept in [`Examples/Quickstart.lean`](./Examples/Quickstart.lean)
 and built as `lake exe quickstart-example` so it stays in sync with
 the API.
 
@@ -227,7 +227,7 @@ Soplex/Verify/                # pure-Lean certificate checker
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
   Arith.lean, Budget.lean     #   rational arithmetic + denominator budget
 Main.lean                     # `ffi-check` executable
-QuickstartExample.lean        # quickstart example executable
+Examples/Quickstart.lean      # quickstart example executable
 SoplexTest/                   # test suite (run via `lake test`)
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests

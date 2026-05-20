@@ -25,7 +25,7 @@ and tactic from SoPlex; design a backend abstraction").
 The existing `Soplex.solveVerified` is unchanged: it still calls
 `SoplexFFI.solveExact` synchronously and returns `Except`. That is
 the source-level compatibility surface for current callers
-(`QuickstartExample.lean`, `SoplexTest/*`, the benchmarks).
+(`Examples/Quickstart.lean`, `SoplexTest/*`, the benchmarks).
 
 ## What is deliberately *not* in this PR
 

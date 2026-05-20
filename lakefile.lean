@@ -107,4 +107,4 @@ lean_exe «test-runner» where
   root := `SoplexTest.Runner
 
 lean_exe «quickstart-example» where
-  root := `QuickstartExample
+  root := `Examples.Quickstart
