@@ -192,12 +192,18 @@ inputs change.
 
 ## Trust model
 
-SoPlex is treated as an unverified oracle. Every exact certificate it
-produces is checked in Lean before any proof is constructed.
+SoPlex is treated as an unverified mathematical oracle. Every exact
+certificate it produces is checked in Lean before any proof is
+constructed. Incorrect certificates, including certificates affected by
+solver bugs or sign-convention translation mistakes, are rejected by
+the Lean checker and reported as `Verified.unchecked`.
 
-A bug anywhere in SoPlex, the C++ FFI wrapper, or the sign-convention
-translation can only cause a verifier rejection
-(`Verified.unchecked`), not a wrong proof.
+The native C++ FFI remains part of the runtime trusted computing base.
+It is trusted to run safely in-process, preserve memory safety and ABI
+correctness, and faithfully marshal Lean-side `Problem` and
+certificate data. The Lean checker protects the mathematical proof
+boundary; it does not make arbitrary native memory-safety or ABI
+failures harmless.
 
 ### Verification Notes
 
