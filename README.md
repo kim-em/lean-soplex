@@ -13,7 +13,7 @@ direct Lean bindings. On top of that, `Soplex` adds:
   proof-carrying result;
 * exact-mode and floating-point LP solves, plus MPS / LP file I/O
   (re-exported from `SoplexFFI`);
-* fast user tactics `lp` (that handles quantifier elimination) and `maximize`.
+* fast user tactics `lp` (which handles quantifier elimination) and `maximize`.
 
 ## Quickstart
 
@@ -23,7 +23,7 @@ Add `Soplex` to your `lakefile.lean`:
 require Soplex from git "https://github.com/kim-em/soplex" @ "main"
 ```
 
-We maximize `3 x₀ + 5 x₁` subject to
+This example maximizes `3 x₀ + 5 x₁` subject to
 `x₀ ≤ 4`, `2 x₁ ≤ 12`, `3 x₀ + 2 x₁ ≤ 18`, and `x₀, x₁ ≥ 0`
 (textbook example; optimum is `x = (2, 6)` with objective `36`):
 
@@ -35,12 +35,11 @@ open Soplex Soplex.Verify
 example (x₀ x₁ : Rat) (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18)
     (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) : 3 * x₀ + 5 * x₁ ≤ 36 := by lp
 
--- We can also solve linear arithmetic problems involving quantifiers.
+-- The tactic also solves linear arithmetic problems involving quantifiers.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 3 ∧
     ∀ y : Rat, x ≤ y → y ≤ 5 → y ≤ 2 * x := by lp
 
--- And it's also a computational library that generates certificates
--- for linear programming problems:
+-- The library can also generate certificates for linear programming problems:
 
 def lp : Problem 3 2 :=
   { c         := #v[3, 5]
