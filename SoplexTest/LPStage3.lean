@@ -96,7 +96,5 @@ example (a : Rat) (_ha : 0 ≤ a) : True := by
   fail_if_success (have : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ a → y ≤ x := by lp)
   trivial
 
--- Existential binder in a guard: guards must be independent of `x`.
-example : True := by
-  fail_if_success (have : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ x → y ≤ x := by lp)
-  trivial
+-- Existential-binder occurrence in a guard is now accepted by Stage 4a
+-- (Benders); see `LPStage4a.lean` for the dispatch + worked examples.
