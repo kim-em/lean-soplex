@@ -20,10 +20,10 @@ def testExes : Array String := #[
 def leanProbes : Array String := #[
   "SoplexTest/FFIProbe.lean",
   "SoplexTest/LP.lean",
-  "SoplexTest/LPStage2.lean",
-  "SoplexTest/LPStage3.lean",
+  "SoplexTest/LPExistential.lean",
+  "SoplexTest/LPInnerForall.lean",
   "SoplexTest/LPMaximize.lean",
-  "SoplexTest/LPStage4a.lean",
+  "SoplexTest/LPBenders.lean",
   "SoplexTest/LPScaling.lean"
 ]
 

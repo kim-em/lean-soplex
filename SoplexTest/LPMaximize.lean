@@ -9,12 +9,12 @@ set_option linter.unusedVariables false
 hypotheses and injects `have hbound : <expr> ≤ N := <proof>` into the
 local context. `maximize h : <expr>` uses `h` as the hypothesis name.
 
-The bridge from the verified-optimal LP outcome to the injected
-`expr ≤ N` is shared with Stage 1's `proveEntailed` discharger: the
-forward proof is reproved against `rhs := mkRatLit N` rather than added
-into a witness LP. This carries the canonicalise/sign-flip, constant
-offset, and reflection-equality obligations through the existing
-machinery.
+The translation from the verified-optimal LP outcome to the injected
+`expr ≤ N` is shared with the atomic-goal `proveEntailed` discharger:
+the forward proof is reproved against `rhs := mkRatLit N` rather than
+added into a witness LP. This carries the canonicalise/sign-flip,
+constant offset, and reflection-equality obligations through the
+existing machinery.
 -/
 
 -- Issue spec, bounded LP: max (3 x₀ + 5 x₁) s.t. {0 ≤ x₀, 0 ≤ x₁,
@@ -99,7 +99,7 @@ example (x y : Rat) (_h : 0 ≤ x ∧ x ≤ 5) : True := by
   trivial
 
 -- Strict hypothesis present → rejected by `collectHyps` with the
--- Stage 1 strictness diagnostic. (No clean `#guard_msgs` because the
+-- strict-hypothesis diagnostic. (No clean `#guard_msgs` because the
 -- error message includes the hypothesis name.)
 example (x : Rat) (_h : 0 < x) : True := by
   fail_if_success (maximize x)

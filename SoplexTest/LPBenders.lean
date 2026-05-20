@@ -1,7 +1,7 @@
 import Soplex
 
 /-!
-Stage 4a `lp` tactic probes (issue #47): existential bodies with inner
+`lp` tactic probes for existential bodies with inner
 `∀ y : Rat, G(x, y) → atomic(x, y)` subformulas, where the guards may
 mention the surrounding existential variables. Each universal is
 discharged via iterative Benders constraint generation: the loop solves
@@ -10,18 +10,16 @@ on `y`, derives optimal-point cuts on `x` from the subproblem duals,
 canonicalises and deduplicates them, and loops until every universal is
 satisfied at the candidate. Cuts are search-direction guidance only —
 the final proof discharges each universal directly at the accepted
-candidate via Stage 3's sup-LP machinery.
+candidate via the x-independent sup-LP machinery.
 -/
 
--- Worked example 1 (issue spec): x-dependent guard `x ≤ y`, body
--- `y ≤ 2 * x`. Two Benders iterations: candidate `x = 0` is rejected
--- by the cut `−2 x ≤ −5` (equivalently `x ≥ 5/2`); candidate `x = 5/2`
--- is accepted.
+-- x-dependent guard `x ≤ y`, body `y ≤ 2 * x`. Two Benders iterations:
+-- candidate `x = 0` is rejected by the cut `−2 x ≤ −5` (equivalently
+-- `x ≥ 5/2`); candidate `x = 5/2` is accepted.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 3 ∧
     ∀ y : Rat, x ≤ y → y ≤ 5 → y ≤ 2 * x := by lp
 
--- The original trivial-body case that used to be rejected by Stage 3
--- (existential binder in a guard); Stage 4a accepts it. The body
+-- Trivial-body case with an existential binder in a guard. The body
 -- `y ≤ x` matches the second guard exactly, so the subproblem at the
 -- default `x = 0` candidate already satisfies the body.
 example : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ x → y ≤ x := by lp
@@ -37,8 +35,7 @@ example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 2 ∧
     ∀ y : Rat, x ≤ y → y ≤ x + 1 → 0 ≤ y → y ≤ 3 → y ≤ x + 1 := by lp
 
 -- Inner `∀` with x-dependent guard alongside x-independent atoms in
--- the same existential body (mixed Stage-3-style atoms + Stage-4a
--- universal).
+-- the same existential body.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 5 ∧
     ∀ y : Rat, x ≤ y → y ≤ x + 2 → y ≤ x + 2 := by lp
 
@@ -50,7 +47,7 @@ example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
     (∀ z : Rat, x ≤ z → z ≤ x + 2 → z ≤ x + 2) := by lp
 
 -- Outer-parameter rejection in the universal body (numeric-witness
--- restriction; the pre-Benders gate rejects this).
+-- restriction; rejected before any Benders work).
 example (a : Rat) (_ha : 0 ≤ a) : True := by
   fail_if_success
     (have : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ x + 1 → y ≤ x + 1 + a := by lp)
@@ -63,7 +60,7 @@ example (a : Rat) (_ha : 0 ≤ a) : True := by
     (have : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ x + a → y ≤ x := by lp)
   trivial
 
--- Strict universal guard: still rejected (carryover from Stage 3).
+-- Strict universal guard: rejected.
 example : True := by
   fail_if_success
     (have : ∃ x : Rat, ∀ y : Rat, x < y → y ≤ x + 1 → y ≤ x + 1 := by lp)
@@ -76,22 +73,23 @@ example : True := by
   trivial
 
 -- Vacuous guard at every candidate (`x ≤ y` and `y ≤ x − 1` are jointly
--- infeasible for any x). Stage 4a's subproblem returns `.infeasibleGuard`;
--- the loop accepts the default candidate, and post-splice Stage 1
--- derives `False` from the contradictory guard hypotheses.
+-- infeasible for any x). The Benders subproblem returns
+-- `.infeasibleGuard`; the loop accepts the default candidate, and the
+-- post-splice atomic-goal path derives `False` from the contradictory
+-- guard hypotheses.
 example : ∃ x : Rat, ∀ y : Rat, x ≤ y → y ≤ x - 1 → y ≤ 0 := by lp
 
--- Master infeasibility falls back to the Stage-2 inconsistency probe
--- on the outer hypotheses: when the existential's atomic constraints
--- are themselves inconsistent and the surrounding context (`h`) is too,
+-- Master infeasibility falls back to the inconsistency probe on the
+-- outer hypotheses: when the existential's atomic constraints are
+-- themselves inconsistent and the surrounding context (`h`) is too,
 -- the tactic closes by `False.elim`.
 example (h : (1 : Rat) ≤ 0) : ∃ x : Rat, 0 ≤ x ∧ x ≤ -1 ∧
     ∀ y : Rat, x ≤ y → y ≤ 0 := by lp
 
--- A Stage-3 universal (x-independent guard) and a Stage-4a universal
--- (x-dependent guard) coexist in the same existential body. The Stage 3
--- residual joins the master before Benders starts; the Stage 4a problem
--- runs the iterative loop on top.
+-- An x-independent universal and an x-dependent universal coexist in
+-- the same existential body. The x-independent residual joins the
+-- master before Benders starts; the x-dependent universal drives the
+-- iterative loop on top.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
     (∀ y : Rat, 0 ≤ y → y ≤ 1 → y ≤ x + 1) ∧
     (∀ z : Rat, x ≤ z → z ≤ x + 2 → z ≤ x + 2) := by lp
@@ -122,13 +120,13 @@ example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 10 ∧
 -- the body is satisfied identically.
 example : ∃ x : Rat, ∀ y : Rat, x ≤ y → y ≤ x → y = x := by lp
 
--- Unbounded Stage 4a subproblem at the initial candidate: the
--- x-dependent lower bound `x ≤ y` routes the universal through
--- Stage 4a, but with no upper bound on `y` the sup-LP at any candidate
--- is `+∞`. v1 policy is to fail fast with a precise message rather
--- than emit an `x`-independent ray cut (the corresponding cut on `x`
--- would require a Farkas projection over the guard polyhedron,
--- deferred).
+-- Unbounded Benders subproblem at the initial candidate: the
+-- x-dependent lower bound `x ≤ y` routes the universal through the
+-- Benders path, but with no upper bound on `y` the sup-LP at any
+-- candidate is `+∞`. The policy is to fail fast with a precise message
+-- rather than emit an `x`-independent ray cut (the corresponding cut
+-- on `x` would require a Farkas projection over the guard polyhedron,
+-- which is not currently implemented).
 example : True := by
   fail_if_success (have : ∃ x : Rat, ∀ y : Rat, x ≤ y → y ≤ 0 := by lp)
   trivial

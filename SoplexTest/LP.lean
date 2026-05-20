@@ -1,7 +1,7 @@
 import Soplex
 
 /-!
-Stage 1 `lp` tactic probes for affine `Rat` goals with non-strict
+`lp` tactic probes for atomic affine `Rat` goals with non-strict
 hypotheses.
 -/
 
