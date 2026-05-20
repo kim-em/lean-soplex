@@ -50,7 +50,8 @@ package Soplex where
 @[default_target]
 lean_lib Soplex where
   roots := #[`Soplex]
-  globs := #[`Soplex, `Soplex.Basic, `Soplex.Verify, `Soplex.Verify.+]
+  globs := #[`Soplex, `Soplex.Basic, `Soplex.Verify, `Soplex.Verify.+,
+             `Soplex.LP.Core, `Soplex.Backend.SoplexFFI]
   precompileModules := true
   -- Keep the native runtime link arguments on the downstream library as
   -- well as the package. `Soplex.Basic` imports and calls the FFI during
