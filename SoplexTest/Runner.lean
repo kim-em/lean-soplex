@@ -32,6 +32,17 @@ def binPath (name : String) : System.FilePath :=
   let exeName := if System.Platform.isWindows then name ++ ".exe" else name
   "." / ".lake" / "build" / "bin" / exeName
 
+def soplexFFIDynlibPath : System.FilePath :=
+  let name :=
+    if System.Platform.isWindows then "SoplexFFI_SoplexFFI"
+    else "libSoplexFFI_SoplexFFI"
+  let ext :=
+    if System.Platform.isOSX then "dylib"
+    else if System.Platform.isWindows then "dll"
+    else "so"
+  "." / ".lake" / "packages" / "SoplexFFI" / ".lake" / "build" / "lib" /
+    s!"{name}.{ext}"
+
 def run (cmd : String) (args : Array String) : IO UInt32 := do
   let child ← IO.Process.spawn { cmd, args }
   child.wait
@@ -51,7 +62,11 @@ def main (args : List String) : IO UInt32 := do
     -- `LPScaling` cases recurses deeply during the `isDefEq` check of
     -- the proof term, overflowing the smaller default thread stack on
     -- Windows (~2 MB suffices to fail, ~8 MB to pass).
-    let probeArgs := #["env", "lean", "--tstack=65536", probe]
+    let probeArgs := #[
+      "env", "lean",
+      "--load-dynlib", soplexFFIDynlibPath.toString,
+      "--tstack=65536", probe
+    ]
     IO.println s!"\n==> lake {String.intercalate " " probeArgs.toList}"
     let code ← run "lake" probeArgs
     if code ≠ 0 then
