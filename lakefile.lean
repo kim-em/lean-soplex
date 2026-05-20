@@ -79,7 +79,7 @@ lean_lib SoplexTest where
     Used by CI to confirm the binding links, loads, and computes on every
     platform. -/
 lean_exe «ffi-check» where
-  root := `Main
+  root := `SoplexTest.FFICheck
 
 lean_exe «verify-tests» where
   root := `SoplexTest.Verify
