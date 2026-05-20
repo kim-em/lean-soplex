@@ -23,7 +23,7 @@ Add `Soplex` to your `lakefile.lean`:
 require Soplex from git "https://github.com/kim-em/soplex" @ "main"
 ```
 
-We maximise `3 x₀ + 5 x₁` subject to
+We maximize `3 x₀ + 5 x₁` subject to
 `x₀ ≤ 4`, `2 x₁ ≤ 12`, `3 x₀ + 2 x₁ ≤ 18`, and `x₀, x₁ ≥ 0`
 (textbook example; optimum is `x = (2, 6)` with objective `36`):
 
@@ -170,7 +170,7 @@ lake exe quickstart-example
 lake test
 ```
 
-Lake fetches `SoplexFFI` and initialises its vendored SoPlex submodule
+Lake fetches `SoplexFFI` and initializes its vendored SoPlex submodule
 as part of the build — there are no submodules in this repository
 itself.
 
@@ -207,11 +207,11 @@ failures harmless.
 
 ### Verification Notes
 
-* `solveVerified` validates and normalises the Lean-side `Problem`,
+* `solveVerified` validates and normalizes the Lean-side `Problem`,
   forces `Options.presolve := false`, runs exact-mode SoPlex, and
-  checks the returned certificate against the **normalised Lean-side
+  checks the returned certificate against the **normalized Lean-side
   problem** — never against data round-tripped through C++. `Verified`
-  is indexed by that normalised problem and the objective sense;
+  is indexed by that normalized problem and the objective sense;
   `.optimal` / `.infeasible` / `.unbounded` carry real Lean proofs,
   and `.unchecked` covers undecided solver statuses and failed checks.
 * Direct `solveExact` calls may use SoPlex presolve; the verified
@@ -220,7 +220,7 @@ failures harmless.
 * Dual multipliers are stored as a nonnegative lower/upper split per
   row and column. This is more explicit than a signed dual vector
   and handles ranged rows and boxed columns uniformly.
-* Maximisation reduces internally to minimisation by negating the
+* Maximization reduces internally to minimization by negating the
   objective; user-facing objectives and witnesses, including
   `objOffset`, stay in the caller's original sense.
 * The denominator budget caps the combined numerator + denominator
@@ -241,7 +241,7 @@ Soplex/Tactic/                # `lp` and `maximize` tactics
 Soplex/Verify.lean            # verifier re-export module
 Soplex/Verify/                # pure-Lean certificate checker
   Types.lean                  #   `Problem`, `Certificate`, `Verified`
-  Validate.lean               #   input normalisation
+  Validate.lean               #   input normalization
   Driver.lean                 #   compose validate + solveExact + check
   Sound.lean                  #   soundness lemmas 
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
@@ -271,7 +271,7 @@ scripts/install-sanitizer-runtime.sh
 
 ## Licence
 
-`Soplex` is licenced under the [Apache License 2.0](./LICENSE),
+`Soplex` is licensed under the [Apache License 2.0](./LICENSE),
 matching SoPlex itself. The compiled binary's GMP runtime dependency
 (LGPL) is linked dynamically by default through `SoplexFFI`. SoPlex
 itself is linked into the Lean shared library from the vendored static

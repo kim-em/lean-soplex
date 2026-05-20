@@ -9,7 +9,7 @@
   wrap a `false` result as `Verified.unchecked .budgetExceeded` without
   touching the certificate checker proper. `Rat` values produced by
   core Lean are reduced by construction, so `num` and `den` can be
-  read directly without an explicit `gcd` normalisation step.
+  read directly without an explicit `gcd` normalization step.
 -/
 
 import Soplex.Verify.Types

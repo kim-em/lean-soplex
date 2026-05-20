@@ -214,7 +214,7 @@ theorem neg_congr_eq (a A : Rat) (e : a = A) : -a = -A := by subst e; rfl
 
 theorem sub_to_add_neg (a b : Rat) : a - b = a + (-b) := Rat.sub_eq_add_neg a b
 
-/-- Fast-path normaliser lemma for the `coefficient * atom` pattern that
+/-- Fast-path normalizer lemma for the `coefficient * atom` pattern that
 dominates dense rows: `k * x = k * x + 0`. Stated with `kU`/`kL` separate
 so the metaprogram can supply the user's coefficient Expr on the left and
 the canonical `Q.toRat` form on the right; the equality is `rfl` once
@@ -223,7 +223,7 @@ both reduce, but stating it explicitly lets the rest of the proof keep
 theorem mul_atom_norm (k x : Rat) : k * x = k * x + 0 := by
   rw [Rat.add_zero]
 
-/-- Fast-path normaliser lemma for the unary `-atom` pattern:
+/-- Fast-path normalizer lemma for the unary `-atom` pattern:
 `-x = -1 * x + 0`. -/
 theorem neg_atom_norm (x : Rat) : -x = -1 * x + 0 := by
   rw [Rat.add_zero, Rat.neg_mul, Rat.one_mul]

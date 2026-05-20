@@ -16,16 +16,16 @@ existential binders and reducibly-closed numeric constants only.
 The algorithm:
 
 1. Strip nested `∃ x : Rat, …` binders into a single block (entered via
-   one `lambdaBoundedTelescope` per binder so the body is canonicalised
+   one `lambdaBoundedTelescope` per binder so the body is canonicalized
    in the same environment the atomic-goal extractor sees).
 2. Parse the body as a flat conjunction of atomic Rat (in)equalities;
    reject strict constraints, nested quantifiers, or non-atomic shapes.
-3. Verify the **closed-body invariant over the canonicalised atoms**:
+3. Verify the **closed-body invariant over the canonicalized atoms**:
    every free `Rat` local appearing in any extracted `LinExpr` must be
    an existential binder. Locals that hide behind reducible
    abbreviations, `let`-bindings, projections, or coercions are
-   canonicalised by `parseExpr`'s `withReducible <| whnfR` before the
-   check, so the check sees the post-canonicalisation atoms.
+   canonicalized by `parseExpr`'s `withReducible <| whnfR` before the
+   check, so the check sees the post-canonicalization atoms.
 4. Build a witness LP: `max 0 subject to A x ≤ b` (objective `c = 0`).
    Any feasible point is optimal at value `0`.
 5. Run SoPlex via `solveExact` and branch:
@@ -82,7 +82,7 @@ partial def collectExistsAtoms (body : Expr) :
   -- top-level `And` dispatch in `solveGoal`). The non-reduced `body`
   -- is what we pass to `parseAtomic?`: reducible whnf can unfold
   -- `LE.le` into `Rat.blt _ _ = false`, which `parseAtomic?` wouldn't
-  -- recognise.
+  -- recognize.
   let bodyW ← whnfR body
   if let some (left, right) := isAnd? bodyW then
     return (← collectExistsAtoms left) ++ (← collectExistsAtoms right)
@@ -96,7 +96,7 @@ partial def collectExistsAtoms (body : Expr) :
   | some (rel, _, _, lhs, rhs) =>
       return #[(rel, lhs, rhs)]
 
-/-- Closed-body invariant check, post-canonicalisation.
+/-- Closed-body invariant check, post-canonicalization.
 
 For each extracted `LinExpr`, every free `Rat` local in `.coeffs` must
 be an existential binder. Outer parameters (or `let`-bindings that
@@ -110,7 +110,7 @@ def checkClosedBody (atoms : Array (Rel × LinExpr × LinExpr))
       unless isBinder v do
         let decl ← v.getDecl
         throwError "lp(∃): existential body references non-binder `Rat` local `{
-          decl.userName}` after canonicalisation; the closed-existential path {
+          decl.userName}` after canonicalization; the closed-existential path {
           ""}requires every linear expression in the body to depend only on the {
           ""}existential binders."
   for (_, lhs, rhs) in atoms do

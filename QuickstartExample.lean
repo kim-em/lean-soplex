@@ -2,7 +2,7 @@ import Soplex
 open Soplex Soplex.Verify
 
 /--
-  maximise  3 x₀ + 5 x₁
+  maximize  3 x₀ + 5 x₁
   subject to       x₀        ≤ 4
                         2 x₁ ≤ 12
                   3 x₀ + 2 x₁ ≤ 18
@@ -40,7 +40,7 @@ example (x₀ x₁ : Rat) (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ +
 
 /--
   Whenever `solveVerified lp` returns `.optimal x h`, the witness `x`
-  is a certified feasible and optimal point of the normalised LP. The
+  is a certified feasible and optimal point of the normalized LP. The
   proof is built into the `.optimal` constructor itself; this lemma
   just exposes the API contract for code that consumes `solveVerified`.
 -/

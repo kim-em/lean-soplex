@@ -4,7 +4,7 @@
   senses. See `docs/accessors.md` for the accessor sign documentation
   this file pins down. Closes #18.
 
-  Each case fixes a canonical (minimisation) LP and the expected
+  Each case fixes a canonical (minimization) LP and the expected
   `DualBundle` for it; we then exercise the case twice — once with
   `sense := .minimize` (passing `cCanon` directly), once with
   `sense := .maximize` (passing `-cCanon`). Both runs go through
@@ -27,7 +27,7 @@ open Soplex Soplex.Verify SoplexTest
 
 namespace AccessorGoldens
 
-/-- A single golden case, expressed in canonical (minimisation) form. -/
+/-- A single golden case, expressed in canonical (minimization) form. -/
 structure CoreCase where
   name : String
   numVars : Nat

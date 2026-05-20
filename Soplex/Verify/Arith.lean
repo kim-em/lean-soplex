@@ -15,7 +15,7 @@ open Soplex
 
 /-- Bridge: `v.toArray[i]!` (Array `get!` on the underlying array)
     equals `v[i]!` (Vector `get!`). Stated with the Array form on
-    the LHS so `@[simp]` *removes* `.toArray` insertions, normalising
+    the LHS so `@[simp]` *removes* `.toArray` insertions, normalizing
     everything to Vector form. Without this bridge, soundness proofs
     that mix `Vector`-typed structure fields with `.toArray`-converted
     intermediates leave `simp`/`rw` looking at `match decidableGetElem?

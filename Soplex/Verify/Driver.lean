@@ -17,7 +17,7 @@ namespace Soplex.Verify
 open Soplex
 
 /-- A proof about a specific `Problem`. The problem index is **always
-    the validated / normalised form**, never the user's raw input. -/
+    the validated / normalized form**, never the user's raw input. -/
 inductive Verified {m n : Nat} (p : Problem m n) (sense : ObjSense)
   /-- Optimal: a feasible point that achieves the optimum. -/
   | optimal     (x : Vector Rat n)
@@ -29,19 +29,19 @@ inductive Verified {m n : Nat} (p : Problem m n) (sense : ObjSense)
   /-- Solver couldn't decide, or its certificate failed to verify. -/
   | unchecked   (status : SolveStatus)
 
-/-- Result of `solveVerified`: the normalised problem the checker
+/-- Result of `solveVerified`: the normalized problem the checker
     actually ran against, plus the proof carried by `Verified`. -/
 structure VerifiedSolve {m n : Nat} (sense : ObjSense) where
   normalized : Problem m n
   verified   : Verified normalized sense
 
-/-! ## Sense-canonicalisation is feasibility-invariant.
+/-! ## Sense-canonicalization is feasibility-invariant.
 
   `canonicalize` only touches `c` and `objOffset`; `IsFeasible` does
   not. So `IsFeasible (canonicalize sense p) x ↔ IsFeasible p x` by
   `rfl` once `sense` is destructured. Used below to repackage
   `checkOptimal_sound`'s feasibility component (which is stated
-  about the canonicalised LP) into the `IsFeasible normalized x`
+  about the canonicalized LP) into the `IsFeasible normalized x`
   shape that `Verified.optimal` demands. -/
 private theorem isFeasible_canonicalize_iff {m n : Nat}
     {sense : ObjSense} {p : Problem m n} {x : Array Rat} :
@@ -65,7 +65,7 @@ private theorem isFeasible_canonicalize_iff {m n : Nat}
        `.optimal` but no `dual`) → `.unchecked status`.
     4. Failed `check*` → `.unchecked status`.
 
-    The downstream `check*` runs against the canonicalised LP, which
+    The downstream `check*` runs against the canonicalized LP, which
     is `negateObjective normalized` for `.maximize`. -/
 def verifyOutcome {m n : Nat} (opts : Options) (denomBudget : Option Nat)
     (normalized : Problem m n) (sol : Solution m n) :

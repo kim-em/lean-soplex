@@ -42,7 +42,7 @@ def tValidateSort : Outcome :=
       expect (p'.a == expected) s!"expected {repr expected}, got {repr p'.a}"
   | .error e => .fail s!"validate rejected: {repr e}"
 
-/-- `validate ∘ validate = validate` on already-normalised input. -/
+/-- `validate ∘ validate = validate` on already-normalized input. -/
 def tValidateIdempotent : Outcome :=
   let p := mkProblem 1 1
     (c := #[1])
@@ -123,9 +123,9 @@ def tOptimalRangedRow : Outcome :=
     , colLower := #v[0], colUpper := #v[0] }
   expectTrue (checkOptimal p x d)
 
-/-- `max x + y  s.t.  x + y ≤ 1, x, y ≥ 0`, canonicalised to
+/-- `max x + y  s.t.  x + y ≤ 1, x, y ≥ 0`, canonicalized to
     `min -x - y` with the same constraints. Optimum at `(1/2, 1/2)`,
-    canonicalised obj = `-1`. Dual: `yU = [1]` (only row upper active),
+    canonicalized obj = `-1`. Dual: `yU = [1]` (only row upper active),
     everything else zero. -/
 def tOptimalMaxCanonicalized : Outcome :=
   let pMax := mkProblem 2 1
@@ -351,7 +351,7 @@ def tBudgetBitLenConvention : Outcome :=
 /-! ## Driver. -/
 
 def allTests : Array TestCase := #[
-  ⟨"validate normalises duplicate / zero entries",  pure tValidateNormalise⟩,
+  ⟨"validate normalizes duplicate / zero entries",  pure tValidateNormalise⟩,
   ⟨"validate sorts sparse entries",                 pure tValidateSort⟩,
   ⟨"validate is idempotent",                        pure tValidateIdempotent⟩,
   ⟨"validate rejects sparse row out of range",      pure tRejectSparseRowOOR⟩,

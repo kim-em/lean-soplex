@@ -4,7 +4,7 @@ open Soplex Soplex.Verify SoplexTest
 
 /-- Validate both problems and compare them field-by-field. The
     contract for our file-I/O round trip: writer + reader preserves
-    structure modulo `validate`'s normalisation (sparse-entry sort,
+    structure modulo `validate`'s normalization (sparse-entry sort,
     duplicate summing, zero pruning). Both inputs are sigma-wrapped
     because `readMps` / `readLp` return `Σ m n, Problem m n`. -/
 private def equalAfterValidate
@@ -37,7 +37,7 @@ private def equalAfterValidate
     Σ m n, Problem m n := ⟨m, n, p⟩
 
 /-- The reference Problem corresponding to `SoplexTest/fixtures/tiny.mps`
-    and `SoplexTest/fixtures/tiny.lp`: minimise `x1 + x2` subject to
+    and `SoplexTest/fixtures/tiny.lp`: minimize `x1 + x2` subject to
     `x1 + x2 = 1`, `x1, x2 ≥ 0`. -/
 private def tinyProblem : Σ m n, Problem m n := asSigma <|
   mkProblem 2 1
@@ -235,7 +235,7 @@ private def tMissingFile : IO Outcome := do
 
   Each `Problem` below appears in `SoplexTest/Verify.lean`'s hand-rolled
   certificate corpus. We assert that writing it to MPS, reading it back,
-  and validating both sides recovers the same normalised problem
+  and validating both sides recovers the same normalized problem
   (sparse-entry sort, duplicate summing, zero pruning).
 
   Caveats — these are SoPlex format properties, not bridge bugs:
@@ -288,14 +288,14 @@ private def unboundedWithEqualityLp : Σ m n, Problem m n := asSigma <|
     (rowBounds := #[(some 0, some 0)])
     (colBounds := #[(some 0, none), (none, none)])
 
-/-- Exercises `validate`'s normalisation paths via the file-format
+/-- Exercises `validate`'s normalization paths via the file-format
     pipeline: a duplicate sparse entry pair `((0,0,1/3) + (0,0,2/3))`
     collapsing to `(0,0,1)`, large numerator coefficients (multi-digit
     GMP), and one-sided bounds. After `validate`, the round-trip side
-    sees the normalised LP, so we assert structural equality of the
-    normalised forms — which is mathematical equivalence given that
+    sees the normalized LP, so we assert structural equality of the
+    normalized forms — which is mathematical equivalence given that
     `validate` is a canonicalising idempotent. -/
-private def normalisationCorpusLp : Σ m n, Problem m n := asSigma <|
+private def normalizationCorpusLp : Σ m n, Problem m n := asSigma <|
   mkProblem 2 2
     (c := #[1234567890123456789, -1/3])
     (a := #[(0, 0, 1/3), (0, 0, 2/3), (0, 1, 1), (1, 0, 1)])
@@ -328,7 +328,7 @@ private def tRoundtripMpsInfeasRows         : IO Outcome := roundtripMpsOf infea
 private def tRoundtripMpsInfeasRowAndBounds : IO Outcome := roundtripMpsOf infeasibleRowAndBoundsLp
 private def tRoundtripMpsUnbounded          : IO Outcome := roundtripMpsOf unboundedLp
 private def tRoundtripMpsUnboundedEq        : IO Outcome := roundtripMpsOf unboundedWithEqualityLp
-private def tRoundtripMpsNormalisation      : IO Outcome := roundtripMpsOf normalisationCorpusLp
+private def tRoundtripMpsNormalization      : IO Outcome := roundtripMpsOf normalizationCorpusLp
 
 /-- LP-format round-trip covers the corpus minus two known SoPlex
     writer limitations:
@@ -343,7 +343,7 @@ private def tRoundtripMpsNormalisation      : IO Outcome := roundtripMpsOf norma
 private def tRoundtripLpEquality      : IO Outcome := roundtripLpOf equalityLp
 private def tRoundtripLpInfeasRows    : IO Outcome := roundtripLpOf infeasibleRowsOnlyLp
 private def tRoundtripLpUnboundedEq   : IO Outcome := roundtripLpOf unboundedWithEqualityLp
-private def tRoundtripLpNormalisation : IO Outcome := roundtripLpOf normalisationCorpusLp
+private def tRoundtripLpNormalization : IO Outcome := roundtripLpOf normalizationCorpusLp
 
 def allTests : Array TestCase := #[
   ⟨"MPS round-trip preserves structure",        tRoundtripMps⟩,
@@ -361,11 +361,11 @@ def allTests : Array TestCase := #[
   ⟨"MPS round-trip: row+bounds infeasible LP",  tRoundtripMpsInfeasRowAndBounds⟩,
   ⟨"MPS round-trip: unbounded LP",              tRoundtripMpsUnbounded⟩,
   ⟨"MPS round-trip: unbounded with equality",   tRoundtripMpsUnboundedEq⟩,
-  ⟨"MPS round-trip: normalisation corpus",      tRoundtripMpsNormalisation⟩,
+  ⟨"MPS round-trip: normalization corpus",      tRoundtripMpsNormalization⟩,
   ⟨"LP  round-trip: equality LP",               tRoundtripLpEquality⟩,
   ⟨"LP  round-trip: infeasible rows-only LP",   tRoundtripLpInfeasRows⟩,
   ⟨"LP  round-trip: unbounded with equality",   tRoundtripLpUnboundedEq⟩,
-  ⟨"LP  round-trip: normalisation corpus",      tRoundtripLpNormalisation⟩
+  ⟨"LP  round-trip: normalization corpus",      tRoundtripLpNormalization⟩
 ]
 
 def main : IO UInt32 := runAll "file-I/O" allTests

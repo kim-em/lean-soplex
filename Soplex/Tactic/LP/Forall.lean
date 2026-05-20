@@ -72,7 +72,7 @@ Limitations:
   extractor (one side of `*` must be a reducibly-closed Rat scalar). -/
 
 /-- Is `e` of the form `∀ y : Rat, _` with the binder actually used in the
-body? `Rat → P` (non-dependent function type) is *not* recognised as a
+body? `Rat → P` (non-dependent function type) is *not* recognized as a
 universal — the inner-`∀` path only fires on quantifiers, not implications. -/
 def isForallRat? (e : Expr) : MetaM Bool := do
   match ← whnf e with
@@ -322,7 +322,7 @@ inductive BendersSubResult
   | /-- `Verified.unchecked` from SoPlex: fail. -/
     uncheckedFail (msg : String)
 
-/-- Solve the parametric subproblem at a concrete `xStar`: maximise
+/-- Solve the parametric subproblem at a concrete `xStar`: maximize
 `bodyY(y)` subject to `guardY[i](y) + guardX[i].evalAt(xStar) ≤ 0`.
 Returns `bounded M λ`, `infeasibleGuard`, `unboundedFail`, or
 `uncheckedFail`. Dispatches on `Verified.{optimal,infeasible,unbounded,
@@ -424,7 +424,7 @@ def fvarLt (a b : FVarId) : Bool :=
 
 /-- Canonicalise a Benders cut into a form suitable for tautology /
 contradiction detection and duplicate hashing. The cut is fixed in
-`coeffs · x + const ≤ 0` orientation; canonicalisation clears
+`coeffs · x + const ≤ 0` orientation; canonicalization clears
 denominators, divides by the *positive* gcd, drops zero coeffs, and
 sorts coeffs by FVarId. Do **not** sign-flip after this step — the
 orientation is intrinsic to the cut. -/
@@ -488,7 +488,7 @@ def arrayRatEq (a b : Array Rat) : Bool :=
   a.size == b.size && (Array.zip a b).all (fun (x, y) => x == y)
 
 /-- Configurable upper bound on Benders iterations. With cut
-canonicalisation and duplicate suppression, finite termination *should*
+canonicalization and duplicate suppression, finite termination *should*
 hold under nondegenerate dual extraction, but adversarial degeneracy
 without extreme-dual selection can cycle; the bound is a safety net. -/
 def bendersMaxIter : Nat := 64

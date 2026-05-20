@@ -23,7 +23,7 @@ example : ∃ x : Rat, ∃ y : Rat, x + y = 1 ∧ 0 ≤ x ∧ 0 ≤ y := by lp
 example : ∃ x y z : Rat, x = 0 ∧ y = 0 ∧ z = 0 := by lp
 
 -- Reducible numeric constants and `let`-expanded numeric locals must
--- be canonicalised away before the closed-body invariant runs.
+-- be canonicalized away before the closed-body invariant runs.
 example : ∃ x : Rat, x ≤ (1 + 2 : Rat) := by lp
 
 example : True := by
@@ -38,7 +38,7 @@ example (_h₁ : (a : Rat) ≤ 0) (_h₂ : (1 : Rat) ≤ a) :
     ∃ x : Rat, x = x + 1 := by lp
 
 -- Outer-parameter rejection: a non-binder `Rat` local appears in the
--- existential body after canonicalisation.
+-- existential body after canonicalization.
 example (a : Rat) (_ha : 0 ≤ a) : True := by
   fail_if_success (have : ∃ x : Rat, x = a := by lp)
   trivial

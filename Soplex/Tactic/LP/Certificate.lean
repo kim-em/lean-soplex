@@ -82,7 +82,7 @@ def mkQLit (r : Rat) : MetaM Expr := do
       mkDecideProof denNeType
   return mkApp3 (mkConst ``Soplex.Tactic.Q.mk) numE denE denNeProof
 
-/-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
+/-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalized form so
 that the explicit-proof-term discharger can apply `Q.toRat_add`/
 `toRat_mul`/`toRat_neg` without bridging through `Rat.div`-form
 literals. -/
@@ -477,7 +477,7 @@ partial def proveNegR (La : LinExpr) : MetaM (LinExpr × Expr × Expr) := do
   let (L, pf) ← proveNeg La
   return (L, pf, ← render L)
 
-/-- Structural-recursion normaliser. Returns `(L, pf, rL)` with
+/-- Structural-recursion normalizer. Returns `(L, pf, rL)` with
 `pf : e = rL` and `rL = ⟦L⟧`. The rendered `rL` is threaded through the
 recursion so the proof terms reference shared spine Exprs instead of
 re-rendering them at every syntax node. -/
@@ -491,7 +491,7 @@ partial def normalizeR (vars : Array FVarId) (e : Expr) :
     let pf ← mkRatEqByDefeq e lit
     return ({const := r}, pf, lit)
   let eW := e   -- skip `whnfR`: dense rows from `parseExpr` are already in
-                -- the recognised head-symbol shape.
+                -- the recognized head-symbol shape.
   match eW with
   | .fvar id =>
       -- `parseExpr` has already type-checked the atoms in this row/goal
@@ -627,7 +627,7 @@ def proveCertificateIdentity (vars : Array FVarId) (lhsId : Expr)
     (cVal : Rat) : MetaM Expr := do
   let (L, pfNorm, _rL) ← normalizeR vars lhsId
   unless L.const == cVal do
-    throwError "lp(closeIdentity): normalised constant {L.const} does not match expected residual {cVal}"
+    throwError "lp(closeIdentity): normalized constant {L.const} does not match expected residual {cVal}"
   unless L.coeffs.isEmpty do
     throwError "lp(closeIdentity): normalization invariant violated; {L.coeffs.size} surviving atom(s)"
   -- `pfNorm : lhsId = rL` and `rL = mkRatLit cVal`, so `pfNorm` is the proof we want.
