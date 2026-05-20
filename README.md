@@ -204,28 +204,9 @@ certificate data. The Lean checker protects the mathematical proof
 boundary; it does not make arbitrary native memory-safety or ABI
 failures harmless.
 
-### Verification Notes
-
-* `solveVerified` validates and normalizes the Lean-side `Problem`,
-  forces `Options.presolve := false`, runs exact-mode SoPlex, and
-  checks the returned certificate against the **normalized Lean-side
-  problem** — never against data round-tripped through C++. `Verified`
-  is indexed by that normalized problem and the objective sense;
-  `.optimal` / `.infeasible` / `.unbounded` carry real Lean proofs,
-  and `.unchecked` covers undecided solver statuses and failed checks.
-* Direct `solveExact` calls may use SoPlex presolve; the verified
-  path forces it off. Reconstructing certificates for the original
-  problem from presolve output is outside this verified path.
-* Dual multipliers are stored as a nonnegative lower/upper split per
-  row and column. This is more explicit than a signed dual vector
-  and handles ranged rows and boxed columns uniformly.
-* Maximization reduces internally to minimization by negating the
-  objective; user-facing objectives and witnesses, including
-  `objOffset`, stay in the caller's original sense.
-* The denominator budget caps the combined numerator + denominator
-  bit length of every certificate rational. Default `some 10000`;
-  exceeding it yields `Verified.unchecked .budgetExceeded`. Pass
-  `none` to disable.
+Detailed notes on `solveVerified`, presolve, dual multipliers,
+maximization canonicalization, and denominator budgets are maintained
+in [`docs/verification.md`](./docs/verification.md).
 
 ## Layout
 
@@ -261,6 +242,7 @@ docs/accessors.md             # row-sense × column-status accessor reference
 docs/backend-abstraction.md   # backend split and registry notes
 docs/lp-expr-construction-inventory.md
                               # tactic expression construction notes
+docs/verification.md          # detailed verified-solve trust model
 lakefile.lean                 # depends on `SoplexFFI`
 scripts/install-toolchain.sh  # elan + GitHub-fallback toolchain installer
 scripts/install-sanitizer-runtime.sh
