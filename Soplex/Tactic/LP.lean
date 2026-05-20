@@ -1,11 +1,11 @@
 import Lean
 import Init.Data.Vector.Lemmas
 import Soplex.Basic
-import Soplex.Tactic.RatLin.Q
+import Soplex.Tactic.Q
 
 open Lean Meta Elab Tactic
 open Soplex Soplex.Verify
-open Soplex.Tactic.RatLin (Q)
+open Soplex.Tactic (Q)
 
 namespace Soplex.Tactic.LP
 
@@ -392,12 +392,12 @@ isn't unfolded out of the parse. -/
 private def tryQToRat? (e : Expr) : MetaM (Option Rat) := do
   let fn := e.getAppFn
   let args := e.getAppArgs
-  unless fn.isConstOf ``Soplex.Tactic.RatLin.Q.toRat && args.size == 1 do
+  unless fn.isConstOf ``Soplex.Tactic.Q.toRat && args.size == 1 do
     return none
   let q ← whnfR args[0]!
   let qFn := q.getAppFn
   let qArgs := q.getAppArgs
-  unless qFn.isConstOf ``Soplex.Tactic.RatLin.Q.mk && qArgs.size == 3 do
+  unless qFn.isConstOf ``Soplex.Tactic.Q.mk && qArgs.size == 3 do
     return none
   let some n ← parseIntLit? qArgs[0]! | return none
   let some d ← parseNatLit? qArgs[1]! | return none
@@ -724,14 +724,14 @@ private def mkQLit (r : Rat) : MetaM Expr := do
       let denNeType : Expr := mkApp3 (mkConst ``Ne [Level.succ Level.zero])
         (mkConst ``Nat) denE (mkNatLit 0)
       mkDecideProof denNeType
-  return mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
+  return mkApp3 (mkConst ``Soplex.Tactic.Q.mk) numE denE denNeProof
 
 /-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
 that the explicit-proof-term discharger (issue #87) can apply
 `Q.toRat_add`/`toRat_mul`/`toRat_neg` without bridging through
 `Rat.div`-form literals. -/
 private def mkRatLit (r : Rat) : MetaM Expr := do
-  return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) (← mkQLit r)
+  return mkApp (mkConst ``Soplex.Tactic.Q.toRat) (← mkQLit r)
 
 /--
 Build a Lean expression representing the weighted sum
@@ -931,7 +931,7 @@ private def precomputeSpine (L : LinExpr) :
     let (v, c) := L.coeffs[k]!
     let qE ← mkQLit c
     qs := qs.push qE
-    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qE
+    let cE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qE
     heads := heads.push (← mkRatMul cE (Expr.fvar v))
   -- Suffix renderings, built right-to-left so each entry references the next.
   let mut suffix : Array Expr := Array.mkEmpty (n + 1)
@@ -1025,9 +1025,9 @@ where
         go headA qA suffA headB qB suffB (i+1) (j+1)
       let taE := suffA[i+1]!
       let tbE := suffB[j+1]!
-      let cAE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
-      let cBE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qB[j]!
-      let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+      let cAE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qA[i]!
+      let cBE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qB[j]!
+      let mE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qmE
       if mVal = 0 then
         let pf := mkAppN (mkConst ``combine_zero)
           #[xE, taE, tbE, resPrev, cAE, cBE, pRest, hm]
@@ -1059,8 +1059,8 @@ where
     let (mVal, qmE, hm) ← proveRatlitMul qkE qA[i]! kVal c
     let xE := Expr.fvar v
     let (restL, pRest, resPrev) ← go qA suffA qkE (i+1)
-    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
-    let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+    let cE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qA[i]!
+    let mE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qmE
     let restE := suffA[i+1]!
     let pf := mkAppN (mkConst ``smul_cons)
       #[kE, xE, cE, mE, restE, resPrev, hm, pRest]
@@ -1089,8 +1089,8 @@ where
     let (mVal, qmE, hm) ← proveRatlitNeg qA[i]! c
     let xE := Expr.fvar v
     let (restL, pRest, resPrev) ← go qA suffA (i+1)
-    let cE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qA[i]!
-    let mE := mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) qmE
+    let cE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qA[i]!
+    let mE := mkApp (mkConst ``Soplex.Tactic.Q.toRat) qmE
     let restE := suffA[i+1]!
     let pf := mkAppN (mkConst ``neg_cons)
       #[xE, cE, mE, restE, resPrev, hm, pRest]

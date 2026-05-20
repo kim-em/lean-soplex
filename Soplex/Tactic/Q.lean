@@ -14,13 +14,12 @@ and negation use only `Int`/`Nat` arithmetic (which is transparent) and only
 materialise a `Rat` value via `Rat.normalize` at the leaves of the
 evaluation.
 
-Used pervasively by `Soplex.Tactic.LP` to materialise scalar literals into
-kernel-reducible form.  The module is kept under the `Soplex.Tactic.RatLin`
-namespace for historical reasons (it originally backed a reflective `RatLin`
-discharger that has since been removed); lifting it out is a cosmetic
-follow-up. -/
+Used by `Soplex.Tactic.LP` to materialise scalar literals into
+kernel-reducible form while constructing explicit proof terms.  The module
+lives directly under `Soplex.Tactic` because it is an implementation detail
+of the tactic proof backend rather than part of the verified solver API. -/
 
-namespace Soplex.Tactic.RatLin
+namespace Soplex.Tactic
 
 /-- A rational payload kept in `(numerator, denominator)` form with a
 positivity proof.  Two `Q` values may represent the same rational without
@@ -71,4 +70,4 @@ theorem toRat_eq_of_cross {x y : Q}
 
 end Q
 
-end Soplex.Tactic.RatLin
+end Soplex.Tactic
