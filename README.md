@@ -235,7 +235,7 @@ Soplex.lean                   # top-level import
 Soplex/Basic.lean             # high-level API + `solveVerified`
 Soplex/Tactic/                # `lp` and `maximize` tactics
   LP.lean                     #   tactic frontend (elaboration + dispatch)
-  RatLin/Q.lean               #   affine `Rat` reflection
+  Q.lean                      #   kernel-reducible rational payload
 Soplex/Verify/                # pure-Lean certificate checker
   Types.lean                  #   `Problem`, `Certificate`, `Verified`
   Validate.lean               #   input normalisation

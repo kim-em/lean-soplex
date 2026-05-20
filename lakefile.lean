@@ -63,7 +63,7 @@ lean_lib Soplex where
   -- link picks up `moreLinkArgs`, which on Windows names the staged
   -- `vendor/mingw-libs/*.a` archives. Those archives are staged as a
   -- side effect of the `SoplexFFI` native build. Pure-Lean modules such
-  -- as `Soplex.Tactic.RatLin.*` import nothing from `SoplexFFI`, so
+  -- as `Soplex.Tactic.*` import nothing from `SoplexFFI`, so
   -- without this dependency their dynlib link can run first and fail
   -- with `no such file or directory` on the not-yet-staged archives.
   needs := #[BuildKey.packageTarget `SoplexFFI `soplexffi]
