@@ -7,8 +7,11 @@
 
 import SoplexFFI.Basic
 import Soplex.Verify
+import Soplex.LP.Core
 
 namespace Soplex
+
+open Soplex.LP
 
 /-! ## Verified-solve driver.
 
@@ -45,5 +48,32 @@ def solveVerified {m n : Nat} (opts : Options) (p : Problem m n)
   let sol ← solveExact opts' normalized
   pure { normalized
          verified := Verify.verifyOutcome opts denomBudget normalized sol }
+
+/-- Backend-pluggable variant of `solveVerified`.
+
+    Identical to `solveVerified` except `solveExact` is dispatched
+    through an `LPBackend`. Lives in `IO` because backends are
+    `IO`-typed (so a future subprocess or remote solver can plug in);
+    synchronous backends like `Soplex.Backend.SoplexFFI.backend` just
+    lift their `Except` result with `pure`.
+
+    Source-level callers should keep using `solveVerified` for now;
+    `solveVerifiedWith` is the migration target once the package split
+    lands (#50). -/
+def solveVerifiedWith {m n : Nat} (backend : LPBackend) (opts : Options)
+    (p : Problem m n) (denomBudget : Option Nat := defaultDenomBudget) :
+    IO (Except SolveError (Verify.VerifiedSolve (m := m) (n := n) opts.sense)) := do
+  match validateOptions opts with
+  | .error e => return .error (.invalidOptions e)
+  | .ok _ =>
+    match validate p with
+    | .error e => return .error (.invalidProblem e)
+    | .ok normalized =>
+      let opts' := { opts with presolve := false }
+      match ← backend.solveExact opts' normalized with
+      | .error e => return .error e
+      | .ok sol =>
+        return .ok { normalized
+                     verified := Verify.verifyOutcome opts denomBudget normalized sol }
 
 end Soplex
