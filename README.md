@@ -1,5 +1,8 @@
 # Soplex
 
+[![Lean](https://img.shields.io/badge/Lean-4.29.1-blue.svg)](./lean-toolchain)
+[![License](https://img.shields.io/github/license/kim-em/soplex.svg)](./LICENSE)
+
 Lean verified certificate checking for [SoPlex](https://soplex.zib.de/), the linear programming solver from the SCIP optimization suite.
 
 This repository (`kim-em/soplex`) is the high-level Lean package. It
