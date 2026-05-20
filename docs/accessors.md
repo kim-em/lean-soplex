@@ -224,10 +224,11 @@ Both Farkas examples confirm:
   (`boundCombinationPos`), regardless of which side of SoPlex's
   signed Farkas vector certified infeasibility.
 
-## When this document goes stale
+## Maintenance Checklist
 
-Whenever the pinned SoPlex tag in `SoplexFFI` or the bridge's
-parameter setup in `SoplexFFI`'s `ffi/lean_soplex_bridge.cpp` changes:
+When updating the pinned SoPlex tag in `SoplexFFI` or the bridge's
+parameter setup in `SoplexFFI`'s `ffi/lean_soplex_bridge.cpp`, complete
+the following checks:
 
 1. Re-run `lake exe accessor-goldens` against the new SoPlex.
 2. If any case fails, update the bridge until the goldens pass.
