@@ -24,7 +24,8 @@ def leanProbes : Array String := #[
   "SoplexTest/LPInnerForall.lean",
   "SoplexTest/LPMaximize.lean",
   "SoplexTest/LPBenders.lean",
-  "SoplexTest/LPScaling.lean"
+  "SoplexTest/LPScaling.lean",
+  "SoplexTest/ReadmeCheck.lean"
 ]
 
 def binPath (name : String) : System.FilePath :=

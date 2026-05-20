@@ -32,8 +32,8 @@ import Soplex
 open Soplex Soplex.Verify
 
 -- Proving theorems via `lp` is usually faster than Mathlib's `linarith`.
-example (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18)
-    (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) : 3 x₀ + 5 x₁ ≤ 36 := by lp
+example (x₀ x₁ : Rat) (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18)
+    (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) : 3 * x₀ + 5 * x₁ ≤ 36 := by lp
 
 -- We can also solve linear arithmetic problems involving quantifiers.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 3 ∧
