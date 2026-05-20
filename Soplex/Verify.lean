@@ -1,9 +1,12 @@
 /-
   Pure-Lean certificate checker for SoPlex's exact-mode LP output.
 
-  This is the standalone library: no FFI dependency, no `IO`. Consumers
-  that want to verify certificates produced elsewhere can depend on
-  this module alone via the `SoplexVerify` Lake target.
+  This module contains the verifier-facing API and is pure Lean
+  logically: it performs no `IO` and treats SoPlex as an oracle whose
+  certificates must be checked before proofs are produced. In the
+  current package layout it is still built through the main `Soplex`
+  dependency graph, which includes the native FFI package. There is no
+  separate verifier-only Lake target yet.
 
   Re-exports:
 
