@@ -75,8 +75,9 @@ lean_lib SoplexTest where
   roots := #[`SoplexTest.Common, `SoplexTest.SolveCommon]
 
 /-- End-to-end FFI runtime check: prints the SoPlex version, runs the
-    cross-stdlib ABI throw/catch test, and solves a toy LP. Used by CI
-    to confirm the binding links, loads, and computes on every platform. -/
+    cross-stdlib ABI throw/catch test, and runs a small LP sanity check.
+    Used by CI to confirm the binding links, loads, and computes on every
+    platform. -/
 lean_exe «ffi-check» where
   root := `Main
 
