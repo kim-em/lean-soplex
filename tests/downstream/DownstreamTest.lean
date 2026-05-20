@@ -23,7 +23,7 @@ example (a b : Rat) (_h₁ : 2 * a + b ≤ 2) (_h₂ : a - b ≤ 1) : 3 * a ≤ 
 example (a b : Rat) (_h₁ : 2 * a + b ≤ 1) (_h₂ : a - b ≤ 1) : 3 * a ≤ 2 := by lp
 example (a b : Rat) (_h₁ : 2 * a + b ≤ 10) (_h₂ : a - b ≤ 1) : 3 * a ≤ 11 := by lp
 
--- `≥`-flipped form of the original Stage 1 example.
+-- `≥`-flipped form of the textbook two-row example.
 example (a b : Rat) (_h₁ : 5 ≥ 2 * a + b) (_h₂ : 1 ≥ a - b) : 6 ≥ 3 * a := by lp
 
 -- Infeasibility branch: contradictory hypotheses close any goal.

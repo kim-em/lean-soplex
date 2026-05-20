@@ -1,11 +1,10 @@
 import Soplex
 
 /-!
-Stage 2 `lp` tactic probes: closed existential goals over `Rat`, with
-flat conjunctions of non-strict (in)equality constraints as bodies.
+`lp` tactic probes for closed existential goals over `Rat`, with flat
+conjunctions of non-strict (in)equality constraints as bodies.
 -/
 
--- Worked example from the Stage 2 spec.
 example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 1 := by lp
 
 -- Single binder with a single atomic constraint.
@@ -55,7 +54,7 @@ example : True := by
   fail_if_success (have : ∃ x : Rat, x < 1 := by lp)
   trivial
 
--- Nested quantifier in the body is not in the Stage 2 fragment.
+-- Nested universal in the body without any guards is not in this fragment.
 example : True := by
   fail_if_success (have : ∃ x : Rat, ∀ y : Rat, x ≤ y := by lp)
   trivial

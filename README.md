@@ -10,9 +10,10 @@ direct Lean bindings. On top of that, `Soplex` adds:
 * a **pure-Lean certificate checker** (`Soplex.Verify`);
 * `solveVerified`, a driver that runs SoPlex and validates its exact
   certificate against the original problem before returning a
-  proof-carrying result.
+  proof-carrying result;
 * exact-mode and floating-point LP solves, plus MPS / LP file I/O
   (re-exported from `SoplexFFI`);
+* fast user tactics `lp` (that handles quantifier elimination) and `maximize`.
 
 ## Quickstart
 
@@ -22,13 +23,24 @@ Add `Soplex` to your `lakefile.lean`:
 require Soplex from git "https://github.com/kim-em/soplex" @ "main"
 ```
 
-A minimal verified solve. We maximise `3 x₀ + 5 x₁` subject to
+We maximise `3 x₀ + 5 x₁` subject to
 `x₀ ≤ 4`, `2 x₁ ≤ 12`, `3 x₀ + 2 x₁ ≤ 18`, and `x₀, x₁ ≥ 0`
 (textbook example; optimum is `x = (2, 6)` with objective `36`):
 
 ```lean
 import Soplex
 open Soplex Soplex.Verify
+
+-- Proving theorems via `lp` is usually faster than Mathlib's `linarith`.
+example (x₀ x₁ : Rat) (_ : x₀ ≤ 4) (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18)
+    (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) : 3 * x₀ + 5 * x₁ ≤ 36 := by lp
+
+-- We can also solve linear arithmetic problems involving quantifiers.
+example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 3 ∧
+    ∀ y : Rat, x ≤ y → y ≤ 5 → y ≤ 2 * x := by lp
+
+-- And it's also a computational library that generates certificates
+-- for linear programming problems:
 
 def lp : Problem 3 2 :=
   { c         := #v[3, 5]
@@ -49,9 +61,6 @@ def main : IO Unit := do
     | .infeasible _    => IO.println "infeasible (with Lean proof)"
     | .unbounded _ _ _ => IO.println "unbounded (with Lean proof)"
     | .unchecked s     => IO.println s!"unchecked: {repr s}"
-
--- We don't yet have a tactic layer using this machinery:
--- see https://github.com/kim-em/soplex/issues/40.
 ```
 
 Key shape:
@@ -71,6 +80,73 @@ Key shape:
 This example is kept in [`QuickstartExample.lean`](./QuickstartExample.lean)
 and built as `lake exe quickstart-example` so it stays in sync with
 the API.
+
+## Tactics
+
+The verified pipeline is exposed as two `Rat`-affine tactics that
+build kernel proof terms — no `Problem`/`Certificate` data reaches the
+kernel, only a weighted-sum-of-hypotheses identity discharged by an
+explicit-proof-term constructor.
+
+### `lp` 
+
+```lean
+import Soplex
+
+example : (1 : Rat) < 2 := by lp
+
+example (a b : Rat) (_ : 2 * a + b ≤ 5) (_ : a - b ≤ 1) :
+    3 * a ≤ 6 := by lp
+
+example (a : Rat) (_ : a ≤ 0 ∧ 0 ≤ a) : a = 0 := by lp
+
+example (x : Rat) (_ : x ≤ 0) : x < 1 := by lp
+
+example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 1 := by lp
+
+example : ∃ x : Rat, ∀ y : Rat, 0 ≤ y → y ≤ 1 → x ≥ y := by lp
+
+example : ∃ x : Rat, 0 ≤ x ∧ x ≤ 3 ∧
+    ∀ y : Rat, x ≤ y → y ≤ 5 → y ≤ 2 * x := by lp
+```
+
+Hypotheses that are not non-strict `Rat`-affine are silently ignored
+(strict hypotheses are rejected with a tactic-level diagnostic). When
+SoPlex returns infeasible, `lp` derives `False` from the dual and
+closes any goal.
+
+`lp` handles a Π₂ fragment of linear rational arithmetic. Atoms are
+`Rat`-affine (in)equalities (`≤`, `<`, `=`, `≥`, `>`) in the
+`Rat`-typed locals; these combine under `∧`, under `∃ x : Rat`, and
+under inner `∀ y : Rat, g₁ → … → gₖ → b` whose guards `gᵢ` and body
+`b` are themselves `Rat`-affine atoms — including guards that mention
+the outer existential witness. The local context contributes
+non-strict linear `Rat` hypotheses; SoPlex serves as an untrusted
+oracle for Farkas / dual multipliers, and the kernel proof is
+reconstructed from those multipliers and the original hypothesis
+terms.
+
+### `maximize` 
+
+`maximize <expr>` runs a sup-LP over the local hypotheses and injects
+`hbound : <expr> ≤ N` where `N` is the certified maximum. Use
+`maximize h : <expr>` to choose the hypothesis name.
+
+```lean
+example (x₀ x₁ : Rat) (_ : 0 ≤ x₀) (_ : 0 ≤ x₁) (_ : x₀ ≤ 4)
+    (_ : 2 * x₁ ≤ 12) (_ : 3 * x₀ + 2 * x₁ ≤ 18) :
+    3 * x₀ + 5 * x₁ ≤ 36 := by
+  maximize 3 * x₀ + 5 * x₁
+  exact hbound
+
+example (x : Rat) (_ : 0 ≤ x) (_ : x ≤ 4) : 3 * x + 7 ≤ 19 := by
+  maximize h : 3 * x + 7
+  exact h
+```
+
+If hypotheses are inconsistent, `maximize` closes the surrounding
+goal by `False.elim`. If the LP is unbounded above, it fails without
+producing a proof.
 
 ## Build
 
@@ -151,6 +227,9 @@ translation can only cause a verifier rejection
 ```
 Soplex.lean                   # top-level import
 Soplex/Basic.lean             # high-level API + `solveVerified`
+Soplex/Tactic/                # `lp` and `maximize` tactics
+  LP.lean                     #   tactic frontend (elaboration + dispatch)
+  RatLin/Q.lean               #   affine `Rat` reflection
 Soplex/Verify/                # pure-Lean certificate checker
   Types.lean                  #   `Problem`, `Certificate`, `Verified`
   Validate.lean               #   input normalisation

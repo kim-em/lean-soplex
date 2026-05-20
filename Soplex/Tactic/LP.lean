@@ -329,13 +329,13 @@ private def LinExpr.evalAt (e : LinExpr) (vars : Array FVarId) (xs : Array Rat) 
         acc := acc + c * xs[i]!
   return acc
 
-/-- Partition a `LinExpr`'s coefficients by variable scope, used by Stage 3
-to split `(φ − ψ)(x, y) = α(x) + β(y) + γ` after parsing the body as a
-single linear expression. Returns `(β, α, outside)` where:
+/-- Partition a `LinExpr`'s coefficients by variable scope, used by the
+inner-`∀` paths to split `(φ − ψ)(x, y) = α(x) + β(y) + γ` after parsing
+the body as a single linear expression. Returns `(β, α, outside)` where:
 - `β` holds the coeffs over `ys` (with `const := 0`),
 - `α` holds the coeffs over `xs` together with the constant `γ := e.const`,
 - `outside` lists any FVarIds in `e.coeffs` that belong to neither scope
-  (these trigger Stage 3's syntactic-rejection / outer-parameter checks).
+  (these trigger the syntactic-rejection / outer-parameter checks).
 
 Algebraically: `e = α.const + Σ (v,c) ∈ α.coeffs c·v + Σ (v,c) ∈ β.coeffs c·v
 + (outside contributions)`. -/
@@ -589,7 +589,7 @@ private partial def collectHypProof (origin : Name) (proof : Expr) :
   match ← parseAtomic? type with
   | none => return #[]
   | some (.lt, _, _, _, _) =>
-      throwError "lp: strict hypothesis `{origin}` is not supported in Stage 1"
+      throwError "lp: strict hypothesis `{origin}` is not supported"
   | some (.le, lhsExpr, rhsExpr, lhs, rhs) =>
       let row := lhs.sub rhs
       return #[{
@@ -1346,8 +1346,8 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   -- certificate is enough. The wider `isLinExprClosed objLin` case is
   -- only safe when the residual constant has the right sign — otherwise
   -- the rows may be inconsistent and the proper certificate routes
-  -- through SoPlex's infeasibility branch (Stage 3 vacuous-guard case,
-  -- issue #45).
+  -- through SoPlex's infeasibility branch (vacuous-guard case from the
+  -- x-independent inner-`∀` path).
   let canShortcut : Bool :=
     vars.size = 0 ||
     (isLinExprClosed objLin &&
@@ -1428,17 +1428,17 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
   | s =>
       throwError "lp: solver outcome was unchecked: {repr s}"
 
-/-! ## Stage 2: closed existential goals (`∃ x₁ … xₙ : Rat, B`).
+/-! ## Existential goals (`∃ x₁ … xₙ : Rat, B`).
 
-Stage 2 closes goals of the form `∃ x₁ … xₙ : Rat, B` where `B` is a
-flat conjunction of atomic non-strict (in)equality constraints over
-the existential binders and reducibly-closed numeric constants only.
+Closes goals of the form `∃ x₁ … xₙ : Rat, B` where `B` is a flat
+conjunction of atomic non-strict (in)equality constraints over the
+existential binders and reducibly-closed numeric constants only.
 
 The algorithm:
 
 1. Strip nested `∃ x : Rat, …` binders into a single block (entered via
    one `lambdaBoundedTelescope` per binder so the body is canonicalised
-   in the same environment Stage 1's extractor sees).
+   in the same environment the atomic-goal extractor sees).
 2. Parse the body as a flat conjunction of atomic Rat (in)equalities;
    reject strict constraints, nested quantifiers, or non-atomic shapes.
 3. Verify the **closed-body invariant over the canonicalised atoms**:
@@ -1452,21 +1452,21 @@ The algorithm:
 5. Run SoPlex via `solveExact` and branch:
    - `.optimal x*` → splice the primal as `Rat` literals into an
      `Exists.intro` chain; recurse on the now-closed residual body.
-   - `.infeasible` → fall back to a Stage-1-style inconsistency probe
-     on the outer hypotheses alone. If that certifies `H` inconsistent,
-     close by `absurd`. Otherwise surface a "body infeasible, context
+   - `.infeasible` → fall back to an inconsistency probe on the outer
+     hypotheses alone. If that certifies `H` inconsistent, close by
+     `absurd`. Otherwise surface a "body infeasible, context
      consistent" error.
    - anything else → surface the underlying solver status.
 6. The residual after splicing is a closed `And`/`Eq`/`LE` conjunction
-   in `Rat`; `solveGoal` discharges each conjunct via the Stage 1
-   closed-goal short-circuit (no SoPlex call, empty weighted sum).
+   in `Rat`; `solveGoal` discharges each conjunct via the closed-goal
+   atomic short-circuit (no SoPlex call, empty weighted sum).
 
 Soundness comes from Lean reconstructing each primal value as a `Rat`
 literal and rebuilding the residual proof — solver row activities and
 objective values are not trusted. -/
 
-/-- Is `e` of the form `∃ x : Rat, …`? Used as the Stage 2 dispatch
-predicate. -/
+/-- Is `e` of the form `∃ x : Rat, …`? Used as the existential-goal
+dispatch predicate. -/
 private def isExistsRat? (e : Expr) : MetaM Bool := do
   let e ← whnf e
   let fn := e.getAppFn
@@ -1494,12 +1494,12 @@ private partial def peelExistsRat (target : Expr) (acc : Array FVarId)
         peelExistsRat body (acc.push xs[0]!.fvarId!) k
   k acc target
 
-/-- Collect atomic non-strict Rat (in)equalities from the body of a
-Stage 2 existential, descending only through `And`. Throws on strict
-inequalities, nested quantifiers, or any non-atomic shape. -/
+/-- Collect atomic non-strict Rat (in)equalities from an existential
+body, descending only through `And`. Throws on strict inequalities,
+nested quantifiers, or any non-atomic shape. -/
 private partial def collectExistsAtoms (body : Expr) :
     ParseM (Array (Rel × LinExpr × LinExpr)) := do
-  -- Detect `And` on a `whnfR`-reduced form (matching Stage 1's
+  -- Detect `And` on a `whnfR`-reduced form (matching the atomic-goal
   -- top-level `And` dispatch in `solveGoal`). The non-reduced `body`
   -- is what we pass to `parseAtomic?`: reducible whnf can unfold
   -- `LE.le` into `Rat.blt _ _ = false`, which `parseAtomic?` wouldn't
@@ -1513,7 +1513,7 @@ private partial def collectExistsAtoms (body : Expr) :
         "lp: existential body must be a flat conjunction of atomic non-strict {
           ""}Rat (in)equality constraints; got{indentExpr body}"
   | some (.lt, _, _, _, _) =>
-      throwError "lp: strict inequalities are not supported in existential bodies (Stage 2)"
+      throwError "lp: strict inequalities are not supported in existential bodies"
   | some (rel, _, _, lhs, rhs) =>
       return #[(rel, lhs, rhs)]
 
@@ -1530,10 +1530,10 @@ private def checkClosedBody (atoms : Array (Rel × LinExpr × LinExpr))
     for (v, _) in L.coeffs do
       unless isBinder v do
         let decl ← v.getDecl
-        throwError "lp(stage2): existential body references non-binder `Rat` local `{
-          decl.userName}` after canonicalisation; Stage 2 requires every linear {
-          ""}expression in the body to depend only on the existential binders. {
-          ""}This case may be handled by Stage 3 (uniform strengthening); not in scope here."
+        throwError "lp(∃): existential body references non-binder `Rat` local `{
+          decl.userName}` after canonicalisation; the closed-existential path {
+          ""}requires every linear expression in the body to depend only on the {
+          ""}existential binders."
   for (_, lhs, rhs) in atoms do
     checkLin lhs
     checkLin rhs
@@ -1581,10 +1581,10 @@ inconsistent. Returns `some pf` with `pf : False` on success, or `none`
 if the inconsistency probe doesn't fire (no rows, unchecked status, or
 the LP says feasible).
 
-This is the Stage 2 inconsistency-probe fallback: it reuses the Stage 1
-infeasibility branch's Farkas certificate construction, but with a
-fixed constant-zero objective (`max 0 subject to H`) so we are
-probing only the consistency of `H`. -/
+This is the existential-path inconsistency-probe fallback: it reuses
+the atomic-goal infeasibility branch's Farkas certificate construction,
+but with a fixed constant-zero objective (`max 0 subject to H`) so we
+are probing only the consistency of `H`. -/
 private def tryHypsInconsistent (rows : Array Row) (vars : Array FVarId) :
     MetaM (Option Expr) := do
   if rows.size = 0 then return none
@@ -1668,30 +1668,31 @@ private def introExistsRat (g : MVarId) (witness : Expr) : MetaM MVarId := do
     -- `whnf` further (it may unfold `LE.le` into `Rat.blt _ _ = false`
     -- and block the residual proof's atomic-comparison dispatch).
     let bodyTy := (mkApp predE witness).headBeta
-    let newMVar ← mkFreshExprSyntheticOpaqueMVar bodyTy (tag := `lp_stage2_body)
+    let newMVar ← mkFreshExprSyntheticOpaqueMVar bodyTy (tag := `lp_exists_body)
     let proof := mkApp4 (mkConst ``Exists.intro [level]) αE predE witness newMVar
     g.assign proof
     return newMVar.mvarId!
 
-/-! ## Stage 3: inner-`∀` elimination over independent guards (issue #45).
+/-! ## Inner-`∀` elimination over x-independent guards.
 
-Stage 3 extends Stage 2's existential body grammar with subformulas of
-shape `∀ y₁ … yₘ : Rat, G₁ → … → Gₖ → atomic(x, y)` where the universal
+Extends the existential body grammar with subformulas of shape
+`∀ y₁ … yₘ : Rat, G₁ → … → Gₖ → atomic(x, y)` where the universal
 guards `Gᵢ` and the atomic body's `y`-dependent part form an LP region
 independent of the existential-bound `x`. Each such universal is
 eliminated by a sup-LP that bounds `β(y)` over the guard region; the
 resulting `α(x) + γ + M ≤ 0` constraint joins the witness LP.
 
 After the witness is spliced, each residual `∀ y, G → atomic(witness, y)`
-falls back to Stage 1 via `solveGoal`'s `intros`+`solveAtomic` recursion:
-`G`-hypotheses are picked up by `collectHyps`, and the same Farkas
-multipliers that proved sup-boundedness reconstruct the bound on
-`β(y)`. The vacuous-guard case (`Verified.infeasible` on the sup-LP)
-adds no constraint to the witness LP; Stage 1's infeasibility branch
-derives `False` from the `G`-hypotheses post-splicing and closes the
-atomic via `False.elim`.
+falls back to the atomic-goal path via `solveGoal`'s
+`intros`+`solveAtomic` recursion: `G`-hypotheses are picked up by
+`collectHyps`, and the same Farkas multipliers that proved
+sup-boundedness reconstruct the bound on `β(y)`. The vacuous-guard
+case (`Verified.infeasible` on the sup-LP) adds no constraint to the
+witness LP; the atomic-goal infeasibility branch derives `False` from
+the `G`-hypotheses post-splicing and closes the atomic via
+`False.elim`.
 
-v1 limitations:
+Limitations:
 - No outer-parameter promotion: outer Rat locals are rejected in both
   the universal body's `α(x)` and the guards. The two failure modes
   ("Outer parameter in body" vs "Outer parameter in guard") get
@@ -1702,7 +1703,7 @@ v1 limitations:
 
 /-- Is `e` of the form `∀ y : Rat, _` with the binder actually used in the
 body? `Rat → P` (non-dependent function type) is *not* recognised as a
-universal — Stage 3 only fires on quantifiers, not implications. -/
+universal — the inner-`∀` path only fires on quantifiers, not implications. -/
 private def isForallRat? (e : Expr) : MetaM Bool := do
   match ← whnf e with
   | .forallE _ ty body _ =>
@@ -1710,16 +1711,17 @@ private def isForallRat? (e : Expr) : MetaM Bool := do
       return tyW.isConstOf ``Rat && body.hasLooseBVars
   | _ => return false
 
-/-- Outcome of a Stage 3 sup-LP for one body direction. -/
+/-- Outcome of the sup-LP for one body direction of an x-independent
+inner universal. -/
 private inductive SupResult
   | /-- Optimal: `M` is the Lean-recomputed value of `β` at the spliced
        primal; the witness LP receives `α(x) + γ + M ≤ 0`. -/
     bounded (M : Rat)
   | /-- Verified vacuity: the guard LP is infeasible; the universal is
        vacuously true and contributes no witness-LP constraint. The
-       post-splice atomic obligation falls through to Stage 1, which
-       discharges it from the (infeasible) guard hypotheses via
-       `False.elim`. -/
+       post-splice atomic obligation falls through to the atomic-goal
+       path, which discharges it from the (infeasible) guard hypotheses
+       via `False.elim`. -/
     vacuous
 
 /-- Build and solve `max β(y) s.t. (guardsLe each ≤ 0)`.
@@ -1735,7 +1737,7 @@ private def runSupLP (yBinders : Array FVarId) (guardsLe : Array LinExpr)
     -- in `y`, the sup is just that constant; otherwise the sup is `+∞`.
     if β.coeffs.size = 0 then
       return .bounded β.const
-    throwError "lp(stage3): universal has no guards but `β(y)` is non-constant; {
+    throwError "lp(∀): universal has no guards but `β(y)` is non-constant; {
       ""}sup is unbounded above. Universal constraint impossible under the stated guard."
   -- Guards present: must run the LP to detect vacuity even when `β` is
   -- constant in `y`. A constant-`β` universal with infeasible guards is
@@ -1752,40 +1754,41 @@ private def runSupLP (yBinders : Array FVarId) (guardsLe : Array LinExpr)
   let opts : Options := { ({} : Options) with sense := .maximize, presolve := false }
   let normalized ←
     match validate p with
-    | .error e => throwError "lp(stage3): invalid sup-LP: {repr e}"
+    | .error e => throwError "lp(∀): invalid sup-LP: {repr e}"
     | .ok p => pure p
   let sol ←
     match solveExact opts normalized with
-    | .error e => throwError "lp(stage3): solveExact failed on sup-LP: {repr e}"
+    | .error e => throwError "lp(∀): solveExact failed on sup-LP: {repr e}"
     | .ok sol => pure sol
   match sol.status with
   | .optimal =>
       let some pr := sol.certificate.primal
-        | throwError "lp(stage3): sup-LP reported optimal without a primal certificate"
+        | throwError "lp(∀): sup-LP reported optimal without a primal certificate"
       let M := β.evalAt yBinders pr.toArray
       return .bounded M
   | .infeasible =>
       return .vacuous
   | .unbounded =>
-      throwError "lp(stage3): sup-LP is unbounded above; universal constraint impossible {
+      throwError "lp(∀): sup-LP is unbounded above; universal constraint impossible {
         ""}under the stated guard"
   | s =>
-      throwError "lp(stage3): sup-LP outcome was unchecked: {repr s}"
+      throwError "lp(∀): sup-LP outcome was unchecked: {repr s}"
 
 /-- Parse a universal guard expression into `≤ 0` directions over
 `xBinders ∪ yBinders` (1 row for `≤`, 2 for `=`). No validation against
 xBinder occurrence; the caller decides whether x-dependence is acceptable
-(Stage 3 rejects; Stage 4a accepts and routes to Benders). Strict guards
-and unparseable shapes are still rejected at this layer. -/
+(the x-independent path rejects it; the Benders path accepts and routes
+to constraint generation). Strict guards and unparseable shapes are
+still rejected at this layer. -/
 private def parseGuardLinExprs (xBinders yBinders : Array FVarId) (g : Expr) :
     MetaM (Array LinExpr) := do
   let parsed ← (parseAtomic? g).run' { vars := xBinders ++ yBinders }
   match parsed with
   | none =>
-      throwError "lp(stage3/4a): universal guard must be a non-strict atomic Rat {
+      throwError "lp(∀): universal guard must be a non-strict atomic Rat {
         ""}(in)equality{indentExpr g}"
   | some (.lt, _, _, _, _) =>
-      throwError "lp(stage3/4a): strict universal guard is not supported{indentExpr g}"
+      throwError "lp(∀): strict universal guard is not supported{indentExpr g}"
   | some (.le, _, _, lhs, rhs) =>
       return #[lhs.sub rhs]
   | some (.eq, _, _, lhs, rhs) =>
@@ -1795,10 +1798,11 @@ private def parseGuardLinExprs (xBinders yBinders : Array FVarId) (g : Expr) :
 /-- Parse a single universal guard expression as one or two `≤ 0`
 `LinExpr`s over `yBinders` only. Rejects strict guards, existential-binder
 references, and outer-parameter references (the latter would require
-parameter promotion, deferred to a follow-up).
+parameter promotion, not currently supported).
 
-Stage 3 entry point; Stage 4a uses `parseGuardLinExprs` instead and routes
-x-dependent guards to the Benders loop. -/
+Entry point for the x-independent guard path; the Benders path uses
+`parseGuardLinExprs` directly and routes x-dependent guards to
+constraint generation. -/
 private def parseUniversalGuard (xBinders yBinders : Array FVarId) (g : Expr) :
     MetaM (Array LinExpr) := do
   let dirs ← parseGuardLinExprs xBinders yBinders g
@@ -1806,18 +1810,19 @@ private def parseUniversalGuard (xBinders yBinders : Array FVarId) (g : Expr) :
     for (v, _) in L.coeffs do
       if xBinders.any (· == v) then
         let name := (← v.getDecl).userName
-        throwError "lp(stage3): universal guard references existential binder `{name}`{
+        throwError "lp(∀): universal guard references existential binder `{name}`{
           indentExpr g}; guards must be independent of `x`"
       unless yBinders.any (· == v) do
         let name := (← v.getDecl).userName
-        throwError "lp(stage3): universal guard references outer Rat local `{name}`{
+        throwError "lp(∀): universal guard references outer Rat local `{name}`{
           indentExpr g}; v1 does not promote outer parameters to sup-LP variables"
   return dirs
 
-/-- Stage 3: parse and solve one inner-`∀ y₁ … yₘ : Rat, G₁ → … → Gₖ →
-atomic(x, y)` subformula. Returns the residual `≤ 0` rows (each with
-coeffs over `xBinders` only and a constant `γ + M`) to be added to the
-witness LP. A vacuous universal contributes zero rows.
+/-- Parse and solve one inner-`∀ y₁ … yₘ : Rat, G₁ → … → Gₖ →
+atomic(x, y)` subformula on the x-independent guard path. Returns the
+residual `≤ 0` rows (each with coeffs over `xBinders` only and a
+constant `γ + M`) to be added to the witness LP. A vacuous universal
+contributes zero rows.
 
 The fvars introduced by `forallTelescope` are local to this call; the
 returned `LinExpr`s only mention `xBinders`, which remain valid in the
@@ -1827,8 +1832,8 @@ private def parseAndSolveUniversal (xBinders : Array FVarId) (forallExpr : Expr)
   let forallExpr ← whnf forallExpr
   Meta.forallTelescopeReducing forallExpr fun args bodyAtom => do
     -- Partition `args` into `yBinders` (type = Rat) and guard hypotheses
-    -- (Prop). Stage 3 v1 expects all Rat binders to precede all guards
-    -- — the issue's grammar `∀ y₁ … yₘ : Rat, G₁ → … → Gₖ → atomic`.
+    -- (Prop). The grammar `∀ y₁ … yₘ : Rat, G₁ → … → Gₖ → atomic`
+    -- requires all Rat binders to precede all guards.
     let mut yBinders : Array FVarId := #[]
     let mut guardExprs : Array Expr := #[]
     let mut seenGuard : Bool := false
@@ -1838,14 +1843,14 @@ private def parseAndSolveUniversal (xBinders : Array FVarId) (forallExpr : Expr)
       let ty ← whnf decl.type
       if ty.isConstOf ``Rat then
         if seenGuard then
-          throwError "lp(stage3): universal `Rat` binders must precede guards in {
+          throwError "lp(∀): universal `Rat` binders must precede guards in {
             ""}`∀ y₁ … yₘ : Rat, G → … → atomic` shape{indentExpr forallExpr}"
         yBinders := yBinders.push argId
       else
         seenGuard := true
         guardExprs := guardExprs.push arg
     if yBinders.isEmpty then
-      throwError "lp(stage3): expected at least one `∀ y : Rat, _` binder{
+      throwError "lp(∀): expected at least one `∀ y : Rat, _` binder{
         indentExpr forallExpr}"
     -- Parse guards.
     let mut guardsLe : Array LinExpr := #[]
@@ -1856,10 +1861,10 @@ private def parseAndSolveUniversal (xBinders : Array FVarId) (forallExpr : Expr)
     -- Parse atomic body.
     let parsedBody ← (parseAtomic? bodyAtom).run' { vars := xBinders ++ yBinders }
     let some (rel, _, _, lhsLin, rhsLin) := parsedBody
-      | throwError "lp(stage3): universal body must be a non-strict atomic Rat {
+      | throwError "lp(∀): universal body must be a non-strict atomic Rat {
           ""}(in)equality{indentExpr bodyAtom}"
     if rel = .lt then
-      throwError "lp(stage3): strict universal body is not supported in v1{
+      throwError "lp(∀): strict universal body is not supported{
         indentExpr bodyAtom}"
     let d := lhsLin.sub rhsLin
     let bodyDirs : Array LinExpr :=
@@ -1874,9 +1879,9 @@ private def parseAndSolveUniversal (xBinders : Array FVarId) (forallExpr : Expr)
       if outside.size > 0 then
         let nameStrs ← outside.toList.mapM fun v => do
           return s!"`{(← v.getDecl).userName}`"
-        throwError "lp(stage3): outer Rat local(s) {String.intercalate ", " nameStrs} {
+        throwError "lp(∀): outer Rat local(s) {String.intercalate ", " nameStrs} {
           ""}appear in the universal body's `x`-dependent part{indentExpr bodyAtom}; {
-          ""}v1 does not handle parametric witnesses"
+          ""}parametric witnesses are not supported"
     -- Solve sup-LP per direction; collect residuals over `xBinders`.
     let mut residuals : Array LinExpr := #[]
     for bodyDir in bodyDirs do
@@ -1885,31 +1890,31 @@ private def parseAndSolveUniversal (xBinders : Array FVarId) (forallExpr : Expr)
       | .bounded M =>
           residuals := residuals.push { const := α.const + M, coeffs := α.coeffs }
       | .vacuous =>
-          -- No witness-LP constraint; Stage 1 discharges the residual
-          -- post-splice atomic from the (infeasible) guards via
-          -- `False.elim`.
+          -- No witness-LP constraint; the atomic-goal path discharges
+          -- the residual post-splice atomic from the (infeasible)
+          -- guards via `False.elim`.
           pure ()
     return residuals
 
-/-! ## Stage 4a: x-dependent universal guards via Benders (issue #47).
+/-! ## Inner-`∀` with x-dependent guards via Benders.
 
-Stage 4a extends Stage 3 to inner universal subformulas whose guards may
-mention the surrounding existential variables, via an iterative
-constraint-generation (Benders) search for a witness `x*`. The cuts are
-search-direction guidance only — they do **not** appear in the final
-proof. Once Benders accepts a candidate `x*`, the witness is spliced via
-`Exists.intro`, after which each original `∀ y, G(x*, y) → atomic(x*, y)`
-becomes y-only (since `x*` is a concrete `Rat` literal); Stage 3's
-existing sup-LP machinery discharges each universal directly at `x*`,
-and the Stage 1 closed-goal short-circuit handles the residual atoms.
+Extends the inner-`∀` path to subformulas whose guards may mention the
+surrounding existential variables, via an iterative constraint-generation
+(Benders) search for a witness `x*`. The cuts are search-direction
+guidance only — they do **not** appear in the final proof. Once Benders
+accepts a candidate `x*`, the witness is spliced via `Exists.intro`,
+after which each original `∀ y, G(x*, y) → atomic(x*, y)` becomes y-only
+(since `x*` is a concrete `Rat` literal); the x-independent sup-LP
+machinery discharges each universal directly at `x*`, and the
+closed-goal atomic short-circuit handles the residual atoms.
 
-v1 policy (no completeness commitment):
+Policy (no completeness commitment):
 - `Verified.unbounded` from any subproblem → tactic fails with a precise
   message. Generating sound ray cuts on `x` requires a Farkas projection
-  over the guard polyhedron; deferred.
+  over the guard polyhedron and is not currently implemented.
 - Outer `Rat` parameters in either body or guard → rejected at the
-  pre-Benders gate (numeric-witness restriction).
-- Strict guards / strict bodies → rejected (carryover from Stage 3).
+  numeric-witness restriction (rejected before any Benders work).
+- Strict guards / strict bodies → rejected.
 - Extreme dual extraction is not enforced; SoPlex's returned dual is
   used directly, with duplicate-cut detection plus a max-iterations
   safety net guarding against cycling on adversarial bases. -/
@@ -1934,7 +1939,7 @@ private structure BendersUniversal where
   /-- The original `∀`-expression, retained only for diagnostics. -/
   source : Expr := default
 
-/-- Outcome of a Stage 4a subproblem solve at a concrete candidate `x*`. -/
+/-- Outcome of a Benders subproblem solve at a concrete candidate `x*`. -/
 private inductive BendersSubResult
   | /-- Subproblem is feasible with finite optimum `M` and dual `λ`.
        `λ.size` equals the row count of the parametric LP. -/
@@ -1942,7 +1947,8 @@ private inductive BendersSubResult
   | /-- Verified-infeasible guards at `x*`: the universal is vacuously
        true at this candidate, no cut. -/
     infeasibleGuard
-  | /-- Subproblem unbounded: v1 fails fast (ray cut is non-linear). -/
+  | /-- Subproblem unbounded: fail fast (the corresponding ray cut on
+       `x` is non-linear and is not currently produced). -/
     unboundedFail (msg : String)
   | /-- `Verified.unchecked` from SoPlex: fail. -/
     uncheckedFail (msg : String)
@@ -1951,7 +1957,7 @@ private inductive BendersSubResult
 `bodyY(y)` subject to `guardY[i](y) + guardX[i].evalAt(xStar) ≤ 0`.
 Returns `bounded M λ`, `infeasibleGuard`, `unboundedFail`, or
 `uncheckedFail`. Dispatches on `Verified.{optimal,infeasible,unbounded,
-unchecked}` exactly as Stage 3 does. -/
+unchecked}` exactly as the x-independent sup-LP does. -/
 private def runBendersSubproblem (u : BendersUniversal)
     (xBinders : Array FVarId) (xStar : Array Rat) : MetaM BendersSubResult := do
   -- Build the y-only rows: each `guardY[i]` with constant
@@ -1979,7 +1985,7 @@ private def runBendersSubproblem (u : BendersUniversal)
     if u.bodyY.coeffs.size = 0 then
       return .bounded u.bodyY.const #[]
     return .unboundedFail
-      "Stage 4a (Benders): subproblem has no guards but `p · y` is non-constant; sup is +∞."
+      "lp (Benders): subproblem has no guards but `p · y` is non-constant; sup is +∞."
   let rowDense := rowLins.map (·.toDense u.yBinders)
   let rowConsts := rowLins.map (·.const)
   let objCoeffs := u.bodyY.toDense u.yBinders
@@ -2013,8 +2019,9 @@ private def runBendersSubproblem (u : BendersUniversal)
       return .infeasibleGuard
   | .unbounded =>
       return .unboundedFail
-        ("Stage 4a (Benders) cannot produce a v1 cut from an unbounded subproblem; " ++
-         "the goal may still be true but requires the deferred LW symbolic-QE path.")
+        ("lp (Benders): cannot produce a linear cut from an unbounded subproblem; " ++
+         "the goal may still be true but requires symbolic-QE machinery " ++
+         "that is not currently implemented.")
   | s =>
       return .uncheckedFail s!"Benders subproblem outcome was unchecked: {repr s}"
 
@@ -2120,7 +2127,8 @@ private def bendersMaxIter : Nat := 64
 /-- Run the Benders cutting-plane search. Returns either a Rat-valued
 witness `x*` (each universal verified-satisfied at `x*`) or an error
 message. The user-facing proof is built afterwards by the caller via
-`introExistsRat` + Stage 3 candidate validation. -/
+`introExistsRat` + post-splice validation through the x-independent
+sup-LP machinery. -/
 private partial def runBendersLoop (xBinders : Array FVarId)
     (initialMaster : Array LinExpr) (universals : Array BendersUniversal) :
     MetaM (Except (Option String) (Array Rat)) := do
@@ -2146,7 +2154,7 @@ private partial def runBendersLoop (xBinders : Array FVarId)
       | .ok xStar => pure xStar
     -- Candidate repeat detection.
     if state.triedCandidates.any (arrayRatEq xStar) then
-      return .error (some "Stage 4a (Benders) made no progress: the same candidate was proposed twice.")
+      return .error (some "lp (Benders): made no progress — the same candidate was proposed twice.")
     state := { state with triedCandidates := state.triedCandidates.push xStar }
     -- Subproblem sweep. We accept the candidate iff every universal is
     -- satisfied at `x*`; otherwise we accumulate the *first* violating
@@ -2174,7 +2182,7 @@ private partial def runBendersLoop (xBinders : Array FVarId)
               -- or we computed the cut with the wrong sign. Surface it
               -- distinctly from a routine "weak cut" outcome.
               return .error (some
-                ("Stage 4a (Benders): derived a tautological cut at a violating " ++
+                ("lp (Benders): derived a tautological cut at a violating " ++
                  "candidate. The dual certificate from SoPlex appears not to be " ++
                  "optimal — this is an invariant violation, not a routine " ++
                  "non-extreme-dual outcome."))
@@ -2190,7 +2198,7 @@ private partial def runBendersLoop (xBinders : Array FVarId)
                 -- the cut set already excludes — again an invariant
                 -- violation rather than non-extreme-dual fallout.
                 return .error (some
-                  ("Stage 4a (Benders): duplicate cut produced for a candidate " ++
+                  ("lp (Benders): duplicate cut produced for a candidate " ++
                    "the existing cut should already exclude — invariant violation."))
               state := { state with
                 cutKeys := state.cutKeys.push key
@@ -2201,26 +2209,27 @@ private partial def runBendersLoop (xBinders : Array FVarId)
       -- All universals satisfied at `x*`; accept candidate.
       return .ok xStar
   return .error (some
-    s!"Stage 4a (Benders) hit the max-iterations safety net ({bendersMaxIter}); search exhausted.")
+    s!"lp (Benders): hit the max-iterations safety net ({bendersMaxIter}); search exhausted.")
 
-/-- Classification of an inner-`∀` subformula. Decides Stage 3 vs 4a
-based on whether any guard mentions an existential binder. -/
+/-- Classification of an inner-`∀` subformula based on whether any
+guard mentions an existential binder. -/
 private inductive UniversalDispatch
-  | /-- All guards are x-independent → Stage 3 residual rows. -/
-    stage3 (residuals : Array LinExpr)
-  | /-- At least one guard mentions an existential binder → Stage 4a
-       Benders subproblems (one per body direction). -/
-    stage4a (universals : Array BendersUniversal)
+  | /-- All guards are x-independent → residual `≤ 0` rows on `xBinders`
+       that join the witness LP directly. -/
+    independentGuards (residuals : Array LinExpr)
+  | /-- At least one guard mentions an existential binder → Benders
+       subproblems (one per body direction). -/
+    dependentGuards (universals : Array BendersUniversal)
 
 /-- Classify one universal subformula, building the data needed for
-either Stage 3 or Stage 4a. The pre-Benders gate (numeric-witness
-restriction) is enforced here: outer Rat parameters in either the body
-or any guard cause a precise rejection. -/
+either the x-independent path or the Benders path. The numeric-witness
+restriction is enforced here (before any Benders work): outer Rat
+parameters in either the body or any guard cause a precise rejection. -/
 private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
     MetaM UniversalDispatch := do
   let forallExpr ← whnf forallExpr
   Meta.forallTelescopeReducing forallExpr fun args bodyAtom => do
-    -- Partition `args` into yBinders and guard hypotheses, as Stage 3 does.
+    -- Partition `args` into yBinders (Rat-typed) and guard hypotheses (Prop).
     let mut yBinders : Array FVarId := #[]
     let mut guardExprs : Array Expr := #[]
     let mut seenGuard : Bool := false
@@ -2230,14 +2239,14 @@ private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
       let ty ← whnf decl.type
       if ty.isConstOf ``Rat then
         if seenGuard then
-          throwError "lp(stage3/4a): universal `Rat` binders must precede guards{
+          throwError "lp(∀): universal `Rat` binders must precede guards{
             indentExpr forallExpr}"
         yBinders := yBinders.push argId
       else
         seenGuard := true
         guardExprs := guardExprs.push arg
     if yBinders.isEmpty then
-      throwError "lp(stage3/4a): expected at least one `∀ y : Rat, _` binder{
+      throwError "lp(∀): expected at least one `∀ y : Rat, _` binder{
         indentExpr forallExpr}"
     -- Parse guards as `Array LinExpr` (no x/y validation yet).
     let mut allGuardDirs : Array LinExpr := #[]
@@ -2246,25 +2255,25 @@ private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
       let dirs ← parseGuardLinExprs xBinders yBinders gType
       allGuardDirs := allGuardDirs ++ dirs
     -- Validate guard scope: each coefficient must be in `xBinders ∪ yBinders`.
-    -- Outer Rat parameters in any guard are rejected (pre-Benders gate).
+    -- Outer Rat parameters in any guard are rejected (numeric-witness restriction).
     let mut anyXInGuard := false
     for L in allGuardDirs do
       let (_, _, outside) := L.partitionXY xBinders yBinders
       if outside.size > 0 then
         let nameStrs ← outside.toList.mapM fun v => do
           return s!"`{(← v.getDecl).userName}`"
-        throwError "lp(stage3/4a): outer Rat local(s) {String.intercalate ", " nameStrs} {
-          ""}appear in a universal guard{indentExpr forallExpr}; the pre-Benders {
-          ""}gate rejects parametric witnesses"
+        throwError "lp(∀): outer Rat local(s) {String.intercalate ", " nameStrs} {
+          ""}appear in a universal guard{indentExpr forallExpr}; parametric {
+          ""}witnesses are not supported"
       for (v, _) in L.coeffs do
         if xBinders.any (· == v) then anyXInGuard := true
     -- Parse body atomic.
     let parsedBody ← (parseAtomic? bodyAtom).run' { vars := xBinders ++ yBinders }
     let some (rel, _, _, lhsLin, rhsLin) := parsedBody
-      | throwError "lp(stage3/4a): universal body must be a non-strict atomic Rat {
+      | throwError "lp(∀): universal body must be a non-strict atomic Rat {
           ""}(in)equality{indentExpr bodyAtom}"
     if rel = .lt then
-      throwError "lp(stage3/4a): strict universal body is not supported{indentExpr bodyAtom}"
+      throwError "lp(∀): strict universal body is not supported{indentExpr bodyAtom}"
     let d := lhsLin.sub rhsLin
     let bodyDirs : Array LinExpr :=
       match rel with
@@ -2278,11 +2287,12 @@ private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
       if outside.size > 0 then
         let nameStrs ← outside.toList.mapM fun v => do
           return s!"`{(← v.getDecl).userName}`"
-        throwError "lp(stage3/4a): outer Rat local(s) {String.intercalate ", " nameStrs} {
-          ""}appear in the universal body{indentExpr bodyAtom}; the pre-Benders {
-          ""}gate rejects parametric witnesses"
+        throwError "lp(∀): outer Rat local(s) {String.intercalate ", " nameStrs} {
+          ""}appear in the universal body{indentExpr bodyAtom}; parametric {
+          ""}witnesses are not supported"
     if !anyXInGuard then
-      -- Stage 3 path: x-independent guards. Solve sup-LPs as before.
+      -- x-independent guards: solve a sup-LP per body direction and
+      -- contribute residual `≤ 0` rows on `xBinders` to the witness LP.
       let mut residuals : Array LinExpr := #[]
       for bodyDir in bodyDirs do
         let (β, α, _) := bodyDir.partitionXY xBinders yBinders
@@ -2290,10 +2300,10 @@ private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
         | .bounded M =>
             residuals := residuals.push { const := α.const + M, coeffs := α.coeffs }
         | .vacuous => pure ()
-      return .stage3 residuals
-    -- Stage 4a path: at least one guard mentions an x-binder. Build one
-    -- BendersUniversal per body direction. Each direction shares the
-    -- same guard data; only the body splits differ for an `=` body.
+      return .independentGuards residuals
+    -- At least one guard mentions an x-binder: build one BendersUniversal
+    -- per body direction. Each direction shares the same guard data;
+    -- only the body splits differ for an `=` body.
     let mut guardY : Array LinExpr := #[]
     let mut guardX : Array LinExpr := #[]
     for L in allGuardDirs do
@@ -2311,12 +2321,12 @@ private def classifyUniversal (xBinders : Array FVarId) (forallExpr : Expr) :
           bodyY := β
           bodyX := α
           source := forallExpr }
-    return .stage4a bendUniversals
+    return .dependentGuards bendUniversals
 
-/-- Stage 3 body walker: descend through `And`, recognise either atomic
-constraints or inner `∀ y : Rat, G → … → atomic` subformulas. Each
-universal is processed (sup-LP solved) and contributes residual rows
-on `xBinders` to the second component. -/
+/-- Existential-body walker: descend through `And`, recognise either
+atomic constraints or inner `∀ y : Rat, G → … → atomic` subformulas.
+Each universal is classified into x-independent residual rows or
+x-dependent Benders subproblems. -/
 private partial def collectExistsBody (xBinders : Array FVarId) (body : Expr) :
     ParseM (Array (Rel × LinExpr × LinExpr) × Array LinExpr × Array BendersUniversal) := do
   let bodyW ← whnfR body
@@ -2326,8 +2336,8 @@ private partial def collectExistsBody (xBinders : Array FVarId) (body : Expr) :
     return (al ++ ar, ul ++ ur, bl ++ br)
   if ← isForallRat? body then
     match ← classifyUniversal xBinders body with
-    | .stage3 residuals => return (#[], residuals, #[])
-    | .stage4a universals => return (#[], #[], universals)
+    | .independentGuards residuals => return (#[], residuals, #[])
+    | .dependentGuards universals => return (#[], #[], universals)
   match ← parseAtomic? body with
   | none =>
       throwError "lp: existential body must be a flat conjunction of atomic {
@@ -2338,7 +2348,7 @@ private partial def collectExistsBody (xBinders : Array FVarId) (body : Expr) :
   | some (rel, _, _, lhs, rhs) =>
       return (#[(rel, lhs, rhs)], #[], #[])
 
-/-- Stage 2/3 driver. Pre: `g`'s goal type is `∃ x : Rat, …`. -/
+/-- Existential-goal driver. Pre: `g`'s goal type is `∃ x : Rat, …`. -/
 private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
     (g : MVarId) : TacticM Unit := do
   -- Collect outer hypotheses (visible before entering the binders); used
@@ -2352,17 +2362,17 @@ private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
     let target ← instantiateMVars (← g.getType)
     peelExistsRat target #[] fun binders body => do
       if binders.size = 0 then
-        throwError "lp(stage2): expected at least one `∃ x : Rat, _` binder"
-      -- Parse the body. The walker dispatches each inner `∀ y : Rat, _`
-      -- to Stage 3 (x-independent guards) or Stage 4a (x-dependent
-      -- guards via Benders), returning the atoms, Stage 3 residual rows,
-      -- and Stage 4a Benders subproblems in one pass.
+        throwError "lp(∃): expected at least one `∃ x : Rat, _` binder"
+      -- Parse the body. The walker classifies each inner `∀ y : Rat, _`
+      -- as x-independent (residual rows on the witness LP) or
+      -- x-dependent (Benders subproblems), returning the atoms,
+      -- residual rows, and Benders subproblems in one pass.
       let ((atoms, univResiduals, bendersUnivs), _) ←
         (collectExistsBody binders body).run { vars := binders }
       checkClosedBody atoms binders
       -- Encode each atomic constraint as `lhs - rhs ≤ 0` (an `=` atom
       -- expands to a `≤ 0` row in each direction), then append the
-      -- Stage 3 residual rows (each already in `≤ 0` form).
+      -- inner-`∀` residual rows (each already in `≤ 0` form).
       let mut lpRows : Array LinExpr := #[]
       for (rel, lhs, rhs) in atoms do
         let d := lhs.sub rhs
@@ -2372,16 +2382,18 @@ private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
             lpRows := lpRows.push d
             lpRows := lpRows.push d.neg
         | .lt =>
-            throwError "lp(stage2): strict inequalities are not supported"
+            throwError "lp(∃): strict inequalities are not supported"
       lpRows := lpRows ++ univResiduals
       if bendersUnivs.isEmpty then
-        -- Stage 2/3 path: a single witness LP solves the whole problem.
+        -- No x-dependent guards: a single witness LP solves the whole
+        -- problem.
         solveWitnessLP lpRows binders
       else
-        -- Stage 4a path: iterative Benders search. The accepted
-        -- candidate is validated post-splice by Stage 3 (each original
+        -- x-dependent guards present: iterative Benders search. The
+        -- accepted candidate is validated post-splice by the
+        -- x-independent sup-LP machinery (each original
         -- `∀ y, G(x*, y) → atomic(x*, y)` becomes y-only after
-        -- substitution and falls through Stage 3's sup-LP machinery).
+        -- substitution and falls through that path).
         runBendersLoop binders lpRows bendersUnivs
   match result with
   | .ok primal =>
@@ -2391,7 +2403,7 @@ private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
         let wExpr ← mkRatLit v
         curG ← introExistsRat curG wExpr
       -- Residual: closed `And`/`Eq`/`LE` conjunction in `Rat`. Discharge
-      -- via the Stage 1 closed-goal short-circuit.
+      -- via the closed-goal atomic short-circuit.
       solveGoal curG
   | .error none =>
       -- Witness LP infeasible: probe whether outer hyps are inconsistent.
@@ -2401,11 +2413,11 @@ private partial def solveExistential (solveGoal : MVarId → TacticM Unit)
           let proof ← mkAppOptM ``False.elim #[some goalType, some hFalse]
           g.assign proof
       | none =>
-          throwError "lp(stage2): existential body is infeasible and the {
+          throwError "lp(∃): existential body is infeasible and the {
             ""}tactic could not certify that the outer hypotheses are {
             ""}inconsistent. The goal may still be provable by other means."
   | .error (some msg) =>
-      throwError "lp(stage2): {msg}"
+      throwError "lp(∃): {msg}"
 
 private def solveAtomic (g : MVarId) : TacticM Unit := do
   g.withContext do
@@ -2455,29 +2467,27 @@ elab "lp" : tactic => do
       let newGoals ← getGoals
       setGoals (newGoals ++ rest)
 
-/-! ## Forward-direction `maximize` tactic (issue #46).
+/-! ## Forward-direction `maximize` tactic.
 
 `maximize <expr>` and `maximize h : <expr>` take a linear `Rat` expression
 and inject `have h : <expr> ≤ N := <proof>` where `N` is the certified
 optimum of `<expr>` over the local non-strict linear hypotheses.
 
 Architecturally this is a *forward-direction surface* on top of the same
-sup-LP construction used by Stage 3 — Stage 3 substitutes a residual row
-into a witness LP, while `maximize` injects the bound as a new
-hypothesis. The proof of `expr ≤ N` is built by reusing `proveEntailed`
-with `rhs := mkRatLit N`: this carries the canonicalise/sign-flip,
-constant-offset, and reflection-equality obligations that the issue
-sketches at "bridge lemma shape" — `direct_le_close` is the closing
-lemma; the Farkas-multiplier weighting against the original hypothesis
-terms is the binder/vector mapping; and `normalizeR` is the surface-form
-reflection. (See `proveEntailed` and `direct_le_close` upstream.)
+sup-LP construction the x-independent inner-`∀` path uses — that path
+substitutes a residual row into a witness LP, while `maximize` injects
+the bound as a new hypothesis. The proof of `expr ≤ N` is built by
+reusing `proveEntailed` with `rhs := mkRatLit N`: `direct_le_close` is
+the closing lemma; the Farkas-multiplier weighting against the original
+hypothesis terms is the binder/vector mapping; and `normalizeR` is the
+surface-form reflection.
 
 Verified-outcome dispatch:
 - `.optimal x* d`: recompute `N = exprLin.evalAt vars x*` in Lean (the
   primal is trusted only as a vector of `Rat` literals; SoPlex's reported
   objective value is not used). Then call `proveEntailed` to build a
   proof of `expr ≤ N` against the original hypothesis terms.
-- `.infeasible d`: hypotheses are inconsistent. Reuse Stage 2's
+- `.infeasible d`: hypotheses are inconsistent. Reuse
   `tryHypsInconsistent` to derive `False` from the dual, then close the
   *surrounding goal* by `False.elim` (the only branch where `maximize`
   touches the goal).
@@ -2485,8 +2495,8 @@ Verified-outcome dispatch:
   "verified unbounded" message.
 - any other status: fail with the canonical "unchecked" message.
 
-Strict-hypothesis rejection is inherited from Stage 1's `collectHyps`:
-strict hypotheses throw at parse time before any LP call. -/
+Strict-hypothesis rejection is inherited from `collectHyps`: strict
+hypotheses throw at parse time before any LP call. -/
 
 private def runMaximize (g : MVarId) (hname : Name) (exprE : Expr) :
     TacticM Unit := g.withContext do
@@ -2501,7 +2511,7 @@ private def runMaximize (g : MVarId) (hname : Name) (exprE : Expr) :
   -- Parse `expr` (registers its `Rat` locals as LP variables) and then
   -- collect the non-strict linear hypotheses from the local context.
   -- Order matters only for the LP column ordering: `expr`'s vars come
-  -- first, which is what Stage 1's `solveAtomic` does for goal-then-hyps.
+  -- first, matching what `solveAtomic` does for goal-then-hyps.
   let ((exprLin, rows), state) ← (do
       let exprLin ← parseExpr exprE
       let hs ← collectHyps
@@ -2571,9 +2581,9 @@ private def runMaximize (g : MVarId) (hname : Name) (exprE : Expr) :
       -- `3 * x* + 7`, not just `3 * x*`.
       let N : Rat := exprLin.evalAt vars pr.toArray
       let NE ← mkRatLit N
-      -- Build `proof : exprE ≤ NE` by reusing the Stage 1 entailment
-      -- discharger. This re-solves an LP internally — a small redundant
-      -- cost in exchange for sharing the entire bridge-lemma /
+      -- Build `proof : exprE ≤ NE` by reusing the atomic-goal
+      -- entailment discharger. This re-solves an LP internally — a small redundant
+      -- cost in exchange for sharing the entire closing-lemma and
       -- reflection-equality machinery rather than reproving it.
       let proof ← proveEntailed rows false vars exprE NE
       let propType ← mkAppM ``LE.le #[exprE, NE]
@@ -2584,8 +2594,8 @@ private def runMaximize (g : MVarId) (hname : Name) (exprE : Expr) :
       let (_, g'') ← g'.intro1P
       replaceMainGoal [g'']
   | .infeasible =>
-      -- Hypotheses imply `False`. Reuse the Stage 2 inconsistency probe
-      -- to extract a `False` proof from the dual, then close the
+      -- Hypotheses imply `False`. Reuse the existential-path inconsistency
+      -- probe to extract a `False` proof from the dual, then close the
       -- surrounding goal (any proposition) by `False.elim`. This is the
       -- only branch where `maximize` touches the goal.
       match ← tryHypsInconsistent rows vars with
