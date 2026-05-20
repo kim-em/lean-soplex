@@ -103,7 +103,7 @@ theorem direct_infeasible_close {s c : Rat}
   rw [hIdent] at hSum
   exact Rat.not_le.mpr hC hSum
 
-/-! ## Explicit-proof-term discharger lemmas (issue #87)
+/-! ## Explicit-proof-term discharger lemmas
 
 These lemmas are the fixed-arity building blocks for the `normalize` /
 `proveMerge` proof-term construction that discharges the closed `Rat`
@@ -230,9 +230,8 @@ theorem neg_atom_norm (x : Rat) : -x = -1 * x + 0 := by
 
 /-! ## Parsing affine `Rat` expressions and `≤`/`=` hypotheses.
 
-The parsing layer is unchanged in spirit from the previous verifier
-backend, but it no longer produces `AffCert` / `Problem`-shaped
-artefacts. Each parsed row carries:
+The parsing layer keeps proof-facing row data separate from the dense
+LP matrix representation. Each parsed row carries:
 
 * `term : Expr` — the source-side Lean expression `lhsᵢ - rhsᵢ`;
 * `proof : Expr` of type `term ≤ 0`;
@@ -442,8 +441,7 @@ private partial def quickScalarLit? (e : Expr) : MetaM (Option Rat) := do
       | _, _ => return none
     return none
 
-/-- Recognise an expression as a reducibly-closed `Rat` scalar (matches
-  the previous backend's scalar-recogniser policy exactly), with an added
+/-- Recognise an expression as a reducibly-closed `Rat` scalar, with a
   pre-`whnfR` check for `Q.toRat ⟨…⟩` literals so the explicit-proof-term
   discharger's `mkRatLit` outputs are recognised as scalars. -/
 private partial def parseScalar? (e : Expr) : MetaM (Option Rat) := do
@@ -653,15 +651,13 @@ private def buildProblem (rowDense : Array (Array Rat)) (rowConsts : Array Rat)
 private def ratList (xs : Array Rat) : String :=
   "[" ++ String.intercalate ", " (xs.toList.map (toString ·)) ++ "]"
 
-/-! ## Cached `Rat`-arithmetic operator templates (issue #87).
+/-! ## Cached `Rat`-arithmetic operator templates.
 
 The explicit-proof-term discharger calls `mkRatAdd`/`mkRatMul`/`mkRatLit`
-O(N²) times per certificate. Each call previously routed through
-`mkAppM`, which re-ran typeclass inference for `HAdd`/`HMul`/`HSub`/`Ne`
-every time — collectively the dominant tactic-side cost at N=40. We
-pre-build the fully-applied instance Exprs once below (constant Exprs,
-no metavariables) and use them via raw `mkApp2`/`mkApp` in the hot
-path. -/
+O(N²) times per certificate. Pre-built fully-applied instance Exprs
+avoid repeated typeclass inference for `HAdd`/`HMul`/`HSub`/`Ne` in
+this hot path; they are constant Exprs with no metavariables and are
+used via raw `mkApp2`/`mkApp`. -/
 
 /-- `@HAdd.hAdd Rat Rat Rat instHAdd_Rat_Rat_Rat` — partially-applied,
 takes the two `Rat` arguments. -/
@@ -727,9 +723,9 @@ private def mkQLit (r : Rat) : MetaM Expr := do
   return mkApp3 (mkConst ``Soplex.Tactic.RatLin.Q.mk) numE denE denNeProof
 
 /-- Build a `Rat` literal Expr.  We emit a `Q.toRat`-normalised form so
-that the explicit-proof-term discharger (issue #87) can apply
-`Q.toRat_add`/`toRat_mul`/`toRat_neg` without bridging through
-`Rat.div`-form literals. -/
+that the explicit-proof-term discharger can apply `Q.toRat_add`/
+`toRat_mul`/`toRat_neg` without bridging through `Rat.div`-form
+literals. -/
 private def mkRatLit (r : Rat) : MetaM Expr := do
   return mkApp (mkConst ``Soplex.Tactic.RatLin.Q.toRat) (← mkQLit r)
 
@@ -799,7 +795,7 @@ private def computeResidual (objLin : LinExpr) (rowLins : Array LinExpr)
 private def isLinExprClosed (e : LinExpr) : Bool :=
   e.coeffs.all (fun (_, c) => c == 0)
 
-/-! ## Explicit-proof-term discharger machinery (issue #87).
+/-! ## Explicit-proof-term discharger machinery.
 
 `normalize` walks the affine grammar of a `Rat` expression and returns
 `(L : LinExpr, pf : e = ⟦L⟧)` with `L.coeffs` strictly sorted by atom
@@ -831,10 +827,10 @@ private def render (L : LinExpr) : MetaM Expr := do
 /-! ### Cached side-condition templates for the numeral leaves.
 
 `proveRatlit{Add,Mul,Neg}` are called O(N²) times per certificate. Each
-call previously ran `inferType` on the partial lemma application to
-extract the `(Q.add qa qb).num * (qm.den : Int) = …` side-condition Expr.
-We compute that side-condition template just once per `lp` invocation,
-keyed in an `IO.Ref`, and instantiate `qa`/`qb`/`qm` per leaf. -/
+leaf needs the same side-condition shape, such as
+`(Q.add qa qb).num * (qm.den : Int) = …`. We compute that template just
+once per `lp` invocation, keyed in an `IO.Ref`, and instantiate
+`qa`/`qb`/`qm` per leaf. -/
 
 initialize ratlitAddDomainRef : IO.Ref (Option Expr) ← IO.mkRef none
 initialize ratlitMulDomainRef : IO.Ref (Option Expr) ← IO.mkRef none
@@ -1139,9 +1135,8 @@ private partial def normalizeR (vars : Array FVarId) (e : Expr) :
   match eW with
   | .fvar id =>
       -- `parseExpr` has already type-checked the atoms in this row/goal
-      -- (only `Rat`-typed fvars survive into `vars`), so we skip the
-      -- per-atom `inferType + isDefEq ty Rat` check that previously
-      -- accounted for nearly all the tactic-side typeclass inference work.
+      -- (only `Rat`-typed fvars survive into `vars`), so `normalizeR`
+      -- can reuse that invariant instead of rechecking every atom.
       let L : LinExpr := {coeffs := #[(id, 1)]}
       let pf := mkApp (mkConst ``atom_norm) eW
       let rL ← render L
@@ -1317,13 +1312,13 @@ private def assembleLeProof (rows : Array Row) (strict : Bool)
   let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
   let cExpr ← mkRatLit c
   let lhsId ← mkRatAdd rhsMinusLhs sumExpr
-  -- Explicit-proof-term discharge of `lhsId = c` (issue #87).
+  -- Explicit-proof-term discharge of `lhsId = c`.
   let identProof ← proveCertificateIdentity vars lhsId c
   -- Build the final closer by explicit-argument application instead of
   -- `mkAppM`. The four implicits (`lhs`, `rhs`, `s`, `c`) are already in
   -- hand here, so making `mkAppM` rediscover them by `isDefEq` over the
-  -- deeply nested `sumProof`/`identProof` types blows the elaborator's
-  -- `maxRecDepth` on large LPs. See issue #71.
+  -- deeply nested `sumProof`/`identProof` types can blow the elaborator's
+  -- `maxRecDepth` on large LPs.
   if strict then
     let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
     return mkAppN (mkConst ``direct_lt_close)
@@ -1415,8 +1410,8 @@ private def proveEntailed (rows : Array Row) (strict : Bool)
       let (sumExpr, sumProof) ← buildWeightedSumAndProof entries
       let cExpr ← mkRatLit c
       -- Explicit-proof-term discharge of the Farkas identity
-      -- `sumExpr = c` (issue #91), sharing `proveCertificateIdentity`
-      -- with the optimal branch.
+      -- `sumExpr = c`, sharing `proveCertificateIdentity` with the
+      -- optimal branch.
       let identProof ← proveCertificateIdentity vars sumExpr c
       let hC ← mkDecideProof (← mkAppM ``LT.lt #[(← mkRatLit 0), cExpr])
       -- Explicit-argument construction; see comment in `assembleLeProof`.
@@ -1741,10 +1736,9 @@ private def runSupLP (yBinders : Array FVarId) (guardsLe : Array LinExpr)
       ""}sup is unbounded above. Universal constraint impossible under the stated guard."
   -- Guards present: must run the LP to detect vacuity even when `β` is
   -- constant in `y`. A constant-`β` universal with infeasible guards is
-  -- still vacuously true, and dropping the residual row is necessary —
+  -- still vacuously true, and dropping the residual row is necessary:
   -- otherwise the strengthened witness LP would carry a fake row
-  -- `α(x) + γ + β.const ≤ 0` that may rule out an otherwise good
-  -- witness (Codex review, issue #45).
+  -- `α(x) + γ + β.const ≤ 0` that may rule out an otherwise good witness.
   let rowDense := guardsLe.map (·.toDense yBinders)
   let rowConsts := guardsLe.map (·.const)
   let objCoeffs := β.toDense yBinders
@@ -2027,7 +2021,7 @@ private def runBendersSubproblem (u : BendersUniversal)
 
 /-- Compute the Benders optimal-point cut from a subproblem with dual
 multipliers `λ`. In the parametric form `∀ y, A·y ≤ b + B·x → p·y ≤ q·x + r`,
-the issue's formula is `(λᵀ B − q) · x ≤ r − λᵀ b`. In our `≤ 0`
+the standard cut is `(λᵀ B − q) · x ≤ r − λᵀ b`. In our `≤ 0`
 representation this is `cut := bodyX - Σᵢ λᵢ · guardX[i] ≤ 0`. -/
 private def computeBendersCut (u : BendersUniversal) (lam : Array Rat) : LinExpr := Id.run do
   let mut acc : LinExpr := u.bodyX
@@ -2521,8 +2515,8 @@ private def runMaximize (g : MVarId) (hname : Name) (exprE : Expr) :
   -- A variable appearing in `exprLin` but in no hypothesis row has a
   -- zero column in every row but a non-zero objective coefficient ⇒ the
   -- LP is unbounded, which surfaces as the "verified unbounded" message
-  -- below. This matches the issue's "expression mentions a variable
-  -- absent from hypotheses" pitfall.
+  -- below. This is the "expression mentions a variable absent from
+  -- hypotheses" pitfall.
   -- Degenerate LP short-circuit: with no `Rat` locals at all, the
   -- expression is a constant and `N = exprLin.const`. SoPlex would
   -- abort on a 0-variable LP, so we sidestep it — but inconsistency
