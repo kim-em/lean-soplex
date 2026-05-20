@@ -229,11 +229,11 @@ Soplex/Verify/                # pure-Lean certificate checker
   Sound.lean                  #   soundness lemmas 
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker
   Arith.lean, Budget.lean     #   rational arithmetic + denominator budget
-Main.lean                     # `ffi-check` executable
 Examples/
   README.md                   # examples index
   Quickstart.lean             # quickstart example executable
 SoplexTest/                   # test suite (run via `lake test`)
+  FFICheck.lean               #   `ffi-check` executable
   Common.lean                 #   shared test scaffolding (`Soplex.Verify` only)
   SolveCommon.lean            #   adds `Soplex` for SoPlex-backed tests
   FFIProbe.lean               #   elaboration-time FFI loading regression probe
