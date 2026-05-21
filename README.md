@@ -6,13 +6,15 @@
 Lean verified certificate checking for [SoPlex](https://soplex.zib.de/), the linear programming solver from the SCIP optimization suite.
 
 This repository (`kim-em/soplex`) is the high-level Lean package. It
-sits on top of two dependencies:
+sits on top of three dependencies:
 [`kim-em/lp-core`](https://github.com/kim-em/lp-core) (pure-Lean LP
 type vocabulary — `Problem`, `Options`, `Solution`, `Certificate`,
-`SolveError`, plus the `LPBackend` record) and
-[`kim-em/soplex-ffi`](https://github.com/kim-em/soplex-ffi) (the
-vendored SoPlex build, the C++ FFI wrapper, and the direct Lean
-bindings). On top of those, `Soplex` adds:
+`SolveError`, plus the `LPBackend` record),
+[`kim-em/lp-verify`](https://github.com/kim-em/lp-verify) (pure-Lean
+certificate checker — `Verified`, `verifyOutcome`, soundness
+lemmas), and [`kim-em/soplex-ffi`](https://github.com/kim-em/soplex-ffi)
+(the vendored SoPlex build, the C++ FFI wrapper, and the direct
+Lean bindings). On top of those, `Soplex` adds:
 
 * a **pure-Lean certificate checker** (`Soplex.Verify`);
 * `solveVerified`, a driver that runs SoPlex and validates its exact

@@ -10,6 +10,9 @@ open System Lake DSL
 require LPCore from git "https://github.com/kim-em/lp-core" @
   "60fca2313ea3be14f578258dc6390f2fa07b26e7"
 
+require LPVerify from git "https://github.com/kim-em/lp-verify" @
+  "3726846a10bb875d133a52a2c4b137da2806e22e"
+
 require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
   "a1389a99c2345f9d72ffdc2941be350ad0f97fd7"
 
