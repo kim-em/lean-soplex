@@ -6,7 +6,7 @@
 Lean verified certificate checking for [SoPlex](https://soplex.zib.de/), the linear programming solver from the SCIP optimization suite.
 
 This repository (`kim-em/soplex`) is the high-level Lean
-meta-package. It sits on top of four dependencies:
+meta-package. It sits on top of five dependencies:
 [`kim-em/lp-core`](https://github.com/kim-em/lp-core) (pure-Lean LP
 type vocabulary — `Problem`, `Options`, `Solution`, `Certificate`,
 `SolveError`, plus the `LPBackend` record),
@@ -14,7 +14,10 @@ type vocabulary — `Problem`, `Options`, `Solution`, `Certificate`,
 certificate checker — `Verified`, `verifyOutcome`, soundness
 lemmas), [`kim-em/lp-tactic`](https://github.com/kim-em/lp-tactic)
 (the `by lp` and `maximize` tactics, the `LPBackend` registry, and
-the `solveVerified` / `solveVerifiedWith` drivers), and
+the `solveVerifiedWith` driver),
+[`kim-em/lp-backend-soplex-ffi`](https://github.com/kim-em/lp-backend-soplex-ffi)
+(the production-grade FFI adapter that registers under priority 10
+and provides the synchronous `solveVerified` driver), and
 [`kim-em/soplex-ffi`](https://github.com/kim-em/soplex-ffi) (the
 vendored SoPlex build, the C++ FFI wrapper, and the direct Lean
 bindings). On top of those, `Soplex` adds:
@@ -26,6 +29,29 @@ bindings). On top of those, `Soplex` adds:
 * exact-mode and floating-point LP solves, plus MPS / LP file I/O
   (re-exported from `SoplexFFI`);
 * fast user tactics `lp` (which handles quantifier elimination) and `maximize`.
+
+## Composition
+
+`by lp` and `solveVerifiedWith` dispatch through a backend registry
+in `lp-tactic`. The meta-package bundles the FFI backend by
+default, but other backends slot into the same registry. Depend
+directly on one (instead of `Soplex`) if you want a slimmer build
+graph:
+
+- **[`kim-em/lp-backend-soplex-ffi`](https://github.com/kim-em/lp-backend-soplex-ffi)**
+  (priority 10, the default). Production-grade native binding to
+  the vendored SoPlex build; what `import Soplex` resolves to.
+- **[`kim-em/lp-backend-soplex-json`](https://github.com/kim-em/lp-backend-soplex-json)**
+  (priority 50, in development). Drives an externally-installed
+  `soplex` binary on `$PATH` through a JSON stdio protocol.
+  Useful when you've already got SoPlex installed (e.g.
+  `brew install soplex`) and don't want Lake to rebuild it.
+
+Per-call backend selection happens through the registry; importing
+multiple backend packages is fine, the lowest-priority one with a
+successful probe wins. See
+[`kim-em/lp-tactic`](https://github.com/kim-em/lp-tactic) for the
+registry surface.
 
 ## Quickstart
 
