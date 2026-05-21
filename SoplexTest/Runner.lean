@@ -32,16 +32,28 @@ def binPath (name : String) : System.FilePath :=
   let exeName := if System.Platform.isWindows then name ++ ".exe" else name
   "." / ".lake" / "build" / "bin" / exeName
 
-def soplexFFIDynlibPath : System.FilePath :=
+def dynlibFileName (libName : String) : String :=
   let name :=
-    if System.Platform.isWindows then "SoplexFFI_SoplexFFI"
-    else "libSoplexFFI_SoplexFFI"
+    if System.Platform.isWindows then libName
+    else "lib" ++ libName
   let ext :=
     if System.Platform.isOSX then "dylib"
     else if System.Platform.isWindows then "dll"
     else "so"
+  s!"{name}.{ext}"
+
+def soplexFFIDynlibPath : System.FilePath :=
   "." / ".lake" / "packages" / "SoplexFFI" / ".lake" / "build" / "lib" /
-    s!"{name}.{ext}"
+    dynlibFileName "SoplexFFI_SoplexFFI"
+
+/-- Pure-Lean shared library hosting the `LPCore.*` modules.
+    The Lean elaboration probes import `Soplex.Verify.Types` /
+    `Soplex.Verify.Validate`, which re-export `LPCore.Types` /
+    `LPCore.Validate`; their compiled code lives here and must be
+    `--load-dynlib`'d alongside the FFI library. -/
+def lpCoreDynlibPath : System.FilePath :=
+  "." / ".lake" / "packages" / "LPCore" / ".lake" / "build" / "lib" /
+    dynlibFileName "LPCore_LPCore"
 
 def run (cmd : String) (args : Array String) : IO UInt32 := do
   let child ← IO.Process.spawn { cmd, args }
@@ -64,6 +76,7 @@ def main (args : List String) : IO UInt32 := do
     -- Windows (~2 MB suffices to fail, ~8 MB to pass).
     let probeArgs := #[
       "env", "lean",
+      "--load-dynlib", lpCoreDynlibPath.toString,
       "--load-dynlib", soplexFFIDynlibPath.toString,
       "--tstack=65536", probe
     ]

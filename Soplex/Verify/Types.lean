@@ -1,9 +1,10 @@
 /-
   Compatibility import for shared solver data types.
 
-  The definitions live in `SoplexFFI.Types` so the direct FFI package
-  and the verified layer use the same `Problem`, `Solution`, and
-  certificate structures.
+  The definitions live in `LPCore.Types` (the new `kim-em/lp-core`
+  package) so the FFI binding, the verifier, and every future
+  backend agree on the same `Problem`, `Solution`, and certificate
+  structures without anyone depending on the FFI build.
 -/
 
-import SoplexFFI.Types
+import LPCore.Types
