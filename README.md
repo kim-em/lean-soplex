@@ -42,16 +42,22 @@ graph:
   (priority 10, the default). Production-grade native binding to
   the vendored SoPlex build; what `import Soplex` resolves to.
 - **[`kim-em/lp-backend-soplex-json`](https://github.com/kim-em/lp-backend-soplex-json)**
-  (priority 50, in development). Drives an externally-installed
-  `soplex` binary on `$PATH` through a JSON stdio protocol.
-  Useful when you've already got SoPlex installed (e.g.
-  `brew install soplex`) and don't want Lake to rebuild it.
+  (priority 50, scaffold). Will drive an externally-installed
+  `soplex` binary on `$PATH` through a JSON stdio protocol; the
+  wire format is documented in the repository's
+  `docs/json-contract.md`, but the encoder/decoder is not yet
+  implemented — registering the package today gets the probe and
+  the registry slot, not a working solver. Aimed at the "I've
+  already got `brew install soplex`, don't rebuild it" case.
 - **[`kim-em/lp-backend-pure`](https://github.com/kim-em/lp-backend-pure)**
-  (priority 100, in development). Pure-Lean LP solver with zero
-  native deps and zero subprocess calls. Slow on anything beyond
-  toy LPs (exact-rational simplex pays for the verifier's exact-
-  rational input contract); the point is zero-install CI lanes
-  and demos.
+  (priority 100, scaffold). Reserves the registry slot for a
+  pure-Lean LP solver with zero native deps and zero subprocess
+  calls. The simplex implementation has not landed yet, so
+  registering the package today returns a structured "simplex
+  not implemented" error from `solveExact`. When it does land,
+  expect it to be slow on anything beyond toy LPs (exact-rational
+  simplex pays for the verifier's exact-rational input contract);
+  the point is zero-install CI lanes and demos.
 
 Per-call backend selection happens through the registry; importing
 multiple backend packages is fine, the lowest-priority one with a
