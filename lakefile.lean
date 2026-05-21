@@ -13,6 +13,9 @@ require LPCore from git "https://github.com/kim-em/lp-core" @
 require LPVerify from git "https://github.com/kim-em/lp-verify" @
   "3726846a10bb875d133a52a2c4b137da2806e22e"
 
+require LPTactic from git "https://github.com/kim-em/lp-tactic" @
+  "69e592fd6d00896eddde2f76674411267352cb5b"
+
 require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
   "a1389a99c2345f9d72ffdc2941be350ad0f97fd7"
 
