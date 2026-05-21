@@ -65,6 +65,51 @@ jobs:
         run: lake build
         working-directory: tests/downstream
 
+  no-ffi:
+    # Verifier-only build with no FFI backend in the dependency graph.
+    # Proves the issue-50 package split actually decoupled lp-verify +
+    # lp-tactic from SoPlex: this job installs no GMP, no Boost, no
+    # SoPlex, and exercises only the `lp-core` / `lp-verify` /
+    # `lp-tactic` packages through a tiny consumer in `tests/no-ffi/`.
+    name: No-FFI lane (lp-verify + lp-tactic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install elan and Lean toolchain
+        shell: bash
+        run: |
+          set -e
+          if ! command -v elan >/dev/null 2>&1; then
+            curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+            sh elan-init.sh -y --default-toolchain none
+          fi
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.elan/bin:$PATH"
+          ./scripts/install-toolchain.sh
+
+      - name: Build the no-FFI consumer
+        run: lake build
+        working-directory: tests/no-ffi
+
+      - name: Verify no SoPlex / GMP / Boost reached the link line
+        # Belt-and-braces guard: scan the no-ffi project's resolved
+        # package set and fail if `SoplexFFI` or `LPBackendSoplexFFI`
+        # show up. If a future refactor accidentally drags the FFI
+        # backend back into lp-verify or lp-tactic, this catches it.
+        shell: bash
+        working-directory: tests/no-ffi
+        run: |
+          set -e
+          if [ -e .lake/packages/SoplexFFI ] || \
+             [ -e .lake/packages/LPBackendSoplexFFI ]; then
+            echo "::error::SoplexFFI or LPBackendSoplexFFI leaked into the no-FFI dependency graph:"
+            ls -la .lake/packages/
+            exit 1
+          fi
+          echo "No FFI packages present — decoupling holds."
+          ls .lake/packages/
+
   linux-asan:
     name: Linux ASan/UBSan
     runs-on: ubuntu-latest

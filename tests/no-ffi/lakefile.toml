@@ -1,0 +1,30 @@
+# No-FFI lane: a Lake project that depends on `lp-core`, `lp-verify`,
+# and `lp-tactic` but NOT on `lp-backend-soplex-ffi` or `soplex-ffi`.
+#
+# The build for this project must succeed with zero native deps in
+# the dependency graph — no GMP, no Boost, no SoPlex runtime. The
+# point is to prove the issue-50 package split actually decoupled
+# the verifier and tactic from the FFI backend: a downstream consumer
+# who only wants to check externally-produced certificates pays no
+# build cost for SoPlex.
+
+name = "soplex-no-ffi-test"
+defaultTargets = ["NoFFITest"]
+
+[[require]]
+name = "LPCore"
+git = "https://github.com/kim-em/lp-core"
+rev = "60fca2313ea3be14f578258dc6390f2fa07b26e7"
+
+[[require]]
+name = "LPVerify"
+git = "https://github.com/kim-em/lp-verify"
+rev = "3726846a10bb875d133a52a2c4b137da2806e22e"
+
+[[require]]
+name = "LPTactic"
+git = "https://github.com/kim-em/lp-tactic"
+rev = "6190fbde9547d314157da5badcbf77493bd4e454"
+
+[[lean_lib]]
+name = "NoFFITest"
