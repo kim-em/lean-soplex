@@ -6,9 +6,13 @@
 Lean verified certificate checking for [SoPlex](https://soplex.zib.de/), the linear programming solver from the SCIP optimization suite.
 
 This repository (`kim-em/soplex`) is the high-level Lean package. It
-sits on top of [`kim-em/soplex-ffi`](https://github.com/kim-em/soplex-ffi),
-which owns the vendored SoPlex build, the C++ FFI wrapper, and the
-direct Lean bindings. On top of that, `Soplex` adds:
+sits on top of two dependencies:
+[`kim-em/lp-core`](https://github.com/kim-em/lp-core) (pure-Lean LP
+type vocabulary — `Problem`, `Options`, `Solution`, `Certificate`,
+`SolveError`, plus the `LPBackend` record) and
+[`kim-em/soplex-ffi`](https://github.com/kim-em/soplex-ffi) (the
+vendored SoPlex build, the C++ FFI wrapper, and the direct Lean
+bindings). On top of those, `Soplex` adds:
 
 * a **pure-Lean certificate checker** (`Soplex.Verify`);
 * `solveVerified`, a driver that runs SoPlex and validates its exact
@@ -216,15 +220,15 @@ in [`docs/verification.md`](./docs/verification.md).
 ```
 Soplex.lean                   # top-level import
 Soplex/Basic.lean             # high-level API + `solveVerified`
-Soplex/LP/Core.lean           # backend abstraction + registry
+Soplex/LP/Core.lean           # re-exports `LPCore.Backend` + registry
 Soplex/Backend/SoplexFFI.lean # SoPlex FFI backend adapter
 Soplex/Tactic/                # `lp` and `maximize` tactics
   LP.lean                     #   tactic frontend (elaboration + dispatch)
   Q.lean                      #   kernel-reducible rational literals for tactic proofs
 Soplex/Verify.lean            # verifier re-export module
 Soplex/Verify/                # pure-Lean certificate checker
-  Types.lean                  #   `Problem`, `Certificate`, `Verified`
-  Validate.lean               #   input normalization
+  Types.lean                  #   re-exports `LPCore.Types` (`Problem`, `Certificate`, ...)
+  Validate.lean               #   re-exports `LPCore.Validate`
   Driver.lean                 #   compose validate + solveExact + check
   Sound.lean                  #   soundness lemmas 
   Prop.lean, Bool.lean        #   Prop/Bool views of the checker

@@ -7,8 +7,11 @@ open System Lake DSL
   This package builds the high-level verified API on top of it.
 -/
 
+require LPCore from git "https://github.com/kim-em/lp-core" @
+  "60fca2313ea3be14f578258dc6390f2fa07b26e7"
+
 require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
-  "4963ac72843301e49ce0b34ebff06c0777304796"
+  "a1389a99c2345f9d72ffdc2941be350ad0f97fd7"
 
 def sanitizerEnabled : Bool :=
   match get_config? sanitize with
