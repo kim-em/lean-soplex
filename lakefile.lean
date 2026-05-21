@@ -11,7 +11,7 @@ require LPCore from git "https://github.com/kim-em/lp-core" @
   "60fca2313ea3be14f578258dc6390f2fa07b26e7"
 
 require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
-  "b8f124ff804ca3c8386ca5ccb364502e14112e0d"
+  "a1389a99c2345f9d72ffdc2941be350ad0f97fd7"
 
 def sanitizerEnabled : Bool :=
   match get_config? sanitize with
