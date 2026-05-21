@@ -1,2 +1,5 @@
-import Soplex.Tactic.LP.Frontend
-import Soplex.Tactic.LP.Maximize
+/-
+  Compatibility re-export of `LPTactic.LP` (`kim-em/lp-tactic`).
+-/
+
+import LPTactic.LP
