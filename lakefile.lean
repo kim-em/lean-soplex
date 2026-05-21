@@ -18,7 +18,7 @@ require LPTactic from git "https://github.com/kim-em/lp-tactic" @
 
 require LPBackendSoplexFFI from git
   "https://github.com/kim-em/lp-backend-soplex-ffi" @
-  "217543b274130bb0ebbb08fb67f0e2cc7e6922fc"
+  "6d5acbd3102e412444c163107b30a82c30f0a5dd"
 
 require SoplexFFI from git "https://github.com/kim-em/soplex-ffi" @
   "a1389a99c2345f9d72ffdc2941be350ad0f97fd7"
