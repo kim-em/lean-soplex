@@ -46,6 +46,12 @@ graph:
   `soplex` binary on `$PATH` through a JSON stdio protocol.
   Useful when you've already got SoPlex installed (e.g.
   `brew install soplex`) and don't want Lake to rebuild it.
+- **[`kim-em/lp-backend-pure`](https://github.com/kim-em/lp-backend-pure)**
+  (priority 100, in development). Pure-Lean LP solver with zero
+  native deps and zero subprocess calls. Slow on anything beyond
+  toy LPs (exact-rational simplex pays for the verifier's exact-
+  rational input contract); the point is zero-install CI lanes
+  and demos.
 
 Per-call backend selection happens through the registry; importing
 multiple backend packages is fine, the lowest-priority one with a
